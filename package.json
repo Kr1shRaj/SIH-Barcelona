@@ -1,0 +1,20 @@
+{
+  "name": "safear",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AR-based industrial safety training and certification platform for Jharkhand workers",
+  "workspaces": [
+    "backend",
+    "frontend",
+    "dashboard"
+  ],
+  "scripts": {
+    "start:backend": "npm run start --workspace=backend",
+    "dev:backend": "npm run dev --workspace=backend",
+    "test:backend": "npm run test --workspace=backend",
+    "lint": "eslint backend/ frontend/ dashboard/"
+  },
+  "devDependencies": {
+    "eslint": "8.57.0"
+  }
+}

@@ -1,0 +1,22 @@
+/* SafeAR base mobile styles */
+:root {
+  --color-bg: #0f172a;
+  --color-surface: #1e293b;
+  --color-primary: #f59e0b;
+  --color-text: #f8fafc;
+  --color-danger: #ef4444;
+  --color-success: #10b981;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  min-height: 100vh;
+}

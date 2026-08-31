@@ -1,0 +1,13 @@
+{
+  "name": "safear-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SafeAR admin compliance dashboard",
+  "scripts": {
+    "dev": "npx serve . -p 5174",
+    "build": "echo 'Dashboard static build'"
+  },
+  "devDependencies": {
+    "serve": "14.2.1"
+  }
+}

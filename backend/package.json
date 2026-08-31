@@ -1,0 +1,25 @@
+{
+  "name": "safear-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SafeAR backend API, SQLite sync, and cert signing service",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test tests/**/*.test.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "9.4.3",
+    "dotenv": "16.4.5",
+    "express": "4.19.2",
+    "pino": "8.20.0",
+    "pino-http": "9.0.0",
+    "qrcode": "1.5.3",
+    "zod": "3.22.4"
+  },
+  "devDependencies": {
+    "pino-pretty": "11.0.0",
+    "supertest": "6.3.4"
+  }
+}
