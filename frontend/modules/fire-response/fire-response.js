@@ -4,7 +4,7 @@ function startFireModule() {
 }
 
 // check user pass sweep interaction on fire target
-function handleExtinguisherSweep(interactionData) {
+function handleExtinguisherSweep(_interactionData) {
   throw new Error("not implemented");
 }
 
