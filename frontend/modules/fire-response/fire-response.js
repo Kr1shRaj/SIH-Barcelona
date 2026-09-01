@@ -336,9 +336,10 @@ function _setupStep3(_container) {
   });
 }
 
-// clean up all fire module visuals and overlay from DOM and a-marker
+// clean up all fire module graphics and overlay from DOM and a-marker
 function cleanupFireModule() {
-  ["fire-module-overlay", "fire-graphic", "exit-graphic", "evacuation-options"].forEach((id) => {
+  _currentStep = 0;
+  ["fire-module-overlay", "fire-graphic", "exit-graphic", "evacuation-options", "aim-accuracy-display"].forEach((id) => {
     if (typeof document !== "undefined") {
       document.getElementById(id)?.remove();
     }

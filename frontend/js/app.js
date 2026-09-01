@@ -91,6 +91,7 @@ async function initApp() {
   }
 
   const { viewport, canvas, statusCard } = renderArShell(appContainer, decision);
+  bindModuleLifecycleUI(statusCard);
 
   if (decision.tier === 1) {
     try {
@@ -145,6 +146,19 @@ async function initApp() {
   }
 }
 
+// bind module lifecycle events to toggle status HUD visibility
+function bindModuleLifecycleUI(statusCard) {
+  if (typeof window === "undefined" || !statusCard) return;
+
+  window.addEventListener("safear:module_loaded", () => {
+    statusCard.style.display = "none";
+  });
+
+  window.addEventListener("safear:module_unloaded", () => {
+    statusCard.style.display = "block";
+  });
+}
+
 // SCAFFOLDING — remove when real module-selection UI exists
 function _scaffoldModuleButton() {
   return `<div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap;">
@@ -192,4 +206,4 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
   }
 }
 
-export { initApp, renderUnsupportedView, renderArShell };
+export { initApp, renderUnsupportedView, renderArShell, bindModuleLifecycleUI };
