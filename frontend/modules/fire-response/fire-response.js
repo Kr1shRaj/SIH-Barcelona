@@ -31,9 +31,9 @@ function _createOverlay(container, html) {
   panel.id = "fire-module-overlay";
   panel.style.cssText = [
     "position:fixed", "bottom:0", "left:0", "right:0",
-    "background:rgba(20,10,0,0.88)", "color:#fff",
+    "background:transparent", "color:#fff",
     "font-family:sans-serif", "padding:1.2rem",
-    "border-top:3px solid #ff6a00", "z-index:100"
+    "z-index:100", "pointer-events:auto"
   ].join(";");
   panel.innerHTML = html;
   if (container && container.appendChild) {

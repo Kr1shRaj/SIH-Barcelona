@@ -59,9 +59,9 @@ function _createOverlay(container, html) {
   panel.id = "gas-module-overlay";
   panel.style.cssText = [
     "position:fixed", "bottom:0", "left:0", "right:0",
-    "background:rgba(15,23,42,0.92)", "color:#fff",
+    "background:transparent", "color:#fff",
     "font-family:sans-serif", "padding:1.2rem",
-    "border-top:3px solid #f59e0b", "z-index:100"
+    "z-index:100", "pointer-events:auto"
   ].join(";");
   panel.innerHTML = html;
   if (container && container.appendChild) {
