@@ -13,9 +13,11 @@ const CP_EVACUATION_ID = "fire_evacuation_sequence";
 // aim must score >= 0.6 to pass: within 40% of max-miss radius counts as good aim
 const AIM_PASS_THRESHOLD = 0.6;
 
-// max acceptable miss radius in px — SVG fire graphic is 80px wide; target=base (bottom-center)
-// tap within 80px of base = >0 score; exactly on base = 1.0
-const FIRE_BASE_MAX_RADIUS_PX = 80;
+// max 3D distance from base before accuracy hits 0.0 — fire entity is ~0.8m high
+const FIRE_BASE_MAX_DISTANCE_3D = 0.8;
+
+// target 3D base coordinate relative to marker space
+const FIRE_BASE_TARGET_3D = { x: 0, y: 0.3, z: 0 };
 
 // track which step is active; steps are sequential — next only registers after prev passes
 let _currentStep = 0;
@@ -40,38 +42,76 @@ function _createOverlay(container, html) {
   return panel;
 }
 
+// compute 3D Euclidean distance from raycast point to target base
+function calcIntersectionDistance(intersectionPoint, targetPoint = FIRE_BASE_TARGET_3D) {
+  if (!intersectionPoint || typeof intersectionPoint.x !== "number") {
+    return null;
+  }
+  const target = targetPoint || FIRE_BASE_TARGET_3D;
+  const tx = typeof target.x === "number" ? target.x : 0;
+  const ty = typeof target.y === "number" ? target.y : 0;
+  const tz = typeof target.z === "number" ? target.z : 0;
+  return Math.hypot(intersectionPoint.x - tx, intersectionPoint.y - ty, intersectionPoint.z - tz);
+}
 
+// compute aim accuracy from 3D distance, 0.0-1.0
+function calcRaycastAimAccuracy(distance3D, maxDistance = FIRE_BASE_MAX_DISTANCE_3D) {
+  if (typeof distance3D !== "number" || isNaN(distance3D) || distance3D < 0) {
+    return null;
+  }
+  return Math.max(0, Math.min(1, 1 - distance3D / maxDistance));
+}
 
-// render SVG fire placeholder into container; real DOM element so getBoundingClientRect works
+// polymorphic accuracy calculator supporting 3D distance, point, or legacy fallback
+function _calcAimAccuracy(input, arg2, arg3) {
+  if (typeof input === "number") {
+    return calcRaycastAimAccuracy(input, typeof arg2 === "number" ? arg2 : FIRE_BASE_MAX_DISTANCE_3D);
+  }
+  if (input && typeof input.x === "number") {
+    const dist = calcIntersectionDistance(input, arg2);
+    return calcRaycastAimAccuracy(dist);
+  }
+  // legacy DOM rect fallback if given tapX, tapY, element
+  if (arg3 && typeof arg3.getBoundingClientRect === "function") {
+    const rect = arg3.getBoundingClientRect();
+    const targetX = rect.left + rect.width / 2;
+    const targetY = rect.bottom;
+    const dist = Math.hypot(input - targetX, arg2 - targetY);
+    return Math.max(0, 1 - dist / 80);
+  }
+  return null;
+}
+
+// render 3D fire entity inside a-marker or fallback container
 function _renderFireGraphic(container) {
+  const marker = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? document.querySelector("a-marker")
+    : null;
+  if (marker && typeof marker.querySelector === "function") {
+    const testBox = marker.querySelector("#test-box");
+    if (testBox) {
+      if (testBox.style) testBox.style.display = "none";
+      if (typeof testBox.remove === "function") testBox.remove();
+    }
+  }
+
   const graphic = buildFireGraphic();
-  if (container && container.appendChild) {
-    container.appendChild(graphic);
+  const parent = marker || container;
+  if (parent && parent.appendChild) {
+    parent.appendChild(graphic);
   }
   return graphic;
 }
 
-// compute aim accuracy: distance from tap point to base of fire graphic, 0.0–1.0
-// base = bottom-center of bounding rect; uses getBoundingClientRect if available
-function _calcAimAccuracy(tapX, tapY, graphicEl) {
-  if (!graphicEl || typeof graphicEl.getBoundingClientRect !== "function") {
-    // no rect available (test env without layout) — caller must supply stub
-    return null;
-  }
-  const rect = graphicEl.getBoundingClientRect();
-  // target point: bottom-center of graphic = base of the fire
-  const targetX = rect.left + rect.width / 2;
-  const targetY = rect.bottom;
-  const dist = Math.hypot(tapX - targetX, tapY - targetY);
-  // invert and clamp: 0 distance = 1.0 accuracy, max radius = 0.0
-  return Math.max(0, 1 - dist / FIRE_BASE_MAX_RADIUS_PX);
-}
-
-// render SVG exit sign into container; positioned top-right of viewport
+// render 3D exit sign entity inside a-marker or fallback container
 function _renderExitGraphic(container) {
+  const marker = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? document.querySelector("a-marker")
+    : null;
   const el = buildExitGraphic();
-  if (container && container.appendChild) {
-    container.appendChild(el);
+  const parent = marker || container;
+  if (parent && parent.appendChild) {
+    parent.appendChild(el);
   }
   return el;
 }
@@ -147,8 +187,7 @@ function _setupStep1(container, tierInfo) {
   if (overlay) overlay.appendChild(btn);
 }
 
-// step 2: aim — user taps the fire graphic; distance from base determines accuracy
-// tier 1 note: uses same DOM hit calc as tier 2 — real XR hit-test not wired yet (see report)
+// step 2: aim — user taps the 3D fire entity; distance from base determines accuracy
 function _setupStep2(container, tierInfo) {
   _currentStep = 2;
   logger.info({ event: "fire_step_start", step: 2, tier: tierInfo && tierInfo.tier }, "Extinguisher aim");
@@ -167,82 +206,100 @@ function _setupStep2(container, tierInfo) {
   if (overlay) {
     overlay.innerHTML = `
       <div style="font-size:1.1rem;font-weight:bold;color:#ff6a00">🔥 STEP 2 / 3 — EXTINGUISHER USE</div>
-      <div style="margin:0.5rem 0">Tap the <strong>base</strong> of the fire to aim your extinguisher.</div>
+      <div style="margin:0.5rem 0">Aim at the <strong>base</strong> of the 3D fire. Tap to aim, then confirm.</div>
     `;
   }
 
-  // confirm button — fires after user has tapped to record their aim point
+  // confirm button — fires after user has aimed to record their score
   const btnConfirm = document.createElement("button");
   btnConfirm.id = "btn-aim-confirm";
   btnConfirm.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.5rem;background:#ff6a00;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:none;";
   btnConfirm.textContent = "✔ Confirm aim";
   if (overlay) overlay.appendChild(btnConfirm);
 
-  // stores last tap position relative to viewport; null until user taps
-  let _lastTap = null;
+  // stores recorded aim point/distance
+  let _recordedAim = null;
 
-  // tap anywhere in viewport registers aim point; show confirm button
-  const tapTarget = container || (typeof document !== "undefined" ? document.getElementById("ar-viewport") : null);
+  // handle aim event (raycaster click or touch/pointer)
+  const handleAimEvent = (ev) => {
+    const intersection = ev && ev.detail && ev.detail.intersection ? ev.detail.intersection : null;
+    if (intersection && intersection.point) {
+      const distance = calcIntersectionDistance(intersection.point);
+      const accuracy = calcRaycastAimAccuracy(distance);
+      _recordedAim = { distance, accuracy, method: "raycast" };
+      logger.info({ event: "aim_raycast_hit", distance, accuracy }, "Raycast intersected fire entity");
+    } else if (ev && typeof ev._testDistance === "number") {
+      const distance = ev._testDistance;
+      const accuracy = calcRaycastAimAccuracy(distance);
+      _recordedAim = { distance, accuracy, method: "test_distance" };
+    } else if (ev && typeof ev._testAccuracy === "number") {
+      _recordedAim = { distance: null, accuracy: ev._testAccuracy, method: "test_accuracy" };
+    } else if (ev && ev.clientX !== undefined && ev.clientY !== undefined) {
+      // 2D tap fallback
+      _recordedAim = { x: ev.clientX, y: ev.clientY, method: "2d_tap" };
+    }
+    btnConfirm.style.display = "inline-block";
+  };
 
-  // listen on the graphic itself for more precise tap targeting
-  if (graphic) {
-    graphic.addEventListener("pointerdown", (ev) => {
-      _lastTap = { x: ev.clientX, y: ev.clientY };
-      btnConfirm.style.display = "inline-block";
-      logger.info({ event: "aim_tap", x: _lastTap.x, y: _lastTap.y }, "User tapped fire graphic");
-    });
+  // listen on the 3D entity itself (A-Frame cursor raycaster emits 'click' on intersected entity)
+  if (graphic && typeof graphic.addEventListener === "function") {
+    graphic.addEventListener("click", handleAimEvent);
+    graphic.addEventListener("pointerdown", handleAimEvent);
   }
 
-  // also listen on the whole container for misses (taps away from graphic)
-  if (tapTarget && tapTarget !== graphic) {
+  const tapTarget = container || (typeof document !== "undefined" ? document.getElementById("ar-viewport") : null);
+  if (tapTarget && tapTarget !== graphic && typeof tapTarget.addEventListener === "function") {
+    tapTarget.addEventListener("click", (ev) => {
+      if (!_recordedAim) {
+        handleAimEvent(ev);
+      }
+    });
     tapTarget.addEventListener("pointerdown", (ev) => {
-      // only register if not already set by graphic listener above
-      if (!_lastTap) {
-        _lastTap = { x: ev.clientX, y: ev.clientY };
-        btnConfirm.style.display = "inline-block";
-        logger.info({ event: "aim_tap_miss", x: _lastTap.x, y: _lastTap.y }, "User tapped outside graphic");
+      if (!_recordedAim) {
+        handleAimEvent(ev);
       }
     });
   }
 
   btnConfirm.addEventListener("click", () => {
-    // use last recorded tap; if none yet (e.g. test env), fall back to zero accuracy
-    const tapX = _lastTap ? _lastTap.x : 0;
-    const tapY = _lastTap ? _lastTap.y : 0;
-    const accuracy = _calcAimAccuracy(tapX, tapY, graphic);
+    let accuracy = null;
+    let distance = null;
+
+    if (btnConfirm._testAccuracy !== undefined) {
+      accuracy = typeof btnConfirm._testAccuracy === "number" ? btnConfirm._testAccuracy : 0;
+      distance = typeof btnConfirm._testDistance === "number" ? btnConfirm._testDistance : null;
+    } else if (btnConfirm._testDistance !== undefined) {
+      distance = btnConfirm._testDistance;
+      accuracy = calcRaycastAimAccuracy(distance);
+    } else if (_recordedAim) {
+      if (typeof _recordedAim.accuracy === "number") {
+        accuracy = _recordedAim.accuracy;
+        distance = _recordedAim.distance;
+      } else if (_recordedAim.x !== undefined) {
+        accuracy = _calcAimAccuracy(_recordedAim.x, _recordedAim.y, graphic);
+      }
+    }
 
     if (accuracy === null) {
-      // _calcAimAccuracy returns null when no getBoundingClientRect — use injected value
-      const injected = btnConfirm._testAccuracy;
-      const score = typeof injected === "number" ? injected : 0;
-      const passed = score >= AIM_PASS_THRESHOLD;
-      fireCheckpointResult(CP_EXTINGUISHER_ID, passed, {
-        accuracy: score,
-        target: passed ? "base" : "missed",
-        distance: null
-      });
-      _setupStep3(container);
-      return;
+      accuracy = 0;
     }
 
     const passed = accuracy >= AIM_PASS_THRESHOLD;
-    const rect = graphic.getBoundingClientRect();
-    const targetX = rect.left + rect.width / 2;
-    const targetY = rect.bottom;
-    const distance = Math.hypot(tapX - targetX, tapY - targetY);
+    const finalAccuracy = Math.round(accuracy * 100) / 100;
+    const finalDistance = distance !== null && typeof distance === "number" ? Math.round(distance * 100) / 100 : null;
 
     logger.info({
       event: "aim_scored",
-      accuracy,
-      distance,
+      accuracy: finalAccuracy,
+      distance: finalDistance,
       passed,
       tier: tierInfo && tierInfo.tier
     }, "Aim checkpoint scored");
 
     fireCheckpointResult(CP_EXTINGUISHER_ID, passed, {
-      accuracy: Math.round(accuracy * 100) / 100,
+      accuracy: finalAccuracy,
       target: passed ? "base" : "missed",
-      distance: Math.round(distance)
+      distance: finalDistance
     });
     _setupStep3(container);
   });
@@ -279,14 +336,23 @@ function _setupStep3(_container) {
   });
 }
 
-
-// clean up all fire module visuals and overlay from DOM
+// clean up all fire module visuals and overlay from DOM and a-marker
 function cleanupFireModule() {
   ["fire-module-overlay", "fire-graphic", "exit-graphic", "evacuation-options"].forEach((id) => {
     if (typeof document !== "undefined") {
       document.getElementById(id)?.remove();
     }
   });
+
+  if (typeof document !== "undefined" && typeof document.querySelector === "function") {
+    const marker = document.querySelector("a-marker");
+    if (marker && typeof marker.querySelector === "function") {
+      const oldFire = marker.querySelector("#fire-graphic");
+      if (oldFire && typeof oldFire.remove === "function") oldFire.remove();
+      const oldExit = marker.querySelector("#exit-graphic");
+      if (oldExit && typeof oldExit.remove === "function") oldExit.remove();
+    }
+  }
 }
 
 // show completion panel after all three steps done
@@ -329,7 +395,7 @@ function startFireModule(container, tierInfo) {
   _setupStep1(container, tierInfo);
 }
 
-// public alias for tests and external callers
+// public aliases for tests and external callers
 const calcAimAccuracy = _calcAimAccuracy;
 
 export {
@@ -337,6 +403,10 @@ export {
   cleanupFireModule,
   getCurrentStep,
   calcAimAccuracy,
+  calcRaycastAimAccuracy,
+  calcIntersectionDistance,
+  FIRE_BASE_MAX_DISTANCE_3D,
+  FIRE_BASE_TARGET_3D,
   AIM_PASS_THRESHOLD,
   CP_EXIT_ID,
   CP_EXTINGUISHER_ID,

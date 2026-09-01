@@ -42,6 +42,9 @@ function _makeEl(initId) {
       if (!this._listeners[ev]) this._listeners[ev] = [];
       this._listeners[ev].push(fn);
     },
+    setAttribute(name, val) {
+      this[name] = val;
+    },
     click() { (this._listeners["click"] || []).forEach((fn) => fn()); },
     querySelector(sel) {
       const m = sel.match(/^#(.+)$/);
@@ -77,7 +80,8 @@ import {
 
 import {
   startFireModule,
-  calcAimAccuracy,
+  calcRaycastAimAccuracy,
+  calcIntersectionDistance,
   AIM_PASS_THRESHOLD,
   CP_EXIT_ID,
   CP_EXTINGUISHER_ID,
@@ -219,46 +223,55 @@ describe("Fire & Explosion Response module", () => {
     assert.strictEqual(events[0].context.accuracy, 0);
   });
 
-  // --- calcAimAccuracy unit tests (pure function, given a mock getBoundingClientRect) ---
+  // --- 3D raycast aim accuracy pure function unit tests ---
 
-  it("calcAimAccuracy: returns null when graphicEl has no getBoundingClientRect", () => {
-    const fakeEl = { id: "test" };  // plain object, no getBoundingClientRect
-    assert.strictEqual(calcAimAccuracy(0, 0, fakeEl), null);
-    assert.strictEqual(calcAimAccuracy(0, 0, null), null);
+  it("calcRaycastAimAccuracy: returns null for invalid / negative inputs", () => {
+    assert.strictEqual(calcRaycastAimAccuracy(null), null);
+    assert.strictEqual(calcRaycastAimAccuracy(undefined), null);
+    assert.strictEqual(calcRaycastAimAccuracy(NaN), null);
+    assert.strictEqual(calcRaycastAimAccuracy(-1), null);
   });
 
-  it("calcAimAccuracy: tap exactly on base (bottom-center) returns 1.0", () => {
-    const mockEl = {
-      getBoundingClientRect() {
-        return { left: 100, width: 60, bottom: 200, top: 100, right: 160 };
-      }
-    };
-    // base = bottom-center = (130, 200)
-    const acc = calcAimAccuracy(130, 200, mockEl);
+  it("calcRaycastAimAccuracy: exact hit (distance 0) returns 1.0", () => {
+    const acc = calcRaycastAimAccuracy(0.0);
     assert.strictEqual(acc, 1.0, "zero distance must give accuracy 1.0");
   });
 
-  it("calcAimAccuracy: tap > max radius away returns 0.0 (floor)", () => {
-    const mockEl = {
-      getBoundingClientRect() {
-        return { left: 100, width: 60, bottom: 200, top: 100, right: 160 };
-      }
-    };
-    // tap 500px away — way beyond max radius, must floor at 0.0
-    const acc = calcAimAccuracy(630, 200, mockEl);
-    assert.strictEqual(acc, 0.0, "tap beyond max radius must give accuracy 0.0");
+  it("calcRaycastAimAccuracy: near base hit (distance 0.2m) gives 0.75 accuracy (pass)", () => {
+    const acc = calcRaycastAimAccuracy(0.2);
+    // expected: 1 - 0.2 / 0.8 = 0.75
+    assert.strictEqual(acc, 0.75);
+    assert.ok(acc >= AIM_PASS_THRESHOLD, "0.75 >= 0.6 threshold must pass");
   });
 
-  it("calcAimAccuracy: tap half the max radius away gives ~0.5 accuracy", () => {
-    const mockEl = {
-      getBoundingClientRect() {
-        return { left: 100, width: 60, bottom: 200, top: 100, right: 160 };
-      }
-    };
-    // base = (130, 200), max radius = 80px; tap 40px right = half max radius
-    const acc = calcAimAccuracy(170, 200, mockEl);
-    // expected: 1 - 40/80 = 0.5
-    assert.ok(Math.abs(acc - 0.5) < 0.01, `expected ~0.5 accuracy, got ${acc}`);
+  it("calcRaycastAimAccuracy: exact threshold hit (distance 0.32m) gives 0.6 accuracy (pass)", () => {
+    const acc = calcRaycastAimAccuracy(0.32);
+    // expected: 1 - 0.32 / 0.8 = 0.6
+    assert.strictEqual(Math.round(acc * 100) / 100, 0.6);
+    assert.ok(acc >= AIM_PASS_THRESHOLD);
+  });
+
+  it("calcRaycastAimAccuracy: high flame hit (distance 0.6m) gives 0.25 accuracy (fail)", () => {
+    const acc = calcRaycastAimAccuracy(0.6);
+    // expected: 1 - 0.6 / 0.8 = 0.25
+    assert.strictEqual(Math.round(acc * 100) / 100, 0.25);
+    assert.ok(acc < AIM_PASS_THRESHOLD, "0.25 < 0.6 threshold must fail");
+  });
+
+  it("calcRaycastAimAccuracy: out-of-bounds hit (> 0.8m) floors at 0.0", () => {
+    const acc = calcRaycastAimAccuracy(1.5);
+    assert.strictEqual(acc, 0.0);
+  });
+
+  it("calcIntersectionDistance: calculates 3D Euclidean distance correctly", () => {
+    assert.strictEqual(calcIntersectionDistance(null), null);
+    // target is (0, 0.3, 0)
+    const exact = calcIntersectionDistance({ x: 0, y: 0.3, z: 0 });
+    assert.strictEqual(exact, 0);
+
+    const offset = calcIntersectionDistance({ x: 0.3, y: 0.7, z: 0.0 });
+    // distance = Math.hypot(0.3, 0.4, 0) = 0.5
+    assert.strictEqual(Math.round(offset * 100) / 100, 0.5);
   });
 
   it("completing step 2 after step 3 evacuation: correct option fires passed:true", () => {
