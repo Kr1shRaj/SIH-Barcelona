@@ -27,8 +27,7 @@ async function initWebXRSession(canvasElement, options = {}) {
   }
 
   const sessionOptions = {
-    requiredFeatures: ["hit-test"],
-    optionalFeatures: ["local-floor", "dom-overlay", "anchors"],
+    optionalFeatures: ["hit-test", "local-floor", "dom-overlay", "anchors", "local"],
     ...options.sessionInit
   };
 
@@ -48,10 +47,18 @@ async function initWebXRSession(canvasElement, options = {}) {
     return await session.requestReferenceSpace("local");
   });
 
-  const viewerSpace = await session.requestReferenceSpace("viewer");
-  const hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+  let viewerSpace = null;
+  let hitTestSource = null;
+  try {
+    viewerSpace = await session.requestReferenceSpace("viewer");
+    if (typeof session.requestHitTestSource === "function") {
+      hitTestSource = await session.requestHitTestSource({ space: viewerSpace });
+    }
+  } catch {
+    hitTestSource = null;
+  }
 
-  logger.info({ event: "webxr_session_started", features: sessionOptions.requiredFeatures }, "WebXR session ready");
+  logger.info({ event: "webxr_session_started", features: sessionOptions.optionalFeatures }, "WebXR session ready");
 
   return {
     session,

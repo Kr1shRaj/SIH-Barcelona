@@ -58,7 +58,7 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 16px;
+  padding: 16px 16px max(36px, env(safe-area-inset-bottom, 36px)) 16px;
   pointer-events: none;
 }
 

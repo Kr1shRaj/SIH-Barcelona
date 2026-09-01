@@ -161,23 +161,22 @@ async function initApp() {
           `;
           _bindScaffoldButton(statusCard);
         } catch (err) {
-          logger.warn({ event: "webxr_init_failed", error: err.message }, "WebXR session request failed");
+          logger.warn({ event: "webxr_init_failed", error: err.message }, "WebXR session request failed, falling back to marker");
           statusCard.innerHTML = `
-            <h3>WebXR Unavailable</h3>
-            <p>${err.message}</p>
-            <div style="margin-top:0.8rem;">
-              <button id="btn-failed-fallback-marker" style="padding:0.65rem 1.1rem;background:#f59e0b;color:#000;border:none;border-radius:8px;font-weight:bold;cursor:pointer;font-size:0.95rem;">📷 Switch to Tier 2 (Hiro Marker)</button>
+            <div style="background:rgba(15,23,42,0.92);padding:14px;border-radius:10px;border:1px solid #f59e0b;margin-bottom:16px;">
+              <h3 style="color:#f59e0b;font-size:1rem;">WebXR Unavailable</h3>
+              <p style="margin:4px 0 8px 0;font-size:0.85rem;color:#cbd5e1;">${err.message}</p>
+              <p style="font-weight:bold;color:#10b981;font-size:0.9rem;">Switching to Tier 2 (Hiro Marker)...</p>
             </div>
           `;
-          const btnFallback = statusCard.querySelector("#btn-failed-fallback-marker");
-          btnFallback?.addEventListener("click", () => {
+          setTimeout(() => {
             _bootTier2(appContainer, {
               tier: 2,
               mode: "marker",
-              reason: "webxr_failed_fallback_to_marker",
+              reason: "webxr_session_not_supported_fallback",
               caps
             });
-          });
+          }, 1200);
         }
       });
     }
