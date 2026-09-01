@@ -2,13 +2,19 @@ import { createLogger } from "../js/logger.js";
 
 const logger = createLogger("ARMarker");
 
-// load marker scene for named module — only fire-response is implemented, others still throw
+// load marker scene for named module — fire-response and gas-leak implemented, others throw
 async function loadMarkerModuleScene(moduleId, trackingState) {
   if (moduleId === "fire-response") {
     // overlay UI anchors to document body; marker tracking handle available for future use
     const { startFireModule } = await import("../modules/fire-response/fire-response.js");
     const container = typeof document !== "undefined" ? document.getElementById("ar-viewport") : null;
     startFireModule(container, { tier: 2, trackingState });
+    return;
+  }
+  if (moduleId === "gas-leak") {
+    const { startGasLeakModule } = await import("../modules/gas-leak/gas-leak.js");
+    const container = typeof document !== "undefined" ? document.getElementById("ar-viewport") : null;
+    startGasLeakModule(container, { tier: 2, trackingState });
     return;
   }
   throw new Error("not implemented");

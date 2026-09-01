@@ -320,10 +320,10 @@ describe("Fire & Explosion Response module", () => {
   });
 
   it("other module ids still throw not-implemented from loadModule3DScene", async () => {
-    // import the actual stub to verify non-fire-response modules still throw
+    // import the actual stub to verify unimplemented modules still throw
     const { loadModule3DScene } = await import("../ar/webxr.js");
     await assert.rejects(
-      () => loadModule3DScene("gas-leak", null),
+      () => loadModule3DScene("electrical-safety", null),
       /not implemented/
     );
   });
@@ -331,7 +331,7 @@ describe("Fire & Explosion Response module", () => {
   it("other module ids still throw not-implemented from loadMarkerModuleScene", async () => {
     const { loadMarkerModuleScene } = await import("../ar/marker.js");
     await assert.rejects(
-      () => loadMarkerModuleScene("gas-leak", null),
+      () => loadMarkerModuleScene("electrical-safety", null),
       /not implemented/
     );
   });

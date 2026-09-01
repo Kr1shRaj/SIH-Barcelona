@@ -2,13 +2,19 @@ import { createLogger } from "../js/logger.js";
 
 const logger = createLogger("WebXR");
 
-// load 3d scene for named module — only fire-response is implemented, others still throw
+// load 3d scene for named module — fire-response and gas-leak implemented, others throw
 async function loadModule3DScene(moduleId, xrSession) {
   if (moduleId === "fire-response") {
     // overlay UI runs in dom; xrSession available for future hit-test anchoring
     const { startFireModule } = await import("../modules/fire-response/fire-response.js");
     const container = typeof document !== "undefined" ? document.getElementById("ar-viewport") : null;
     startFireModule(container, { tier: 1, xrSession });
+    return;
+  }
+  if (moduleId === "gas-leak") {
+    const { startGasLeakModule } = await import("../modules/gas-leak/gas-leak.js");
+    const container = typeof document !== "undefined" ? document.getElementById("ar-viewport") : null;
+    startGasLeakModule(container, { tier: 1, xrSession });
     return;
   }
   throw new Error("not implemented");

@@ -147,23 +147,36 @@ async function initApp() {
 
 // SCAFFOLDING — remove when real module-selection UI exists
 function _scaffoldModuleButton() {
-  return `<button id="scaffold-load-btn" style="margin-top:1rem">
-    [DEV] Load fire-response module
-  </button>`;
+  return `<div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap;">
+    <button id="scaffold-load-btn">[DEV] Fire Response</button>
+    <button id="scaffold-gas-btn">[DEV] Gas Leak</button>
+  </div>`;
 }
 
-// SCAFFOLDING — bind scaffold button to loadModule, catches not-implemented stub
+// SCAFFOLDING — bind scaffold buttons to loadModule
 function _bindScaffoldButton(container) {
-  const btn = container.querySelector("#scaffold-load-btn");
-  if (!btn) return;
-  btn.addEventListener("click", async () => {
-    try {
-      await loadModule("fire-response");
-    } catch (err) {
-      // expected: loadModule3DScene / loadMarkerModuleScene throw "not implemented"
-      logger.warn({ event: "scaffold_load_threw", error: err.message }, "Stub not implemented yet");
-    }
-  });
+  const btnFire = container.querySelector("#scaffold-load-btn");
+  if (btnFire) {
+    btnFire.addEventListener("click", async () => {
+      try {
+        await loadModule("fire-response");
+      } catch (err) {
+        logger.warn({ event: "scaffold_load_threw", error: err.message }, "Stub not implemented yet");
+      }
+    });
+  }
+
+  const btnGas = container.querySelector("#scaffold-gas-btn");
+  if (btnGas) {
+    btnGas.addEventListener("click", async () => {
+      try {
+        await loadModule("gas-leak");
+      } catch (err) {
+        logger.warn({ event: "scaffold_load_threw", error: err.message }, "Stub not implemented yet");
+      }
+    });
+  }
+
   // expose unloadModule on window for manual dev testing
   if (typeof window !== "undefined") {
     window.__safear_unloadModule = unloadModule;
