@@ -16,6 +16,7 @@ export default [
         clearInterval: "readonly",
         Date: "readonly",
         Math: "readonly",
+        URLSearchParams: "readonly",
         globalThis: "readonly"
       }
     },

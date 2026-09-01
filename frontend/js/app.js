@@ -74,6 +74,37 @@ function renderArShell(container, tierResult) {
   };
 }
 
+// boot tier 2 marker tracking flow
+async function _bootTier2(container, decision) {
+  const { viewport, statusCard } = renderArShell(container, decision);
+  bindModuleLifecycleUI(statusCard);
+
+  try {
+    const trackingState = await initMarkerTracking(viewport, {
+      preset: "hiro",
+      markerType: "pattern"
+    });
+    setTierLoaders(2, loadMarkerModuleScene, trackingState);
+
+    if (statusCard) {
+      statusCard.innerHTML = `
+        <h3>AR Tier 2 Active (Hiro Marker)</h3>
+        <p>Point camera at Hiro marker. Pick a module to begin.</p>
+        ${_scaffoldModuleButton()}
+      `;
+      _bindScaffoldButton(statusCard);
+    }
+  } catch (err) {
+    logger.error({ event: "marker_init_failed", error: err.message }, "Marker tracking failed");
+    if (statusCard) {
+      statusCard.innerHTML = `
+        <h3>Camera Error</h3>
+        <p>${err.message}</p>
+      `;
+    }
+  }
+}
+
 // start mobile app and init audio and ar
 async function initApp() {
   const appContainer = document.getElementById("app");
@@ -90,59 +121,68 @@ async function initApp() {
     return;
   }
 
-  const { viewport, canvas, statusCard } = renderArShell(appContainer, decision);
-  bindModuleLifecycleUI(statusCard);
-
   if (decision.tier === 1) {
-    try {
-      const sessionData = await initWebXRSession(canvas);
-      // wire tier 1 loader so loadModule knows which path to call
-      setTierLoaders(1, loadModule3DScene, sessionData.session);
+    const { canvas, statusCard } = renderArShell(appContainer, decision);
+    bindModuleLifecycleUI(statusCard);
 
-      if (statusCard) {
-        statusCard.innerHTML = `
-          <h3>AR Tier 1 Active (WebXR)</h3>
-          <p>Plane tracking ready. Pick a module to begin.</p>
-          ${_scaffoldModuleButton()}
-        `;
-        _bindScaffoldButton(statusCard);
-      }
-    } catch (err) {
-      logger.error({ event: "webxr_init_failed", error: err.message }, "WebXR setup failed");
-      if (statusCard) {
-        statusCard.innerHTML = `
-          <h3>WebXR Failed</h3>
-          <p>${err.message}</p>
-        `;
-      }
+    if (statusCard) {
+      statusCard.innerHTML = `
+        <h3>AR Tier 1 Ready (WebXR)</h3>
+        <p>Device supports WebXR. Tap to start AR session or switch to Hiro marker.</p>
+        <div style="display:flex;gap:0.6rem;margin-top:0.8rem;flex-wrap:wrap;">
+          <button id="btn-start-webxr" style="padding:0.65rem 1.1rem;background:#00e676;color:#000;border:none;border-radius:8px;font-weight:bold;cursor:pointer;font-size:0.95rem;">🚀 Start WebXR AR</button>
+          <button id="btn-fallback-marker" style="padding:0.65rem 1.1rem;background:#334155;color:#fff;border:none;border-radius:8px;font-weight:bold;cursor:pointer;font-size:0.95rem;">📷 Use Hiro Marker (Tier 2)</button>
+        </div>
+      `;
+
+      const btnFallbackMarker = statusCard.querySelector("#btn-fallback-marker");
+      btnFallbackMarker?.addEventListener("click", () => {
+        logger.info({ event: "user_selected_marker_mode" }, "User selected marker mode fallback");
+        _bootTier2(appContainer, {
+          tier: 2,
+          mode: "marker",
+          reason: "user_selected_marker_mode",
+          caps
+        });
+      });
+
+      const btnStartWebXR = statusCard.querySelector("#btn-start-webxr");
+      btnStartWebXR?.addEventListener("click", async () => {
+        try {
+          btnStartWebXR.disabled = true;
+          btnStartWebXR.textContent = "Starting WebXR Session...";
+          const sessionData = await initWebXRSession(canvas);
+          setTierLoaders(1, loadModule3DScene, sessionData.session);
+
+          statusCard.innerHTML = `
+            <h3>AR Tier 1 Active (WebXR)</h3>
+            <p>Plane tracking ready. Pick a module to begin.</p>
+            ${_scaffoldModuleButton()}
+          `;
+          _bindScaffoldButton(statusCard);
+        } catch (err) {
+          logger.warn({ event: "webxr_init_failed", error: err.message }, "WebXR session request failed");
+          statusCard.innerHTML = `
+            <h3>WebXR Unavailable</h3>
+            <p>${err.message}</p>
+            <div style="margin-top:0.8rem;">
+              <button id="btn-failed-fallback-marker" style="padding:0.65rem 1.1rem;background:#f59e0b;color:#000;border:none;border-radius:8px;font-weight:bold;cursor:pointer;font-size:0.95rem;">📷 Switch to Tier 2 (Hiro Marker)</button>
+            </div>
+          `;
+          const btnFallback = statusCard.querySelector("#btn-failed-fallback-marker");
+          btnFallback?.addEventListener("click", () => {
+            _bootTier2(appContainer, {
+              tier: 2,
+              mode: "marker",
+              reason: "webxr_failed_fallback_to_marker",
+              caps
+            });
+          });
+        }
+      });
     }
   } else if (decision.tier === 2) {
-    try {
-      // use hiro preset placeholder until team picks final marker distribution
-      const trackingState = await initMarkerTracking(viewport, {
-        preset: "hiro",
-        markerType: "pattern"
-      });
-      // wire tier 2 loader so loadModule knows which path to call
-      setTierLoaders(2, loadMarkerModuleScene, trackingState);
-
-      if (statusCard) {
-        statusCard.innerHTML = `
-          <h3>AR Tier 2 Active (Hiro Marker)</h3>
-          <p>Point camera at Hiro marker. Pick a module to begin.</p>
-          ${_scaffoldModuleButton()}
-        `;
-        _bindScaffoldButton(statusCard);
-      }
-    } catch (err) {
-      logger.error({ event: "marker_init_failed", error: err.message }, "Marker tracking failed");
-      if (statusCard) {
-        statusCard.innerHTML = `
-          <h3>Camera Error</h3>
-          <p>${err.message}</p>
-        `;
-      }
-    }
+    _bootTier2(appContainer, decision);
   }
 }
 

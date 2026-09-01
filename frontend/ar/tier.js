@@ -19,11 +19,26 @@ async function detectDeviceCaps(win = window) {
     }
   }
 
+  let forcedTier = null;
+  if (win && win.location && typeof win.location.search === "string") {
+    try {
+      const params = new URLSearchParams(win.location.search);
+      if (params.get("tier") === "2" || params.get("mode") === "marker") {
+        forcedTier = 2;
+      } else if (params.get("tier") === "1" || params.get("mode") === "webxr") {
+        forcedTier = 1;
+      }
+    } catch {
+      forcedTier = null;
+    }
+  }
+
   return {
     isSecureContext,
     hasGetUserMedia,
     hasWebXR,
     supportsImmersiveAr,
+    forcedTier,
     userAgent: win.navigator ? win.navigator.userAgent : ""
   };
 }
@@ -43,7 +58,14 @@ function selectArTier(deviceCaps, logger = defaultLogger) {
 
   let decision;
 
-  if (isWebXREligible) {
+  if (deviceCaps.forcedTier === 2 && deviceCaps.hasGetUserMedia) {
+    decision = {
+      tier: 2,
+      mode: "marker",
+      reason: "tier_2_forced_by_user_override",
+      caps: deviceCaps
+    };
+  } else if (isWebXREligible) {
     decision = {
       tier: 1,
       mode: "webxr",
