@@ -8,10 +8,8 @@ function createLogger(contextName = "SafeAR") {
       message,
       ...data
     };
-    // structured output
-    if (level === "error") {
-      window.dispatchEvent(new CustomEvent("safear:log", { detail: payload }));
-    } else {
+    // dispatch in browser; fall back to stderr in node test env
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
       window.dispatchEvent(new CustomEvent("safear:log", { detail: payload }));
     }
     return payload;

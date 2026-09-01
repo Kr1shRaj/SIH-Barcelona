@@ -2,6 +2,7 @@ import { createLogger } from "./logger.js";
 import { detectDeviceCaps, selectArTier } from "../ar/tier.js";
 import { initWebXRSession, loadModule3DScene } from "../ar/webxr.js";
 import { initMarkerTracking, loadMarkerModuleScene } from "../ar/marker.js";
+import { setTierLoaders, loadModule, unloadModule } from "./module-loader.js";
 
 const logger = createLogger("AppBoot");
 
@@ -85,17 +86,16 @@ async function initApp() {
   if (decision.tier === 1) {
     try {
       const sessionData = await initWebXRSession(canvas);
+      // wire tier 1 loader so loadModule knows which path to call
+      setTierLoaders(1, loadModule3DScene, sessionData.session);
 
-      // catch stub error while 3d module content is in development (scaffolding stage only)
-      try {
-        loadModule3DScene("fire-response", sessionData.session);
-      } catch {
-        if (statusCard) {
-          statusCard.innerHTML = `
-            <h3>AR Tier 1 Active (WebXR)</h3>
-            <p>Module 3D content in development (Kaamil track). Plane tracking ready.</p>
-          `;
-        }
+      if (statusCard) {
+        statusCard.innerHTML = `
+          <h3>AR Tier 1 Active (WebXR)</h3>
+          <p>Plane tracking ready. Pick a module to begin.</p>
+          ${_scaffoldModuleButton()}
+        `;
+        _bindScaffoldButton(statusCard);
       }
     } catch (err) {
       logger.error({ event: "webxr_init_failed", error: err.message }, "WebXR setup failed");
@@ -113,17 +113,16 @@ async function initApp() {
         preset: "hiro",
         markerType: "pattern"
       });
+      // wire tier 2 loader so loadModule knows which path to call
+      setTierLoaders(2, loadMarkerModuleScene, trackingState);
 
-      // catch stub error while 3d module content is in development (scaffolding stage only)
-      try {
-        loadMarkerModuleScene("fire-response", trackingState);
-      } catch {
-        if (statusCard) {
-          statusCard.innerHTML = `
-            <h3>AR Tier 2 Active (Hiro Marker)</h3>
-            <p>Point camera at Hiro marker. Module 3D content in development (Kaamil track).</p>
-          `;
-        }
+      if (statusCard) {
+        statusCard.innerHTML = `
+          <h3>AR Tier 2 Active (Hiro Marker)</h3>
+          <p>Point camera at Hiro marker. Pick a module to begin.</p>
+          ${_scaffoldModuleButton()}
+        `;
+        _bindScaffoldButton(statusCard);
       }
     } catch (err) {
       logger.error({ event: "marker_init_failed", error: err.message }, "Marker tracking failed");
@@ -136,6 +135,32 @@ async function initApp() {
     }
   }
 }
+
+// SCAFFOLDING — remove when real module-selection UI exists
+function _scaffoldModuleButton() {
+  return `<button id="scaffold-load-btn" style="margin-top:1rem">
+    [DEV] Load fire-response module
+  </button>`;
+}
+
+// SCAFFOLDING — bind scaffold button to loadModule, catches not-implemented stub
+function _bindScaffoldButton(container) {
+  const btn = container.querySelector("#scaffold-load-btn");
+  if (!btn) return;
+  btn.addEventListener("click", async () => {
+    try {
+      await loadModule("fire-response");
+    } catch (err) {
+      // expected: loadModule3DScene / loadMarkerModuleScene throw "not implemented"
+      logger.warn({ event: "scaffold_load_threw", error: err.message }, "Stub not implemented yet");
+    }
+  });
+  // expose unloadModule on window for manual dev testing
+  if (typeof window !== "undefined") {
+    window.__safear_unloadModule = unloadModule;
+  }
+}
+
 
 if (typeof window !== "undefined" && typeof document !== "undefined") {
   if (document.readyState === "loading") {
