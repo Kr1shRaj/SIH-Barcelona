@@ -75,8 +75,30 @@ safear/
 └── android/                   # Capacitor-generated APK project
 ```
 
+## Running locally
+
+### Frontend (AR Client)
+From project root:
+```bash
+npm run dev:frontend
+```
+Or from `frontend/` directory:
+```bash
+npm run dev
+# or
+npx serve . -p 5173
+```
+Then open `http://localhost:5173` in a mobile or desktop browser with camera access.
+
+### Backend
+From project root:
+```bash
+npm run dev:backend
+```
+
 ## Status
 
 Planning stage — see `REQUIREMENTS.md` for scope and `AGENTS.md` for build
 rules before writing any code.
+
 
