@@ -82,6 +82,17 @@ import {
   startFireModule,
   calcRaycastAimAccuracy,
   calcIntersectionDistance,
+  calcDragDistance,
+  isPinPullComplete,
+  isAimHoldComplete,
+  isAimInTargetZone,
+  isSqueezeComplete,
+  calcSweepCoverage,
+  isSweepComplete,
+  PIN_PULL_THRESHOLD_PX,
+  AIM_HOLD_DURATION_MS,
+  SQUEEZE_HOLD_DURATION_MS,
+  SWEEP_MIN_COVERAGE,
   AIM_PASS_THRESHOLD,
   CP_EXIT_ID,
   CP_EXTINGUISHER_ID,
@@ -117,13 +128,46 @@ function advanceToStep2() {
   clickThroughSubscreens();
 }
 
-// helper: fire aim confirm with injected accuracy score (bypasses missing getBoundingClientRect)
+// helper: fire PASS extinguisher sequence with simulated accuracy score
 function confirmAimWithScore(score) {
   clickThroughSubscreens();
-  const btn = _elements["btn-aim-confirm"];
-  assert.ok(btn, "btn-aim-confirm must exist after step 2 starts");
-  btn._testAccuracy = score;
-  btn.click();
+  // P - Pull pin
+  const pin = _elements["extinguisher-pin"];
+  assert.ok(pin, "extinguisher-pin must exist in step 2 (P)");
+  if (typeof pin.simulatePull === "function") {
+    pin.simulatePull(60);
+  } else {
+    pin.click();
+  }
+
+  // A - Aim reticle
+  const reticle = _elements["aim-reticle"];
+  assert.ok(reticle, "aim-reticle must exist in step 2 (A)");
+  const dist = typeof score === "number" && score > 0 ? (1 - score) * 0.8 : (score === 0 ? 0.9 : 0.1);
+  if (typeof reticle.simulateAim === "function") {
+    reticle.simulateAim(score, dist);
+  } else {
+    reticle.click();
+  }
+
+  // S - Squeeze handle
+  const handle = _elements["extinguisher-handle"];
+  assert.ok(handle, "extinguisher-handle must exist in step 2 (S)");
+  if (typeof handle.simulateSqueeze === "function") {
+    handle.simulateSqueeze(1500);
+  } else {
+    handle.click();
+  }
+
+  // S - Sweep nozzle
+  const sweep = _elements["sweep-zone"];
+  assert.ok(sweep, "sweep-zone must exist in step 2 (S)");
+  if (typeof sweep.simulateSweep === "function") {
+    sweep.simulateSweep([0, 100, 200, 240]);
+  } else {
+    sweep.click();
+  }
+
   clickThroughSubscreens();
 }
 
@@ -227,18 +271,72 @@ describe("Fire & Explosion Response module", () => {
     assert.strictEqual(events[0].context.accuracy, 0.6);
   });
 
-  it("step 2: no tap before confirm (accuracy 0) fires passed:false", () => {
+  it("step 2: zero accuracy score fires passed:false", () => {
     advanceToStep2();
-    // no _testAccuracy set — falls back to 0
-    const events = collectCheckpointEvents(() => {
-      const btn = _elements["btn-aim-confirm"];
-      assert.ok(btn, "btn-aim-confirm must exist");
-      btn.click();  // no _testAccuracy set, score defaults to 0
-    });
+    const events = collectCheckpointEvents(() => confirmAimWithScore(0));
 
     assert.strictEqual(events[0].passed, false);
     assert.strictEqual(events[0].context.accuracy, 0);
   });
+
+  // --- PASS physical gesture pure function unit tests ---
+
+  it("calcDragDistance: calculates 2d euclidean distance between points", () => {
+    assert.strictEqual(calcDragDistance({ x: 0, y: 0 }, { x: 30, y: 40 }), 50);
+    assert.strictEqual(calcDragDistance({ clientX: 10, clientY: 20 }, { clientX: 10, clientY: 70 }), 50);
+    assert.strictEqual(calcDragDistance(null, { x: 10, y: 10 }), 0);
+    assert.strictEqual(calcDragDistance({ x: 10, y: 10 }, null), 0);
+  });
+
+  it("isPinPullComplete: checks 50px drag distance threshold", () => {
+    assert.strictEqual(isPinPullComplete(PIN_PULL_THRESHOLD_PX), true);
+    assert.strictEqual(isPinPullComplete(60), true);
+    assert.strictEqual(isPinPullComplete(49.9), false);
+    assert.strictEqual(isPinPullComplete(0), false);
+    assert.strictEqual(isPinPullComplete(null), false);
+    assert.strictEqual(isPinPullComplete(NaN), false);
+  });
+
+  it("isAimHoldComplete: checks 800ms sustained aim hold duration", () => {
+    assert.strictEqual(isAimHoldComplete(AIM_HOLD_DURATION_MS), true);
+    assert.strictEqual(isAimHoldComplete(1000), true);
+    assert.strictEqual(isAimHoldComplete(799), false);
+    assert.strictEqual(isAimHoldComplete(0), false);
+    assert.strictEqual(isAimHoldComplete(null), false);
+  });
+
+  it("isAimInTargetZone: checks target distance within maximum range", () => {
+    assert.strictEqual(isAimInTargetZone(0), true);
+    assert.strictEqual(isAimInTargetZone(0.4), true);
+    assert.strictEqual(isAimInTargetZone(0.8), true);
+    assert.strictEqual(isAimInTargetZone(0.81), false);
+    assert.strictEqual(isAimInTargetZone(-0.1), false);
+    assert.strictEqual(isAimInTargetZone(null), false);
+  });
+
+  it("isSqueezeComplete: checks 1500ms continuous squeeze hold duration", () => {
+    assert.strictEqual(isSqueezeComplete(SQUEEZE_HOLD_DURATION_MS), true);
+    assert.strictEqual(isSqueezeComplete(2000), true);
+    assert.strictEqual(isSqueezeComplete(1499), false);
+    assert.strictEqual(isSqueezeComplete(0), false);
+  });
+
+  it("calcSweepCoverage: calculates horizontal coverage span fraction", () => {
+    assert.strictEqual(calcSweepCoverage([0, 120, 240], 240), 1.0);
+    assert.strictEqual(calcSweepCoverage([20, 200], 240), 0.75);
+    assert.strictEqual(calcSweepCoverage([50, 110], 240), 0.25);
+    assert.strictEqual(calcSweepCoverage([], 240), 0);
+    assert.strictEqual(calcSweepCoverage(null, 240), 0);
+  });
+
+  it("isSweepComplete: checks 75% sweep coverage threshold", () => {
+    assert.strictEqual(isSweepComplete(SWEEP_MIN_COVERAGE), true);
+    assert.strictEqual(isSweepComplete(0.9), true);
+    assert.strictEqual(isSweepComplete(0.74), false);
+    assert.strictEqual(isSweepComplete(0), false);
+  });
+
+  // --- 3D raycast aim accuracy pure function unit tests ---
 
   // --- 3D raycast aim accuracy pure function unit tests ---
 
