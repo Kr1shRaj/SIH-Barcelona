@@ -38,9 +38,18 @@ function renderArShell(container, tierResult) {
   const tierClass = tierResult.tier === 1 ? "tier-1" : "tier-2";
   const tierLabel = tierResult.tier === 1 ? "Tier 1: WebXR" : "Tier 2: Marker (Hiro)";
 
+  const tierMarkup = tierResult.tier === 1
+    ? '<canvas id="xr-canvas" class="ar-canvas"></canvas>'
+    : `<a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3;" vr-mode-ui="enabled: false" renderer="logarithmicDepthBuffer: true;">
+        <a-marker preset="hiro" id="hiro-marker">
+          <a-box id="test-box" position="0 0.5 0" material="color: red; opacity: 0.8;"></a-box>
+        </a-marker>
+        <a-entity camera></a-entity>
+      </a-scene>`;
+
   container.innerHTML = `
     <div id="ar-viewport" class="ar-viewport">
-      <canvas id="xr-canvas" class="ar-canvas" style="display: ${tierResult.tier === 1 ? "block" : "none"}"></canvas>
+      ${tierMarkup}
     </div>
     <div class="ui-overlay">
       <header class="header-bar">
