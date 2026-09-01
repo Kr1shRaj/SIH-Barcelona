@@ -1,5 +1,6 @@
 import { createLogger } from "../../js/logger.js";
 import { registerCheckpoint, fireCheckpointResult } from "../../ar/interactions.js";
+import { buildFireGraphic, buildExitGraphic } from "./graphics.js";
 
 const logger = createLogger("FireModule");
 
@@ -11,8 +12,8 @@ const CP_EVACUATION_ID = "fire_evacuation_sequence";
 // aim must score >= 0.6 to pass: within 40% of max-miss radius counts as good aim
 const AIM_PASS_THRESHOLD = 0.6;
 
-// max acceptable miss radius in px for aim score — beyond this, score floors at 0
-// set to 80px: roughly the diameter of the fire graphic on a budget phone screen
+// max acceptable miss radius in px — SVG fire graphic is 80px wide; target=base (bottom-center)
+// tap within 80px of base = >0 score; exactly on base = 1.0
 const FIRE_BASE_MAX_RADIUS_PX = 80;
 
 // track which step is active; steps are sequential — next only registers after prev passes
@@ -40,17 +41,9 @@ function _createOverlay(container, html) {
 
 
 
-// render fire graphic; pointer-events on so user can tap it for aim accuracy
+// render SVG fire placeholder into container; real DOM element so getBoundingClientRect works
 function _renderFireGraphic(container) {
-  const graphic = document.createElement("div");
-  graphic.id = "fire-graphic";
-  graphic.style.cssText = [
-    "position:absolute", "top:30%", "left:50%",
-    "transform:translateX(-50%)",
-    "font-size:5rem", "text-align:center",
-    "cursor:crosshair", "filter:drop-shadow(0 0 12px #ff6a00)"
-  ].join(";");
-  graphic.innerHTML = "🔥";
+  const graphic = buildFireGraphic();
   if (container && container.appendChild) {
     container.appendChild(graphic);
   }
@@ -73,16 +66,9 @@ function _calcAimAccuracy(tapX, tapY, graphicEl) {
   return Math.max(0, 1 - dist / FIRE_BASE_MAX_RADIUS_PX);
 }
 
-// render exit arrow graphic pointing toward exit direction
+// render SVG exit sign into container; positioned top-right of viewport
 function _renderExitGraphic(container) {
-  const el = document.createElement("div");
-  el.id = "exit-graphic";
-  el.style.cssText = [
-    "position:absolute", "top:20%", "right:10%",
-    "font-size:4rem", "text-align:center",
-    "pointer-events:none", "color:#00e676"
-  ].join(";");
-  el.innerHTML = "🚪 ➜";
+  const el = buildExitGraphic();
   if (container && container.appendChild) {
     container.appendChild(el);
   }
