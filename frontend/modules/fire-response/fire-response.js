@@ -150,7 +150,23 @@ function _renderEvacuationOptions(container, onSelect) {
   return wrapper;
 }
 
-// step 1: proximity — user taps "I see the exit" button to confirm identification
+// render subscreen with educational text and next navigation button
+function _renderSubscreen(overlay, { badge, title, desc, buttonText, onNext }) {
+  if (!overlay) return;
+  overlay.innerHTML = `
+    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${badge}</div>
+    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${title}</div>
+    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${desc}</div>
+  `;
+  const btnNext = document.createElement("button");
+  btnNext.id = "btn-step-next";
+  btnNext.style.cssText = "margin-top:0.4rem;padding:0.75rem 1.4rem;background:#ff6a00;color:#fff;border:none;border-radius:8px;font-size:0.95rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
+  btnNext.textContent = buttonText || "Next ➜";
+  btnNext.addEventListener("click", onNext);
+  overlay.appendChild(btnNext);
+}
+
+// step 1: proximity — user learns exit protocols and taps "I see the exit"
 function _setupStep1(container, tierInfo) {
   _currentStep = 1;
   logger.info({ event: "fire_step_start", step: 1 }, "Exit identification");
@@ -165,29 +181,67 @@ function _setupStep1(container, tierInfo) {
 
   _renderExitGraphic(container);
 
-  // desc text via innerHTML is fine — it has no interactive children
   const overlay = document.getElementById("fire-module-overlay");
-  if (overlay) {
-    overlay.innerHTML = `
-      <div style="font-size:1.1rem;font-weight:bold;color:#ff6a00">🔥 STEP 1 / 3 — EXIT IDENTIFICATION</div>
-      <div style="margin:0.5rem 0">Locate emergency exit. Face the green arrow.</div>
-    `;
+
+  const screens = [
+    {
+      badge: "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (1/4)",
+      title: "Why Identifying Exits Matters",
+      desc: "In a fire emergency, heavy smoke reduces visibility to zero in under 30 seconds. Panic causes confusion — knowing your exit routes beforehand saves critical seconds.",
+      buttonText: "Next: Primary & Backup Exits ➜"
+    },
+    {
+      badge: "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (2/4)",
+      title: "Primary vs. Backup Route",
+      desc: "Never rely on a single exit path. If flames or smoke block your primary route, you must immediately pivot to your pre-identified secondary emergency path.",
+      buttonText: "Next: Elevators Danger ➜"
+    },
+    {
+      badge: "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (3/4)",
+      title: "Never Use Elevators in a Fire",
+      desc: "Elevator shafts act as natural chimneys drawing superheated toxic gases. Power failure can strand the car between burning floors. Always use designated fire stairwells.",
+      buttonText: "Next: Locate Exit in AR ➜"
+    }
+  ];
+
+  function showActionScreen() {
+    if (overlay) {
+      overlay.innerHTML = `
+        <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 1 / 3 — EXIT IDENTIFICATION (4/4)</div>
+        <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">Locate Emergency Exit</div>
+        <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Look for the illuminated green emergency sign anchored in AR space. Align your view with the evacuation path.</div>
+      `;
+      const btn = document.createElement("button");
+      btn.id = "btn-exit-found";
+      btn.style.cssText = "margin-top:0.4rem;padding:0.8rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
+      btn.textContent = "✔ I see the exit";
+      btn.addEventListener("click", () => {
+        fireCheckpointResult(CP_EXIT_ID, true, { method: "button_confirm" });
+        _setupStep2(container, tierInfo);
+      });
+      overlay.appendChild(btn);
+    }
   }
 
-  // create button programmatically so getElementById can find it in test and browser alike
-  const btn = document.createElement("button");
-  btn.id = "btn-exit-found";
-  btn.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;";
-  btn.textContent = "✔ I see the exit";
-  btn.addEventListener("click", () => {
-    // passed = true: user correctly identified the exit location
-    fireCheckpointResult(CP_EXIT_ID, true, { method: "button_confirm" });
-    _setupStep2(container, tierInfo);
-  });
-  if (overlay) overlay.appendChild(btn);
+  let subIndex = 0;
+  function renderCurrentSubscreen() {
+    if (subIndex < screens.length) {
+      _renderSubscreen(overlay, {
+        ...screens[subIndex],
+        onNext: () => {
+          subIndex++;
+          renderCurrentSubscreen();
+        }
+      });
+    } else {
+      showActionScreen();
+    }
+  }
+
+  renderCurrentSubscreen();
 }
 
-// step 2: aim — user taps the 3D fire entity; distance from base determines accuracy
+// step 2: aim — user learns PASS technique sub-screens then taps 3D fire base
 function _setupStep2(container, tierInfo) {
   _currentStep = 2;
   logger.info({ event: "fire_step_start", step: 2, tier: tierInfo && tierInfo.tier }, "Extinguisher aim");
@@ -201,111 +255,148 @@ function _setupStep2(container, tierInfo) {
   });
 
   const graphic = _renderFireGraphic(container);
-
   const overlay = document.getElementById("fire-module-overlay");
-  if (overlay) {
-    overlay.innerHTML = `
-      <div style="font-size:1.1rem;font-weight:bold;color:#ff6a00">🔥 STEP 2 / 3 — EXTINGUISHER USE</div>
-      <div style="margin:0.5rem 0">Aim at the <strong>base</strong> of the 3D fire. Tap to aim, then confirm.</div>
-    `;
+
+  const screens = [
+    {
+      badge: "🔥 STEP 2 / 3 — EXTINGUISHER USE (1/5)",
+      title: "PASS: P — Pull the Pin",
+      desc: "Firmly pull the safety pin at the top of the extinguisher. This breaks the plastic tamper seal and unlocks the operating lever.",
+      buttonText: "Next: A — Aim ➜"
+    },
+    {
+      badge: "🔥 STEP 2 / 3 — EXTINGUISHER USE (2/5)",
+      title: "PASS: A — Aim at the Base",
+      desc: "Do NOT aim at high flames — burning smoke rises. Aim directly at the fuel source at the very base of the fire to extinguish the combustion.",
+      buttonText: "Next: S — Squeeze ➜"
+    },
+    {
+      badge: "🔥 STEP 2 / 3 — EXTINGUISHER USE (3/5)",
+      title: "PASS: S — Squeeze the Handle",
+      desc: "Stand 6 to 8 feet away from the fire. Squeeze the discharge lever evenly and smoothly to release the extinguishing agent under pressure.",
+      buttonText: "Next: S — Sweep ➜"
+    },
+    {
+      badge: "🔥 STEP 2 / 3 — EXTINGUISHER USE (4/5)",
+      title: "PASS: S — Sweep Side to Side",
+      desc: "Sweep the nozzle slowly across the entire width of the fire base in a steady motion until all embers are fully extinguished and cooled.",
+      buttonText: "Next: Practice Aiming in AR ➜"
+    }
+  ];
+
+  function showActionScreen() {
+    if (overlay) {
+      overlay.innerHTML = `
+        <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — EXTINGUISHER USE (5/5)</div>
+        <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">Aim at 3D Fire Base</div>
+        <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Aim at the <strong>base</strong> of the 3D fire. Tap the fire entity in AR space to aim, then confirm.</div>
+      `;
+
+      const btnConfirm = document.createElement("button");
+      btnConfirm.id = "btn-aim-confirm";
+      btnConfirm.style.cssText = "margin-top:0.4rem;padding:0.8rem 1.5rem;background:#ff6a00;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:none;width:100%;max-width:320px;";
+      btnConfirm.textContent = "✔ Confirm aim";
+      overlay.appendChild(btnConfirm);
+
+      // stores recorded aim point/distance
+      let _recordedAim = null;
+
+      const handleAimEvent = (ev) => {
+        const intersection = ev && ev.detail && ev.detail.intersection ? ev.detail.intersection : null;
+        if (intersection && intersection.point) {
+          const distance = calcIntersectionDistance(intersection.point);
+          const accuracy = calcRaycastAimAccuracy(distance);
+          _recordedAim = { distance, accuracy, method: "raycast" };
+          logger.info({ event: "aim_raycast_hit", distance, accuracy }, "Raycast intersected fire entity");
+        } else if (ev && typeof ev._testDistance === "number") {
+          const distance = ev._testDistance;
+          const accuracy = calcRaycastAimAccuracy(distance);
+          _recordedAim = { distance, accuracy, method: "test_distance" };
+        } else if (ev && typeof ev._testAccuracy === "number") {
+          _recordedAim = { distance: null, accuracy: ev._testAccuracy, method: "test_accuracy" };
+        } else if (ev && ev.clientX !== undefined && ev.clientY !== undefined) {
+          _recordedAim = { x: ev.clientX, y: ev.clientY, method: "2d_tap" };
+        }
+        btnConfirm.style.display = "block";
+      };
+
+      if (graphic && typeof graphic.addEventListener === "function") {
+        graphic.addEventListener("click", handleAimEvent);
+        graphic.addEventListener("pointerdown", handleAimEvent);
+      }
+
+      const tapTarget = container || (typeof document !== "undefined" ? document.getElementById("ar-viewport") : null);
+      if (tapTarget && tapTarget !== graphic && typeof tapTarget.addEventListener === "function") {
+        tapTarget.addEventListener("click", (ev) => {
+          if (!_recordedAim) handleAimEvent(ev);
+        });
+        tapTarget.addEventListener("pointerdown", (ev) => {
+          if (!_recordedAim) handleAimEvent(ev);
+        });
+      }
+
+      btnConfirm.addEventListener("click", () => {
+        let accuracy = null;
+        let distance = null;
+
+        if (btnConfirm._testAccuracy !== undefined) {
+          accuracy = typeof btnConfirm._testAccuracy === "number" ? btnConfirm._testAccuracy : 0;
+          distance = typeof btnConfirm._testDistance === "number" ? btnConfirm._testDistance : null;
+        } else if (btnConfirm._testDistance !== undefined) {
+          distance = btnConfirm._testDistance;
+          accuracy = calcRaycastAimAccuracy(distance);
+        } else if (_recordedAim) {
+          if (typeof _recordedAim.accuracy === "number") {
+            accuracy = _recordedAim.accuracy;
+            distance = _recordedAim.distance;
+          } else if (_recordedAim.x !== undefined) {
+            accuracy = _calcAimAccuracy(_recordedAim.x, _recordedAim.y, graphic);
+          }
+        }
+
+        if (accuracy === null) accuracy = 0;
+
+        const passed = accuracy >= AIM_PASS_THRESHOLD;
+        const finalAccuracy = Math.round(accuracy * 100) / 100;
+        const finalDistance = distance !== null && typeof distance === "number" ? Math.round(distance * 100) / 100 : null;
+
+        logger.info({
+          event: "aim_scored",
+          accuracy: finalAccuracy,
+          distance: finalDistance,
+          passed,
+          tier: tierInfo && tierInfo.tier
+        }, "Aim checkpoint scored");
+
+        fireCheckpointResult(CP_EXTINGUISHER_ID, passed, {
+          accuracy: finalAccuracy,
+          target: passed ? "base" : "missed",
+          distance: finalDistance
+        });
+        _setupStep3(container);
+      });
+    }
   }
 
-  // confirm button — fires after user has aimed to record their score
-  const btnConfirm = document.createElement("button");
-  btnConfirm.id = "btn-aim-confirm";
-  btnConfirm.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.5rem;background:#ff6a00;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:none;";
-  btnConfirm.textContent = "✔ Confirm aim";
-  if (overlay) overlay.appendChild(btnConfirm);
-
-  // stores recorded aim point/distance
-  let _recordedAim = null;
-
-  // handle aim event (raycaster click or touch/pointer)
-  const handleAimEvent = (ev) => {
-    const intersection = ev && ev.detail && ev.detail.intersection ? ev.detail.intersection : null;
-    if (intersection && intersection.point) {
-      const distance = calcIntersectionDistance(intersection.point);
-      const accuracy = calcRaycastAimAccuracy(distance);
-      _recordedAim = { distance, accuracy, method: "raycast" };
-      logger.info({ event: "aim_raycast_hit", distance, accuracy }, "Raycast intersected fire entity");
-    } else if (ev && typeof ev._testDistance === "number") {
-      const distance = ev._testDistance;
-      const accuracy = calcRaycastAimAccuracy(distance);
-      _recordedAim = { distance, accuracy, method: "test_distance" };
-    } else if (ev && typeof ev._testAccuracy === "number") {
-      _recordedAim = { distance: null, accuracy: ev._testAccuracy, method: "test_accuracy" };
-    } else if (ev && ev.clientX !== undefined && ev.clientY !== undefined) {
-      // 2D tap fallback
-      _recordedAim = { x: ev.clientX, y: ev.clientY, method: "2d_tap" };
+  let subIndex = 0;
+  function renderCurrentSubscreen() {
+    if (subIndex < screens.length) {
+      _renderSubscreen(overlay, {
+        ...screens[subIndex],
+        onNext: () => {
+          subIndex++;
+          renderCurrentSubscreen();
+        }
+      });
+    } else {
+      showActionScreen();
     }
-    btnConfirm.style.display = "inline-block";
-  };
-
-  // listen on the 3D entity itself (A-Frame cursor raycaster emits 'click' on intersected entity)
-  if (graphic && typeof graphic.addEventListener === "function") {
-    graphic.addEventListener("click", handleAimEvent);
-    graphic.addEventListener("pointerdown", handleAimEvent);
   }
 
-  const tapTarget = container || (typeof document !== "undefined" ? document.getElementById("ar-viewport") : null);
-  if (tapTarget && tapTarget !== graphic && typeof tapTarget.addEventListener === "function") {
-    tapTarget.addEventListener("click", (ev) => {
-      if (!_recordedAim) {
-        handleAimEvent(ev);
-      }
-    });
-    tapTarget.addEventListener("pointerdown", (ev) => {
-      if (!_recordedAim) {
-        handleAimEvent(ev);
-      }
-    });
-  }
-
-  btnConfirm.addEventListener("click", () => {
-    let accuracy = null;
-    let distance = null;
-
-    if (btnConfirm._testAccuracy !== undefined) {
-      accuracy = typeof btnConfirm._testAccuracy === "number" ? btnConfirm._testAccuracy : 0;
-      distance = typeof btnConfirm._testDistance === "number" ? btnConfirm._testDistance : null;
-    } else if (btnConfirm._testDistance !== undefined) {
-      distance = btnConfirm._testDistance;
-      accuracy = calcRaycastAimAccuracy(distance);
-    } else if (_recordedAim) {
-      if (typeof _recordedAim.accuracy === "number") {
-        accuracy = _recordedAim.accuracy;
-        distance = _recordedAim.distance;
-      } else if (_recordedAim.x !== undefined) {
-        accuracy = _calcAimAccuracy(_recordedAim.x, _recordedAim.y, graphic);
-      }
-    }
-
-    if (accuracy === null) {
-      accuracy = 0;
-    }
-
-    const passed = accuracy >= AIM_PASS_THRESHOLD;
-    const finalAccuracy = Math.round(accuracy * 100) / 100;
-    const finalDistance = distance !== null && typeof distance === "number" ? Math.round(distance * 100) / 100 : null;
-
-    logger.info({
-      event: "aim_scored",
-      accuracy: finalAccuracy,
-      distance: finalDistance,
-      passed,
-      tier: tierInfo && tierInfo.tier
-    }, "Aim checkpoint scored");
-
-    fireCheckpointResult(CP_EXTINGUISHER_ID, passed, {
-      accuracy: finalAccuracy,
-      target: passed ? "base" : "missed",
-      distance: finalDistance
-    });
-    _setupStep3(container);
-  });
+  renderCurrentSubscreen();
 }
 
-// step 3: select — user picks correct evacuation sequence from 4 options
+// step 3: select — user learns evacuation sequencing before choosing protocol
 function _setupStep3(_container) {
   _currentStep = 3;
   logger.info({ event: "fire_step_start", step: 3 }, "Evacuation sequence");
@@ -319,21 +410,56 @@ function _setupStep3(_container) {
   });
 
   const overlay = document.getElementById("fire-module-overlay");
-  if (overlay) {
-    overlay.innerHTML = `
-      <div style="font-size:1.1rem;font-weight:bold;color:#ff6a00">🔥 STEP 3 / 3 — EVACUATION</div>
-      <div style="margin:0.5rem 0">What is the correct action after using extinguisher?</div>
-    `;
+
+  const screens = [
+    {
+      badge: "🔥 STEP 3 / 3 — EVACUATION (1/3)",
+      title: "Why Evacuation Order Matters",
+      desc: "Sounding the building alarm immediately alerts everyone before heat spreads. Never delay evacuation to gather personal belongings or tools.",
+      buttonText: "Next: Assembly Area Purpose ➜"
+    },
+    {
+      badge: "🔥 STEP 3 / 3 — EVACUATION (2/3)",
+      title: "Assembly & Headcount",
+      desc: "Proceed directly to your designated external assembly area. Immediate headcount verification ensures rescuers know if anyone is trapped inside.",
+      buttonText: "Next: Evacuation Protocol Choice ➜"
+    }
+  ];
+
+  function showActionScreen() {
+    if (overlay) {
+      overlay.innerHTML = `
+        <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 3 / 3 — EVACUATION (3/3)</div>
+        <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">Evacuation Protocol Choice</div>
+        <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">What is the correct immediate action after attempting extinguisher use?</div>
+      `;
+
+      _renderEvacuationOptions(overlay, (selectedId, passed) => {
+        fireCheckpointResult(CP_EVACUATION_ID, passed, {
+          selected: selectedId,
+          correct: "sound_alarm_then_evacuate"
+        });
+        _showComplete(passed);
+      });
+    }
   }
 
-  _renderEvacuationOptions(overlay, (selectedId, passed) => {
-    // context carries what the user picked so assessment engine can log the wrong answer too
-    fireCheckpointResult(CP_EVACUATION_ID, passed, {
-      selected: selectedId,
-      correct: "sound_alarm_then_evacuate"
-    });
-    _showComplete(passed);
-  });
+  let subIndex = 0;
+  function renderCurrentSubscreen() {
+    if (subIndex < screens.length) {
+      _renderSubscreen(overlay, {
+        ...screens[subIndex],
+        onNext: () => {
+          subIndex++;
+          renderCurrentSubscreen();
+        }
+      });
+    } else {
+      showActionScreen();
+    }
+  }
+
+  renderCurrentSubscreen();
 }
 
 // clean up all fire module graphics and overlay from DOM and a-marker

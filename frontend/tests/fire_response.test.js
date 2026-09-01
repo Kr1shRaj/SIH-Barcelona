@@ -98,18 +98,33 @@ function collectCheckpointEvents(fn) {
   return events;
 }
 
+// helper: click next button until action screen reached
+function clickThroughSubscreens(maxSteps = 10) {
+  let count = 0;
+  while (_elements["btn-step-next"] && count < maxSteps) {
+    const btn = _elements["btn-step-next"];
+    delete _elements["btn-step-next"];
+    btn.click();
+    count++;
+  }
+}
+
 // helper: advance through step 1 and set up for step 2 testing
 function advanceToStep2() {
   startFireModule(document.getElementById("ar-viewport"));
+  clickThroughSubscreens();
   _elements["btn-exit-found"]?.click();
+  clickThroughSubscreens();
 }
 
 // helper: fire aim confirm with injected accuracy score (bypasses missing getBoundingClientRect)
 function confirmAimWithScore(score) {
+  clickThroughSubscreens();
   const btn = _elements["btn-aim-confirm"];
   assert.ok(btn, "btn-aim-confirm must exist after step 2 starts");
   btn._testAccuracy = score;
   btn.click();
+  clickThroughSubscreens();
 }
 
 describe("Fire & Explosion Response module", () => {
@@ -134,6 +149,7 @@ describe("Fire & Explosion Response module", () => {
 
   it("completing step 1 registers step 2 (extinguisher aim) checkpoint", () => {
     startFireModule(document.getElementById("ar-viewport"));
+    clickThroughSubscreens();
 
     // simulate user clicking the exit button
     const btn = _elements["btn-exit-found"];
@@ -158,6 +174,7 @@ describe("Fire & Explosion Response module", () => {
 
   it("step 1 fires safear:checkpoint event with correct shape (proximity, passed:true)", () => {
     startFireModule(document.getElementById("ar-viewport"));
+    clickThroughSubscreens();
 
     const events = collectCheckpointEvents(() => {
       _elements["btn-exit-found"]?.click();
