@@ -35,6 +35,12 @@ function createDefaultMarkerConfig(overrides = {}) {
 async function initMarkerTracking(containerElement, customConfig = {}) {
   const config = createDefaultMarkerConfig(customConfig);
 
+  if (typeof document !== "undefined") {
+    document.body.classList.add("ar-active");
+    const appEl = document.getElementById("app");
+    if (appEl) appEl.classList.add("ar-active");
+  }
+
   // locate a-scene and a-marker inside container if present
   const sceneElement = containerElement && typeof containerElement.querySelector === "function"
     ? containerElement.querySelector("a-scene")

@@ -200,9 +200,9 @@ function bindModuleLifecycleUI(statusCard) {
 
 // SCAFFOLDING — remove when real module-selection UI exists
 function _scaffoldModuleButton() {
-  return `<div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap;">
-    <button id="scaffold-load-btn">[DEV] Fire Response</button>
-    <button id="scaffold-gas-btn">[DEV] Gas Leak</button>
+  return `<div style="display:flex;gap:0.6rem;margin-top:0.8rem;flex-wrap:wrap;width:100%;">
+    <button id="scaffold-load-btn" style="flex:1;min-width:130px;padding:12px 14px;background:#ef4444;color:#fff;border:none;border-radius:10px;font-weight:bold;font-size:0.95rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(0,0,0,0.6);">🔥 Fire Response</button>
+    <button id="scaffold-gas-btn" style="flex:1;min-width:130px;padding:12px 14px;background:#f59e0b;color:#000;border:none;border-radius:10px;font-weight:bold;font-size:0.95rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(0,0,0,0.6);">☣️ Gas Leak</button>
   </div>`;
 }
 
