@@ -77,6 +77,8 @@ import {
 
 import {
   startFireModule,
+  calcAimAccuracy,
+  AIM_PASS_THRESHOLD,
   CP_EXIT_ID,
   CP_EXTINGUISHER_ID,
   CP_EVACUATION_ID
@@ -90,6 +92,20 @@ function collectCheckpointEvents(fn) {
   fn();
   window.removeEventListener("safear:checkpoint", handler);
   return events;
+}
+
+// helper: advance through step 1 and set up for step 2 testing
+function advanceToStep2() {
+  startFireModule(document.getElementById("ar-viewport"));
+  _elements["btn-exit-found"]?.click();
+}
+
+// helper: fire aim confirm with injected accuracy score (bypasses missing getBoundingClientRect)
+function confirmAimWithScore(score) {
+  const btn = _elements["btn-aim-confirm"];
+  assert.ok(btn, "btn-aim-confirm must exist after step 2 starts");
+  btn._testAccuracy = score;
+  btn.click();
 }
 
 describe("Fire & Explosion Response module", () => {
@@ -126,14 +142,14 @@ describe("Fire & Explosion Response module", () => {
     assert.ok(!cps.some((c) => c.id === CP_EVACUATION_ID), "evacuation CP must not register before step 2");
   });
 
-  it("completing step 2 registers step 3 (evacuation select) checkpoint", () => {
-    startFireModule(document.getElementById("ar-viewport"));
-    _elements["btn-exit-found"]?.click();
-    _elements["btn-aim-correct"]?.click();
+  it("completing step 2 (high accuracy) registers step 3 (evacuation select) checkpoint", () => {
+    advanceToStep2();
+    // inject high accuracy score — passes threshold, proceeds to step 3
+    confirmAimWithScore(0.9);
 
     const cps = getRegisteredCheckpoints();
     assert.ok(cps.some((c) => c.id === CP_EVACUATION_ID && c.type === "select"),
-      "evacuation checkpoint must register after step 2 passes");
+      "evacuation checkpoint must register after step 2 completes");
   });
 
   it("step 1 fires safear:checkpoint event with correct shape (proximity, passed:true)", () => {
@@ -151,39 +167,103 @@ describe("Fire & Explosion Response module", () => {
     assert.ok(typeof events[0].timestamp === "string");
   });
 
-  it("step 2 correct aim fires passed:true with accuracy and target in context", () => {
-    startFireModule(document.getElementById("ar-viewport"));
-    _elements["btn-exit-found"]?.click();
+  // --- step 2 aim accuracy tests ---
 
-    const events = collectCheckpointEvents(() => {
-      _elements["btn-aim-correct"]?.click();
-    });
+  it("step 2: near-target tap (injected 0.9) fires passed:true, accuracy >= threshold, target:base", () => {
+    advanceToStep2();
+
+    const events = collectCheckpointEvents(() => confirmAimWithScore(0.9));
 
     assert.strictEqual(events.length, 1);
     assert.strictEqual(events[0].checkpointId, CP_EXTINGUISHER_ID);
     assert.strictEqual(events[0].type, "aim");
-    assert.strictEqual(events[0].passed, true);
-    assert.strictEqual(events[0].context.accuracy, 1.0);
+    assert.strictEqual(events[0].passed, true, "accuracy 0.9 >= 0.6 threshold must pass");
+    assert.ok(events[0].context.accuracy >= AIM_PASS_THRESHOLD,
+      `accuracy ${events[0].context.accuracy} must be >= threshold ${AIM_PASS_THRESHOLD}`);
     assert.strictEqual(events[0].context.target, "base");
   });
 
-  it("step 2 wrong aim fires passed:false with accuracy:0 and target:flames", () => {
-    startFireModule(document.getElementById("ar-viewport"));
-    _elements["btn-exit-found"]?.click();
+  it("step 2: far-off tap (injected 0.2) fires passed:false, accuracy below threshold, target:missed", () => {
+    advanceToStep2();
 
+    const events = collectCheckpointEvents(() => confirmAimWithScore(0.2));
+
+    assert.strictEqual(events.length, 1);
+    assert.strictEqual(events[0].checkpointId, CP_EXTINGUISHER_ID);
+    assert.strictEqual(events[0].type, "aim");
+    assert.strictEqual(events[0].passed, false, "accuracy 0.2 < 0.6 threshold must fail");
+    assert.ok(events[0].context.accuracy < AIM_PASS_THRESHOLD,
+      `accuracy ${events[0].context.accuracy} must be < threshold ${AIM_PASS_THRESHOLD}`);
+    assert.strictEqual(events[0].context.target, "missed");
+  });
+
+  it("step 2: exact threshold (injected 0.6) fires passed:true (boundary inclusive)", () => {
+    advanceToStep2();
+
+    const events = collectCheckpointEvents(() => confirmAimWithScore(0.6));
+
+    assert.strictEqual(events[0].passed, true, "score exactly at threshold must pass");
+    assert.strictEqual(events[0].context.accuracy, 0.6);
+  });
+
+  it("step 2: no tap before confirm (accuracy 0) fires passed:false", () => {
+    advanceToStep2();
+    // no _testAccuracy set — falls back to 0
     const events = collectCheckpointEvents(() => {
-      _elements["btn-aim-wrong"]?.click();
+      const btn = _elements["btn-aim-confirm"];
+      assert.ok(btn, "btn-aim-confirm must exist");
+      btn.click();  // no _testAccuracy set, score defaults to 0
     });
 
     assert.strictEqual(events[0].passed, false);
-    assert.strictEqual(events[0].context.accuracy, 0.0);
-    assert.strictEqual(events[0].context.target, "flames");
+    assert.strictEqual(events[0].context.accuracy, 0);
   });
 
-  it("step 3 correct evacuation option fires passed:true with selected and correct in context", () => {
-    startFireModule(document.getElementById("ar-viewport"));
-    _elements["btn-exit-found"]?.click();
-    _elements["btn-aim-correct"]?.click();
+  // --- calcAimAccuracy unit tests (pure function, given a mock getBoundingClientRect) ---
+
+  it("calcAimAccuracy: returns null when graphicEl has no getBoundingClientRect", () => {
+    const fakeEl = { id: "test" };  // plain object, no getBoundingClientRect
+    assert.strictEqual(calcAimAccuracy(0, 0, fakeEl), null);
+    assert.strictEqual(calcAimAccuracy(0, 0, null), null);
+  });
+
+  it("calcAimAccuracy: tap exactly on base (bottom-center) returns 1.0", () => {
+    const mockEl = {
+      getBoundingClientRect() {
+        return { left: 100, width: 60, bottom: 200, top: 100, right: 160 };
+      }
+    };
+    // base = bottom-center = (130, 200)
+    const acc = calcAimAccuracy(130, 200, mockEl);
+    assert.strictEqual(acc, 1.0, "zero distance must give accuracy 1.0");
+  });
+
+  it("calcAimAccuracy: tap > max radius away returns 0.0 (floor)", () => {
+    const mockEl = {
+      getBoundingClientRect() {
+        return { left: 100, width: 60, bottom: 200, top: 100, right: 160 };
+      }
+    };
+    // tap 500px away — way beyond max radius, must floor at 0.0
+    const acc = calcAimAccuracy(630, 200, mockEl);
+    assert.strictEqual(acc, 0.0, "tap beyond max radius must give accuracy 0.0");
+  });
+
+  it("calcAimAccuracy: tap half the max radius away gives ~0.5 accuracy", () => {
+    const mockEl = {
+      getBoundingClientRect() {
+        return { left: 100, width: 60, bottom: 200, top: 100, right: 160 };
+      }
+    };
+    // base = (130, 200), max radius = 80px; tap 40px right = half max radius
+    const acc = calcAimAccuracy(170, 200, mockEl);
+    // expected: 1 - 40/80 = 0.5
+    assert.ok(Math.abs(acc - 0.5) < 0.01, `expected ~0.5 accuracy, got ${acc}`);
+  });
+
+  it("completing step 2 after step 3 evacuation: correct option fires passed:true", () => {
+    advanceToStep2();
+    confirmAimWithScore(0.9);
 
     const correctBtn = document.getElementById("evacuation-opt-sound_alarm_then_evacuate");
     assert.ok(correctBtn, "correct evacuation button must exist");
@@ -198,9 +278,8 @@ describe("Fire & Explosion Response module", () => {
   });
 
   it("step 3 wrong evacuation option fires passed:false", () => {
-    startFireModule(document.getElementById("ar-viewport"));
-    _elements["btn-exit-found"]?.click();
-    _elements["btn-aim-correct"]?.click();
+    advanceToStep2();
+    confirmAimWithScore(0.9);
 
     const wrongBtn = document.getElementById("evacuation-opt-use_elevator");
     assert.ok(wrongBtn, "wrong evacuation button must exist");
@@ -228,3 +307,4 @@ describe("Fire & Explosion Response module", () => {
     );
   });
 });
+

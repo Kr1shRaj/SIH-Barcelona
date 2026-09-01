@@ -8,6 +8,13 @@ const CP_EXIT_ID = "fire_exit_identification";
 const CP_EXTINGUISHER_ID = "fire_extinguisher_aim";
 const CP_EVACUATION_ID = "fire_evacuation_sequence";
 
+// aim must score >= 0.6 to pass: within 40% of max-miss radius counts as good aim
+const AIM_PASS_THRESHOLD = 0.6;
+
+// max acceptable miss radius in px for aim score — beyond this, score floors at 0
+// set to 80px: roughly the diameter of the fire graphic on a budget phone screen
+const FIRE_BASE_MAX_RADIUS_PX = 80;
+
 // track which step is active; steps are sequential — next only registers after prev passes
 let _currentStep = 0;
 
@@ -33,7 +40,7 @@ function _createOverlay(container, html) {
 
 
 
-// render a fire icon placeholder into the ar scene container (marker tier only)
+// render fire graphic; pointer-events on so user can tap it for aim accuracy
 function _renderFireGraphic(container) {
   const graphic = document.createElement("div");
   graphic.id = "fire-graphic";
@@ -41,13 +48,29 @@ function _renderFireGraphic(container) {
     "position:absolute", "top:30%", "left:50%",
     "transform:translateX(-50%)",
     "font-size:5rem", "text-align:center",
-    "pointer-events:none", "filter:drop-shadow(0 0 12px #ff6a00)"
+    "cursor:crosshair", "filter:drop-shadow(0 0 12px #ff6a00)"
   ].join(";");
   graphic.innerHTML = "🔥";
   if (container && container.appendChild) {
     container.appendChild(graphic);
   }
   return graphic;
+}
+
+// compute aim accuracy: distance from tap point to base of fire graphic, 0.0–1.0
+// base = bottom-center of bounding rect; uses getBoundingClientRect if available
+function _calcAimAccuracy(tapX, tapY, graphicEl) {
+  if (!graphicEl || typeof graphicEl.getBoundingClientRect !== "function") {
+    // no rect available (test env without layout) — caller must supply stub
+    return null;
+  }
+  const rect = graphicEl.getBoundingClientRect();
+  // target point: bottom-center of graphic = base of the fire
+  const targetX = rect.left + rect.width / 2;
+  const targetY = rect.bottom;
+  const dist = Math.hypot(tapX - targetX, tapY - targetY);
+  // invert and clamp: 0 distance = 1.0 accuracy, max radius = 0.0
+  return Math.max(0, 1 - dist / FIRE_BASE_MAX_RADIUS_PX);
 }
 
 // render exit arrow graphic pointing toward exit direction
@@ -101,7 +124,7 @@ function _renderEvacuationOptions(container, onSelect) {
 }
 
 // step 1: proximity — user taps "I see the exit" button to confirm identification
-function _setupStep1(container) {
+function _setupStep1(container, tierInfo) {
   _currentStep = 1;
   logger.info({ event: "fire_step_start", step: 1 }, "Exit identification");
 
@@ -132,15 +155,16 @@ function _setupStep1(container) {
   btn.addEventListener("click", () => {
     // passed = true: user correctly identified the exit location
     fireCheckpointResult(CP_EXIT_ID, true, { method: "button_confirm" });
-    _setupStep2(container);
+    _setupStep2(container, tierInfo);
   });
   if (overlay) overlay.appendChild(btn);
 }
 
-// step 2: aim — user taps "Aim at base" button after pointing device at fire graphic
-function _setupStep2(container) {
+// step 2: aim — user taps the fire graphic; distance from base determines accuracy
+// tier 1 note: uses same DOM hit calc as tier 2 — real XR hit-test not wired yet (see report)
+function _setupStep2(container, tierInfo) {
   _currentStep = 2;
-  logger.info({ event: "fire_step_start", step: 2 }, "Extinguisher aim");
+  logger.info({ event: "fire_step_start", step: 2, tier: tierInfo && tierInfo.tier }, "Extinguisher aim");
 
   registerCheckpoint({
     id: CP_EXTINGUISHER_ID,
@@ -150,42 +174,91 @@ function _setupStep2(container) {
     }
   });
 
-  _renderFireGraphic(container);
+  const graphic = _renderFireGraphic(container);
 
   const overlay = document.getElementById("fire-module-overlay");
   if (overlay) {
     overlay.innerHTML = `
       <div style="font-size:1.1rem;font-weight:bold;color:#ff6a00">🔥 STEP 2 / 3 — EXTINGUISHER USE</div>
-      <div style="margin:0.5rem 0">Aim at the BASE of the fire. Hold steady, then confirm.</div>
+      <div style="margin:0.5rem 0">Tap the <strong>base</strong> of the fire to aim your extinguisher.</div>
     `;
   }
 
-  const btnRow = document.createElement("div");
-  btnRow.style.cssText = "display:flex;gap:0.8rem;margin-top:0.8rem;";
+  // confirm button — fires after user has tapped to record their aim point
+  const btnConfirm = document.createElement("button");
+  btnConfirm.id = "btn-aim-confirm";
+  btnConfirm.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.5rem;background:#ff6a00;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:none;";
+  btnConfirm.textContent = "✔ Confirm aim";
+  if (overlay) overlay.appendChild(btnConfirm);
 
-  const btnCorrect = document.createElement("button");
-  btnCorrect.id = "btn-aim-correct";
-  btnCorrect.style.cssText = "flex:1;padding:0.8rem;background:#ff6a00;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;";
-  btnCorrect.textContent = "🎯 Aimed at base";
-  btnCorrect.addEventListener("click", () => {
-    // accuracy: 1.0 = perfect, simulated here; real tier would use hit-test distance
-    fireCheckpointResult(CP_EXTINGUISHER_ID, true, { accuracy: 1.0, target: "base" });
+  // stores last tap position relative to viewport; null until user taps
+  let _lastTap = null;
+
+  // tap anywhere in viewport registers aim point; show confirm button
+  const tapTarget = container || (typeof document !== "undefined" ? document.getElementById("ar-viewport") : null);
+
+  // listen on the graphic itself for more precise tap targeting
+  if (graphic) {
+    graphic.addEventListener("pointerdown", (ev) => {
+      _lastTap = { x: ev.clientX, y: ev.clientY };
+      btnConfirm.style.display = "inline-block";
+      logger.info({ event: "aim_tap", x: _lastTap.x, y: _lastTap.y }, "User tapped fire graphic");
+    });
+  }
+
+  // also listen on the whole container for misses (taps away from graphic)
+  if (tapTarget && tapTarget !== graphic) {
+    tapTarget.addEventListener("pointerdown", (ev) => {
+      // only register if not already set by graphic listener above
+      if (!_lastTap) {
+        _lastTap = { x: ev.clientX, y: ev.clientY };
+        btnConfirm.style.display = "inline-block";
+        logger.info({ event: "aim_tap_miss", x: _lastTap.x, y: _lastTap.y }, "User tapped outside graphic");
+      }
+    });
+  }
+
+  btnConfirm.addEventListener("click", () => {
+    // use last recorded tap; if none yet (e.g. test env), fall back to zero accuracy
+    const tapX = _lastTap ? _lastTap.x : 0;
+    const tapY = _lastTap ? _lastTap.y : 0;
+    const accuracy = _calcAimAccuracy(tapX, tapY, graphic);
+
+    if (accuracy === null) {
+      // _calcAimAccuracy returns null when no getBoundingClientRect — use injected value
+      const injected = btnConfirm._testAccuracy;
+      const score = typeof injected === "number" ? injected : 0;
+      const passed = score >= AIM_PASS_THRESHOLD;
+      fireCheckpointResult(CP_EXTINGUISHER_ID, passed, {
+        accuracy: score,
+        target: passed ? "base" : "missed",
+        distance: null
+      });
+      _setupStep3(container);
+      return;
+    }
+
+    const passed = accuracy >= AIM_PASS_THRESHOLD;
+    const rect = graphic.getBoundingClientRect();
+    const targetX = rect.left + rect.width / 2;
+    const targetY = rect.bottom;
+    const distance = Math.hypot(tapX - targetX, tapY - targetY);
+
+    logger.info({
+      event: "aim_scored",
+      accuracy,
+      distance,
+      passed,
+      tier: tierInfo && tierInfo.tier
+    }, "Aim checkpoint scored");
+
+    fireCheckpointResult(CP_EXTINGUISHER_ID, passed, {
+      accuracy: Math.round(accuracy * 100) / 100,
+      target: passed ? "base" : "missed",
+      distance: Math.round(distance)
+    });
     _setupStep3(container);
   });
-
-  const btnWrong = document.createElement("button");
-  btnWrong.id = "btn-aim-wrong";
-  btnWrong.style.cssText = "flex:1;padding:0.8rem;background:#333;color:#aaa;border:none;border-radius:8px;font-size:1rem;cursor:pointer;";
-  btnWrong.textContent = "❌ Aimed at flames (wrong)";
-  btnWrong.addEventListener("click", () => {
-    // deliberate failure path — accuracy 0, wrong target — assessment engine sees passed:false
-    fireCheckpointResult(CP_EXTINGUISHER_ID, false, { accuracy: 0.0, target: "flames" });
-    _setupStep3(container);  // still advance so user sees all steps
-  });
-
-  btnRow.appendChild(btnCorrect);
-  btnRow.appendChild(btnWrong);
-  if (overlay) overlay.appendChild(btnRow);
 }
 
 // step 3: select — user picks correct evacuation sequence from 4 options
@@ -235,10 +308,10 @@ function _showComplete(lastPassed) {
   logger.info({ event: "fire_module_complete" }, "Fire module all steps done");
 }
 
-// entry point called by loadMarkerModuleScene and loadModule3DScene
-function startFireModule(container) {
+// entry point — tierInfo: { tier: 1|2, xrSession?, trackingState? } from webxr/marker loaders
+function startFireModule(container, tierInfo) {
   _currentStep = 0;
-  logger.info({ event: "fire_module_start" }, "Fire module starting");
+  logger.info({ event: "fire_module_start", tier: tierInfo && tierInfo.tier }, "Fire module starting");
 
   // remove stale overlay/graphics if reloading
   ["fire-module-overlay", "fire-graphic", "exit-graphic", "evacuation-options"].forEach((id) => {
@@ -248,14 +321,20 @@ function startFireModule(container) {
   // create base overlay panel (will be updated per step)
   _createOverlay(container, "<div>Loading Fire &amp; Explosion Response...</div>");
 
-  // step 1 starts immediately
-  _setupStep1(container);
+  // step 1 starts immediately; pass tierInfo through so step 2 knows which tier is active
+  _setupStep1(container, tierInfo);
 }
+
+// public alias for tests and external callers
+const calcAimAccuracy = _calcAimAccuracy;
 
 export {
   startFireModule,
   getCurrentStep,
+  calcAimAccuracy,
+  AIM_PASS_THRESHOLD,
   CP_EXIT_ID,
   CP_EXTINGUISHER_ID,
   CP_EVACUATION_ID
 };
+
