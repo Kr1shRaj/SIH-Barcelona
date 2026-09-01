@@ -1,8 +1,8 @@
 // cache assets for offline use in mines
-self.addEventListener("install", (event) => {
+self.addEventListener("install", (_event) => {
   // offline caching setup
 });
 
-self.addEventListener("fetch", (event) => {
+self.addEventListener("fetch", (_event) => {
   // respond from cache if offline
 });

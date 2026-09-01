@@ -4,7 +4,7 @@ function startGasLeakModule() {
 }
 
 // verify worker choose correct ppe for toxic zone
-function handlePpeSelection(selectedPpeList) {
+function handlePpeSelection(_selectedPpeList) {
   throw new Error("not implemented");
 }
 

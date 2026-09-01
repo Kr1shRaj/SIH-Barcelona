@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "description": "SafeAR mobile web client with AR.js and WebXR support",
+  "type": "module",
   "scripts": {
     "dev": "npx serve . -p 5173",
-    "build": "echo 'Frontend static build'"
+    "build": "echo 'Frontend static build'",
+    "test": "node --test tests/**/*.test.js"
   },
   "dependencies": {
     "@capacitor/core": "5.7.4"

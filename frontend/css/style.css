@@ -4,8 +4,10 @@
   --color-surface: #1e293b;
   --color-primary: #f59e0b;
   --color-text: #f8fafc;
+  --color-text-muted: #94a3b8;
   --color-danger: #ef4444;
   --color-success: #10b981;
+  --color-info: #38bdf8;
 }
 
 * {
@@ -19,4 +21,157 @@ body {
   background-color: var(--color-bg);
   color: var(--color-text);
   min-height: 100vh;
+  overflow: hidden;
+}
+
+#app {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.ar-viewport {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  z-index: 1;
+}
+
+.ar-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.ui-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 16px;
+  pointer-events: none;
+}
+
+.header-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(8px);
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  pointer-events: auto;
+}
+
+.app-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tier-badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 9999px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tier-badge.tier-1 {
+  background: rgba(56, 189, 248, 0.2);
+  color: var(--color-info);
+  border: 1px solid var(--color-info);
+}
+
+.tier-badge.tier-2 {
+  background: rgba(245, 158, 11, 0.2);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+}
+
+.tier-badge.tier-0 {
+  background: rgba(239, 68, 68, 0.2);
+  color: var(--color-danger);
+  border: 1px solid var(--color-danger);
+}
+
+.status-card {
+  background: rgba(15, 23, 42, 0.9);
+  backdrop-filter: blur(8px);
+  border-radius: 12px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  pointer-events: auto;
+}
+
+.status-card h3 {
+  font-size: 0.95rem;
+  margin-bottom: 4px;
+}
+
+.status-card p {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.unsupported-screen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 20;
+  background-color: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 24px;
+  text-align: center;
+}
+
+.unsupported-icon {
+  font-size: 3.5rem;
+  color: var(--color-danger);
+  margin-bottom: 16px;
+}
+
+.unsupported-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.unsupported-desc {
+  font-size: 0.95rem;
+  color: var(--color-text-muted);
+  max-width: 320px;
+  line-height: 1.5;
+  margin-bottom: 24px;
+}
+
+.retry-btn {
+  background: var(--color-primary);
+  color: #000;
+  border: none;
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 12px 24px;
+  border-radius: 8px;
+  cursor: pointer;
 }
