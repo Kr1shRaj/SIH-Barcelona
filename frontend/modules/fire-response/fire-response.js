@@ -1,5 +1,6 @@
 import { createLogger } from "../../js/logger.js";
 import { registerCheckpoint, fireCheckpointResult } from "../../ar/interactions.js";
+import { unloadModule } from "../../js/module-loader.js";
 import { buildFireGraphic, buildExitGraphic } from "./graphics.js";
 
 const logger = createLogger("FireModule");
@@ -279,6 +280,15 @@ function _setupStep3(_container) {
 }
 
 
+// clean up all fire module visuals and overlay from DOM
+function cleanupFireModule() {
+  ["fire-module-overlay", "fire-graphic", "exit-graphic", "evacuation-options"].forEach((id) => {
+    if (typeof document !== "undefined") {
+      document.getElementById(id)?.remove();
+    }
+  });
+}
+
 // show completion panel after all three steps done
 function _showComplete(lastPassed) {
   _currentStep = 0;
@@ -290,6 +300,16 @@ function _showComplete(lastPassed) {
       </div>
       <div style="margin:0.5rem 0;font-size:0.95rem">All checkpoints fired. Assessment engine will score your attempt.</div>
     `;
+
+    const btnExit = document.createElement("button");
+    btnExit.id = "btn-module-exit";
+    btnExit.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.5rem;background:#ff6a00;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;";
+    btnExit.textContent = "✖ Exit Module";
+    btnExit.addEventListener("click", () => {
+      cleanupFireModule();
+      unloadModule();
+    });
+    overlay.appendChild(btnExit);
   }
   logger.info({ event: "fire_module_complete" }, "Fire module all steps done");
 }
@@ -300,9 +320,7 @@ function startFireModule(container, tierInfo) {
   logger.info({ event: "fire_module_start", tier: tierInfo && tierInfo.tier }, "Fire module starting");
 
   // remove stale overlay/graphics if reloading
-  ["fire-module-overlay", "fire-graphic", "exit-graphic", "evacuation-options"].forEach((id) => {
-    document.getElementById(id)?.remove();
-  });
+  cleanupFireModule();
 
   // create base overlay panel (will be updated per step)
   _createOverlay(container, "<div>Loading Fire &amp; Explosion Response...</div>");
@@ -316,6 +334,7 @@ const calcAimAccuracy = _calcAimAccuracy;
 
 export {
   startFireModule,
+  cleanupFireModule,
   getCurrentStep,
   calcAimAccuracy,
   AIM_PASS_THRESHOLD,

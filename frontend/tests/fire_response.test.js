@@ -290,6 +290,22 @@ describe("Fire & Explosion Response module", () => {
     assert.strictEqual(events[0].context.selected, "use_elevator");
   });
 
+  it("completion screen exit button triggers unloadModule and cleans up overlay", () => {
+    advanceToStep2();
+    confirmAimWithScore(0.9);
+
+    const correctBtn = document.getElementById("evacuation-opt-sound_alarm_then_evacuate");
+    correctBtn.click();
+
+    const exitBtn = document.getElementById("btn-module-exit");
+    assert.ok(exitBtn, "exit button must exist on completion screen");
+
+    // clicking exit button clears checkpoints and removes overlay
+    exitBtn.click();
+    assert.strictEqual(getRegisteredCheckpoints().length, 0, "checkpoints must be cleared on exit");
+    assert.strictEqual(document.getElementById("fire-module-overlay"), null, "overlay must be removed on exit");
+  });
+
   it("other module ids still throw not-implemented from loadModule3DScene", async () => {
     // import the actual stub to verify non-fire-response modules still throw
     const { loadModule3DScene } = await import("../ar/webxr.js");
