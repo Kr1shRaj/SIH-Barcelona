@@ -38,9 +38,18 @@ function renderArShell(container, tierResult) {
   const tierClass = tierResult.tier === 1 ? "tier-1" : "tier-2";
   const tierLabel = tierResult.tier === 1 ? "Tier 1: WebXR" : "Tier 2: Marker (Hiro)";
 
+  const tierMarkup = tierResult.tier === 1
+    ? '<canvas id="xr-canvas" class="ar-canvas"></canvas>'
+    : `<a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3;" vr-mode-ui="enabled: false" renderer="logarithmicDepthBuffer: true;">
+        <a-marker preset="hiro" id="hiro-marker">
+          <a-box id="test-box" position="0 0.5 0" material="color: red; opacity: 0.8;"></a-box>
+        </a-marker>
+        <a-entity camera cursor="rayOrigin: mouse" raycaster="objects: .clickable, [data-raycast-target]"></a-entity>
+      </a-scene>`;
+
   container.innerHTML = `
     <div id="ar-viewport" class="ar-viewport">
-      <canvas id="xr-canvas" class="ar-canvas" style="display: ${tierResult.tier === 1 ? "block" : "none"}"></canvas>
+      ${tierMarkup}
     </div>
     <div class="ui-overlay">
       <header class="header-bar">
@@ -82,6 +91,7 @@ async function initApp() {
   }
 
   const { viewport, canvas, statusCard } = renderArShell(appContainer, decision);
+  bindModuleLifecycleUI(statusCard);
 
   if (decision.tier === 1) {
     try {
@@ -136,25 +146,51 @@ async function initApp() {
   }
 }
 
-// SCAFFOLDING — remove when real module-selection UI exists
-function _scaffoldModuleButton() {
-  return `<button id="scaffold-load-btn" style="margin-top:1rem">
-    [DEV] Load fire-response module
-  </button>`;
+// bind module lifecycle events to toggle status HUD visibility
+function bindModuleLifecycleUI(statusCard) {
+  if (typeof window === "undefined" || !statusCard) return;
+
+  window.addEventListener("safear:module_loaded", () => {
+    statusCard.style.display = "none";
+  });
+
+  window.addEventListener("safear:module_unloaded", () => {
+    statusCard.style.display = "block";
+  });
 }
 
-// SCAFFOLDING — bind scaffold button to loadModule, catches not-implemented stub
+// SCAFFOLDING — remove when real module-selection UI exists
+function _scaffoldModuleButton() {
+  return `<div style="display:flex;gap:0.5rem;margin-top:1rem;flex-wrap:wrap;">
+    <button id="scaffold-load-btn">[DEV] Fire Response</button>
+    <button id="scaffold-gas-btn">[DEV] Gas Leak</button>
+  </div>`;
+}
+
+// SCAFFOLDING — bind scaffold buttons to loadModule
 function _bindScaffoldButton(container) {
-  const btn = container.querySelector("#scaffold-load-btn");
-  if (!btn) return;
-  btn.addEventListener("click", async () => {
-    try {
-      await loadModule("fire-response");
-    } catch (err) {
-      // expected: loadModule3DScene / loadMarkerModuleScene throw "not implemented"
-      logger.warn({ event: "scaffold_load_threw", error: err.message }, "Stub not implemented yet");
-    }
-  });
+  const btnFire = container.querySelector("#scaffold-load-btn");
+  if (btnFire) {
+    btnFire.addEventListener("click", async () => {
+      try {
+        await loadModule("fire-response");
+      } catch (err) {
+        logger.warn({ event: "scaffold_load_threw", error: err.message }, "Stub not implemented yet");
+      }
+    });
+  }
+
+  const btnGas = container.querySelector("#scaffold-gas-btn");
+  if (btnGas) {
+    btnGas.addEventListener("click", async () => {
+      try {
+        await loadModule("gas-leak");
+      } catch (err) {
+        logger.warn({ event: "scaffold_load_threw", error: err.message }, "Stub not implemented yet");
+      }
+    });
+  }
+
   // expose unloadModule on window for manual dev testing
   if (typeof window !== "undefined") {
     window.__safear_unloadModule = unloadModule;
@@ -170,4 +206,4 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
   }
 }
 
-export { initApp, renderUnsupportedView, renderArShell };
+export { initApp, renderUnsupportedView, renderArShell, bindModuleLifecycleUI };

@@ -2,8 +2,21 @@ import { createLogger } from "../js/logger.js";
 
 const logger = createLogger("ARMarker");
 
-// load 3d assets attached to ar marker anchor
-function loadMarkerModuleScene(_moduleId, _markerAnchor) {
+// load marker scene for named module — fire-response and gas-leak implemented, others throw
+async function loadMarkerModuleScene(moduleId, trackingState) {
+  if (moduleId === "fire-response") {
+    // overlay UI anchors to document body; marker tracking handle available for future use
+    const { startFireModule } = await import("../modules/fire-response/fire-response.js");
+    const container = typeof document !== "undefined" ? document.getElementById("ar-viewport") : null;
+    startFireModule(container, { tier: 2, trackingState });
+    return;
+  }
+  if (moduleId === "gas-leak") {
+    const { startGasLeakModule } = await import("../modules/gas-leak/gas-leak.js");
+    const container = typeof document !== "undefined" ? document.getElementById("ar-viewport") : null;
+    startGasLeakModule(container, { tier: 2, trackingState });
+    return;
+  }
   throw new Error("not implemented");
 }
 
@@ -14,82 +27,76 @@ function createDefaultMarkerConfig(overrides = {}) {
     patternUrl: overrides.patternUrl || "./markers/default.patt",
     preset: overrides.preset || "hiro",
     minConfidence: overrides.minConfidence || 0.6,
-    changeMatrixMode: "modelViewMatrix",
-    cameraParametersUrl: overrides.cameraParametersUrl || "./data/camera_para.dat",
-    detectionMode: overrides.detectionMode || "mono",
     ...overrides
   };
 }
 
-// setup ar js marker tracking on camera stream
+// setup aframe arjs marker tracking and hook markerFound/markerLost events
 async function initMarkerTracking(containerElement, customConfig = {}) {
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    throw new Error("Camera getUserMedia not supported");
-  }
-
   const config = createDefaultMarkerConfig(customConfig);
 
-  const videoElement = document.createElement("video");
-  videoElement.setAttribute("autoplay", "");
-  videoElement.setAttribute("muted", "");
-  videoElement.setAttribute("playsinline", "");
-  videoElement.style.position = "absolute";
-  videoElement.style.top = "0";
-  videoElement.style.left = "0";
-  videoElement.style.width = "100%";
-  videoElement.style.height = "100%";
-  videoElement.style.objectFit = "cover";
-  videoElement.style.zIndex = "-1";
-
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: {
-      facingMode: "environment",
-      width: { ideal: 1280 },
-      height: { ideal: 720 }
-    },
-    audio: false
-  });
-
-  videoElement.srcObject = stream;
-  await videoElement.play();
-
-  if (containerElement) {
-    containerElement.appendChild(videoElement);
-  }
+  // locate a-scene and a-marker inside container if present
+  const sceneElement = containerElement && typeof containerElement.querySelector === "function"
+    ? containerElement.querySelector("a-scene")
+    : null;
+  const markerElement = sceneElement && typeof sceneElement.querySelector === "function"
+    ? sceneElement.querySelector("a-marker")
+    : null;
 
   const trackingState = {
     isTracking: true,
     markerVisible: false,
     config,
-    videoElement,
-    mediaStream: stream
+    sceneElement,
+    markerElement,
+    _listeners: []
   };
+
+  if (markerElement && typeof markerElement.addEventListener === "function") {
+    const onFound = () => {
+      trackingState.markerVisible = true;
+      logger.info({ event: "marker_found", preset: config.preset }, "Hiro marker detected");
+    };
+    const onLost = () => {
+      trackingState.markerVisible = false;
+      logger.info({ event: "marker_lost", preset: config.preset }, "Hiro marker lost");
+    };
+
+    markerElement.addEventListener("markerFound", onFound);
+    markerElement.addEventListener("markerLost", onLost);
+
+    trackingState._listeners.push(
+      { el: markerElement, ev: "markerFound", fn: onFound },
+      { el: markerElement, ev: "markerLost", fn: onLost }
+    );
+  }
 
   logger.info({
     event: "marker_tracking_initialized",
     markerType: config.markerType,
     preset: config.preset
-  }, "Marker tracking started");
+  }, "A-Frame AR.js marker tracking initialized");
 
   return trackingState;
 }
 
-// stop camera and destroy marker tracking loop
+// stop marker tracking and unbind marker events
 function stopMarkerTracking(trackingState) {
   if (!trackingState) {
     return;
   }
 
-  if (trackingState.mediaStream) {
-    const tracks = trackingState.mediaStream.getTracks();
-    tracks.forEach((track) => track.stop());
-  }
-
-  if (trackingState.videoElement && trackingState.videoElement.parentNode) {
-    trackingState.videoElement.parentNode.removeChild(trackingState.videoElement);
+  if (trackingState._listeners && trackingState._listeners.length > 0) {
+    trackingState._listeners.forEach(({ el, ev, fn }) => {
+      if (el && typeof el.removeEventListener === "function") {
+        el.removeEventListener(ev, fn);
+      }
+    });
+    trackingState._listeners = [];
   }
 
   trackingState.isTracking = false;
+  trackingState.markerVisible = false;
   logger.info({ event: "marker_tracking_stopped" }, "Marker tracking stopped");
 }
 
@@ -99,3 +106,4 @@ export {
   stopMarkerTracking,
   loadMarkerModuleScene
 };
+

@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { renderUnsupportedView, renderArShell } from "../js/app.js";
+import { renderUnsupportedView, renderArShell, bindModuleLifecycleUI } from "../js/app.js";
 
 // mock minimal dom element
 function createMockElement() {
@@ -50,5 +50,26 @@ describe("App UI Shell and Error States", () => {
 
     assert.ok(mockContainer.innerHTML.includes("Tier 2: Marker (Hiro)"));
     assert.ok(mockContainer.innerHTML.includes("ar-viewport"));
+  });
+
+  it("bindModuleLifecycleUI toggles statusCard display on module_loaded and module_unloaded events", () => {
+    const mockStatusCard = { style: { display: "block" } };
+    const listeners = {};
+    globalThis.window = {
+      addEventListener: (type, fn) => { listeners[type] = fn; }
+    };
+
+    bindModuleLifecycleUI(mockStatusCard);
+
+    assert.ok(typeof listeners["safear:module_loaded"] === "function");
+    assert.ok(typeof listeners["safear:module_unloaded"] === "function");
+
+    // simulate module loaded
+    listeners["safear:module_loaded"]();
+    assert.strictEqual(mockStatusCard.style.display, "none", "status card must be hidden when module loads");
+
+    // simulate module unloaded
+    listeners["safear:module_unloaded"]();
+    assert.strictEqual(mockStatusCard.style.display, "block", "status card must be restored when module unloads");
   });
 });

@@ -12,6 +12,7 @@
     "start:backend": "npm run start --workspace=backend",
     "dev:backend": "npm run dev --workspace=backend",
     "test:backend": "npm run test --workspace=backend",
+    "dev:frontend": "npm run dev --workspace=frontend",
     "lint": "eslint backend/ frontend/ dashboard/"
   },
   "devDependencies": {
