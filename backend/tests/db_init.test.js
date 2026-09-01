@@ -7,18 +7,24 @@ const assert = require("node:assert");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { initDatabase, getDb, closeDatabase } = require("../db/index");
+const Database = require("better-sqlite3");
+const { initDatabase, getDb, closeDatabase, SCHEMA_VERSION } = require("../db/index");
 
 const EXPECTED_TABLES = [
   "attempt",
   "certificate",
+  "checkpoint_definition",
+  "checkpoint_result",
   "contractor",
   "mine",
   "module",
-  "module_result",
+  "schema_meta",
   "sync_batch",
   "worker"
 ];
+
+// tables the v1 schema had that must be gone after the contract rename
+const REMOVED_TABLES = ["module_result"];
 
 let tmpDir = null;
 let dbPath = null;
@@ -96,19 +102,88 @@ describe("Database initialization", () => {
     );
   });
 
-  it("rejects an attempt row whose passed flag is not 0 or 1", () => {
+  it("no longer carries the pre-contract table names", () => {
+    const db = initDatabase(dbPath);
+    const names = tableNames(db);
+
+    REMOVED_TABLES.forEach((t) => {
+      assert.ok(!names.includes(t), `${t} must be gone after the contract rename`);
+    });
+  });
+
+  it("stamps the schema version so a stale db can be spotted", () => {
+    const db = initDatabase(dbPath);
+    const row = db.prepare("SELECT value FROM schema_meta WHERE key = 'schema_version'").get();
+
+    assert.strictEqual(Number.parseInt(row.value, 10), SCHEMA_VERSION);
+  });
+
+  it("refuses to open a database built by an older schema version", () => {
+    const legacyPath = path.join(tmpDir, "legacy.db");
+    closeDatabase();
+
+    // hand build a v1 shaped file: user tables present, no version stamp
+    const legacy = new Database(legacyPath);
+    legacy.exec("CREATE TABLE module_result (result_id TEXT PRIMARY KEY)");
+    legacy.close();
+
+    assert.throws(
+      () => initDatabase(legacyPath),
+      /schema v1, this build needs v2/,
+      "an unversioned db must be rejected, never half upgraded"
+    );
+  });
+
+  it("leaves the stale database untouched when it refuses it", () => {
+    const legacyPath = path.join(tmpDir, "legacy2.db");
+    closeDatabase();
+
+    const legacy = new Database(legacyPath);
+    legacy.exec("CREATE TABLE module_result (result_id TEXT PRIMARY KEY)");
+    legacy.close();
+
+    assert.throws(() => initDatabase(legacyPath), /schema v1/);
+
+    // reopen and confirm no new tables were bolted on before the throw
+    const after = new Database(legacyPath, { readonly: true });
+    const names = after
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+      .all()
+      .map((r) => r.name);
+    after.close();
+
+    assert.deepStrictEqual(names, ["module_result"], "rejected db must not gain v2 tables");
+  });
+
+  it("rejects a checkpoint_result whose passed flag is not 0 or 1", () => {
     const db = initDatabase(dbPath);
 
     assert.throws(
       () =>
         db
           .prepare(
-            `INSERT INTO attempt
-             (attempt_id, worker_id, module_id, checkpoint_id, checkpoint_type, passed, client_ts, server_received_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+            `INSERT INTO checkpoint_result
+             (attempt_id, checkpoint_id, checkpoint_type, passed, score, weight, client_ts)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
           )
-          .run("ATT-BAD", "WRK-0001", "fire-response", "cp", "aim", 7, "t", "t"),
+          .run("ATT-BAD", "cp", "aim", 7, 1, 1, "t"),
       /CHECK constraint failed|FOREIGN KEY constraint failed/
+    );
+  });
+
+  it("rejects a checkpoint_result that belongs to no attempt", () => {
+    const db = initDatabase(dbPath);
+
+    assert.throws(
+      () =>
+        db
+          .prepare(
+            `INSERT INTO checkpoint_result
+             (attempt_id, checkpoint_id, checkpoint_type, passed, score, weight, client_ts)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run("ATT-NOT-THERE", "fire_extinguisher_aim", "aim", 1, 1, 1, "t"),
+      /FOREIGN KEY constraint failed/
     );
   });
 

@@ -28,6 +28,24 @@ const MODULES = [
   { moduleId: "gas-leak", title: "Gas Leak & Confined Space Protocol" }
 ];
 
+// every checkpoint weighs the same for now, real weighting is a content call
+const DEFAULT_CHECKPOINT_WEIGHT = 1;
+
+// 0 = module passes on aggregate score alone. NOT a safety ruling — the team has not
+// decided which checkpoints must fail the whole module on their own. 0 keeps today's behaviour.
+const CRITICAL_PENDING = 0;
+
+// checkpoint ids read straight out of the AR modules. these are facts, not choices —
+// they must stay in step with fire-response.js and gas-leak.js.
+const CHECKPOINT_DEFINITIONS = [
+  { moduleId: "fire-response", checkpointId: "fire_exit_identification", type: "proximity" },
+  { moduleId: "fire-response", checkpointId: "fire_extinguisher_aim", type: "aim" },
+  { moduleId: "fire-response", checkpointId: "fire_evacuation_sequence", type: "select" },
+  { moduleId: "gas-leak", checkpointId: "gas_hazard_zone_recognition", type: "proximity" },
+  { moduleId: "gas-leak", checkpointId: "gas_ppe_selection", type: "select" },
+  { moduleId: "gas-leak", checkpointId: "gas_buddy_procedure", type: "select" }
+];
+
 const WORKERS = [
   { workerId: "WRK-0001", name: "Budhan Murmu", mineId: "MINE-JH-001", contractorId: "CON-001" },
   { workerId: "WRK-0002", name: "Sita Devi", mineId: "MINE-JH-001", contractorId: "CON-001" },
@@ -67,6 +85,16 @@ function seedDatabase(db) {
        contractor_id = excluded.contractor_id, created_at = excluded.created_at`
   );
 
+  const insertCheckpointDef = db.prepare(
+    `INSERT INTO checkpoint_definition
+       (module_id, checkpoint_id, checkpoint_type, weight, required, critical, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(module_id, checkpoint_id) DO UPDATE SET
+       checkpoint_type = excluded.checkpoint_type, weight = excluded.weight,
+       required = excluded.required, critical = excluded.critical,
+       created_at = excluded.created_at`
+  );
+
   // one transaction so a half written seed can never be left behind
   const run = db.transaction(() => {
     MINES.forEach((m) => insertMine.run(m.mineId, m.name, m.district, SEED_TIMESTAMP));
@@ -84,6 +112,17 @@ function seedDatabase(db) {
     WORKERS.forEach((w) =>
       insertWorker.run(w.workerId, w.name, w.mineId, w.contractorId, SEED_TIMESTAMP)
     );
+    CHECKPOINT_DEFINITIONS.forEach((c) =>
+      insertCheckpointDef.run(
+        c.moduleId,
+        c.checkpointId,
+        c.type,
+        DEFAULT_CHECKPOINT_WEIGHT,
+        1,
+        CRITICAL_PENDING,
+        SEED_TIMESTAMP
+      )
+    );
   });
 
   run();
@@ -92,7 +131,8 @@ function seedDatabase(db) {
     mines: MINES.length,
     contractors: CONTRACTORS.length,
     modules: MODULES.length,
-    workers: WORKERS.length
+    workers: WORKERS.length,
+    checkpointDefinitions: CHECKPOINT_DEFINITIONS.length
   };
 }
 
@@ -114,8 +154,11 @@ module.exports = {
   SEED_TIMESTAMP,
   PLACEHOLDER_PASS_THRESHOLD,
   RECERT_MONTHS_PENDING,
+  DEFAULT_CHECKPOINT_WEIGHT,
+  CRITICAL_PENDING,
   MINES,
   CONTRACTORS,
   MODULES,
-  WORKERS
+  WORKERS,
+  CHECKPOINT_DEFINITIONS
 };
