@@ -371,6 +371,16 @@ function canExecuteSelectedAction(isSelected = false) {
   return isSelected === true;
 }
 
+// compute progress fraction and completion for gaze-based aim hold
+function evaluateGazeAimProgress(isIntersecting, elapsedMs = 0, holdDurationMs = AIM_HOLD_DURATION_MS) {
+  if (!isIntersecting || typeof elapsedMs !== "number" || elapsedMs <= 0 || typeof holdDurationMs !== "number" || holdDurationMs <= 0) {
+    return { progress: 0, isComplete: false };
+  }
+  const progress = Math.min(1, Math.round((elapsedMs / holdDurationMs) * 100) / 100);
+  const isComplete = progress >= 1;
+  return { progress, isComplete };
+}
+
 // step 2: aim — user performs sequential PASS physical gesture interactions
 function _setupStep2(container, tierInfo) {
   _currentStep = 2;
@@ -596,22 +606,27 @@ function _setupStep2(container, tierInfo) {
     }
   }
 
-  // pass sub-step 2: A — Aim sustained hold on 3D fire base directly (no DOM button)
+  // pass sub-step 2: A — Aim via screen-center camera gaze laser targeting 3D fire base
   function _renderAim() {
     if (!overlay) return;
     overlay.innerHTML = `
       <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (2/4)</div>
       <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">A — Aim at the Base</div>
-      <div style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Touch and hold the glowing neon ring at the base of the 3D fire.</div>
+      <div id="aim-instruction-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Point your phone camera so the center laser aims at the base of the fire (Kanji marker). Hold steady for 800ms.</div>
+      <div id="aim-status-badge" style="display:inline-block;padding:4px 10px;border-radius:6px;background:#334155;color:#94a3b8;font-size:0.8rem;font-weight:bold;margin-bottom:0.4rem;">⚪ POINT PHONE AT FIRE (KANJI MARKER)</div>
       <div style="width:100%;max-width:280px;height:8px;background:#334155;border-radius:4px;overflow:hidden;margin:0.5rem 0;">
         <div id="aim-progress-bar" style="width:0%;height:100%;background:#00e676;transition:width 0.08s linear;"></div>
       </div>
-      <div id="aim-status-label" style="font-size:0.85rem;color:#94a3b8;font-weight:bold;">TOUCH 3D FIRE BASE TO AIM</div>
+      <div id="aim-status-label" style="font-size:0.85rem;color:#94a3b8;font-weight:bold;">AWAITING GAZE INTERSECTION</div>
     `;
 
     const progressBar = document.getElementById("aim-progress-bar");
     const statusLabel = document.getElementById("aim-status-label");
+    const statusBadge = document.getElementById("aim-status-badge");
     const reticle = document.getElementById("aim-reticle");
+    const gazeLaser = document.getElementById("gaze-laser");
+    const gazeDot = document.getElementById("gaze-dot");
+    const kanjiMarker = document.getElementById("kanji-marker");
 
     let holdStart = null;
     let holdTimer = null;
@@ -620,12 +635,21 @@ function _setupStep2(container, tierInfo) {
     function handleAimSuccess(accuracy = 0.9, distance = 0.1, sync = false) {
       if (completed) return;
       completed = true;
+      clearInterval(holdTimer);
       _recordedAccuracy = accuracy;
       _recordedDistance = distance;
       if (progressBar) progressBar.style.width = "100%";
+      if (statusBadge) {
+        statusBadge.textContent = "✔ AIM LOCKED ON FIRE BASE";
+        statusBadge.style.background = "rgba(16, 185, 129, 0.25)";
+        statusBadge.style.color = "#10b981";
+      }
       if (statusLabel) {
         statusLabel.textContent = "✔ AIM LOCKED!";
         statusLabel.style.color = "#10b981";
+      }
+      if (gazeDot && typeof gazeDot.setAttribute === "function") {
+        gazeDot.setAttribute("material", "color: #10b981; shader: flat; opacity: 0.95; side: double");
       }
       if (reticle && typeof reticle.setAttribute === "function") {
         reticle.setAttribute("material", "color: #10b981; emissive: #10b981; emissiveIntensity: 0.9; side: double");
@@ -640,17 +664,26 @@ function _setupStep2(container, tierInfo) {
 
     const startHold = (accuracy = 0.85, distance = 0.12) => {
       if (completed) return;
-      holdStart = Date.now();
+      if (!holdStart) holdStart = Date.now();
       clearInterval(holdTimer);
+      if (statusBadge) {
+        statusBadge.textContent = "🟢 LASER ON TARGET — HOLD PHONE STEADY";
+        statusBadge.style.background = "rgba(16, 185, 129, 0.25)";
+        statusBadge.style.color = "#10b981";
+      }
       if (statusLabel) {
         statusLabel.textContent = "AIMING AT BASE... HOLD STEADY";
         statusLabel.style.color = "#00e676";
       }
+      if (gazeDot && typeof gazeDot.setAttribute === "function") {
+        gazeDot.setAttribute("material", "color: #00e676; shader: flat; opacity: 1.0; side: double");
+      }
       holdTimer = setInterval(() => {
         const elapsed = Date.now() - holdStart;
-        const pct = Math.min(100, Math.round((elapsed / AIM_HOLD_DURATION_MS) * 100));
+        const { progress, isComplete } = evaluateGazeAimProgress(true, elapsed, AIM_HOLD_DURATION_MS);
+        const pct = Math.min(100, Math.round(progress * 100));
         if (progressBar) progressBar.style.width = `${pct}%`;
-        if (isAimHoldComplete(elapsed, AIM_HOLD_DURATION_MS)) {
+        if (isComplete) {
           clearInterval(holdTimer);
           handleAimSuccess(accuracy, distance, false);
         }
@@ -662,41 +695,79 @@ function _setupStep2(container, tierInfo) {
       clearInterval(holdTimer);
       holdStart = null;
       if (progressBar) progressBar.style.width = "0%";
+      if (statusBadge) {
+        statusBadge.textContent = "⚪ POINT PHONE AT FIRE (KANJI MARKER)";
+        statusBadge.style.background = "#334155";
+        statusBadge.style.color = "#94a3b8";
+      }
       if (statusLabel) {
-        statusLabel.textContent = "TOUCH 3D FIRE BASE TO AIM";
+        statusLabel.textContent = "AWAITING GAZE INTERSECTION";
         statusLabel.style.color = "#94a3b8";
       }
+      if (gazeDot && typeof gazeDot.setAttribute === "function") {
+        gazeDot.setAttribute("material", "color: #00e5ff; shader: flat; opacity: 0.9; side: double");
+      }
     };
+
+    // clean marker lost / found handling
+    if (kanjiMarker && typeof kanjiMarker.addEventListener === "function") {
+      kanjiMarker.addEventListener("markerLost", () => {
+        if (!completed) {
+          stopHold();
+          if (statusBadge) {
+            statusBadge.textContent = "⚠️ KANJI MARKER NOT IN VIEW — POINT PHONE AT FIRE";
+            statusBadge.style.color = "#f59e0b";
+          }
+        }
+      });
+      kanjiMarker.addEventListener("markerFound", () => {
+        if (!completed) {
+          if (statusBadge) {
+            statusBadge.textContent = "⚪ POINT PHONE AT FIRE (KANJI MARKER)";
+            statusBadge.style.color = "#94a3b8";
+          }
+        }
+      });
+    }
+
+    // handle gaze raycaster intersection on gazeLaser or reticle
+    const onRaycastIntersection = (ev) => {
+      if (completed) return;
+      const intersections = ev && ev.detail && ev.detail.intersections ? ev.detail.intersections : null;
+      const point = intersections && intersections[0] && intersections[0].point
+        ? intersections[0].point
+        : (ev && ev.detail && ev.detail.intersection ? ev.detail.intersection.point : null);
+      const distance = point ? calcIntersectionDistance(point, { x: 0, y: 0.16, z: 0 }) : 0.12;
+      const accuracy = calcRaycastAimAccuracy(distance);
+      startHold(accuracy, distance);
+    };
+
+    if (gazeLaser && typeof gazeLaser.addEventListener === "function") {
+      gazeLaser.addEventListener("raycaster-intersection", onRaycastIntersection);
+      gazeLaser.addEventListener("raycaster-intersection-cleared", stopHold);
+      gazeLaser.simulateIntersection = (point = { x: 0, y: 0.16, z: 0 }) => {
+        const distance = calcIntersectionDistance(point, { x: 0, y: 0.16, z: 0 });
+        const accuracy = calcRaycastAimAccuracy(distance);
+        handleAimSuccess(accuracy, distance, true);
+      };
+    }
 
     if (reticle) {
       reticle.simulateAim = (score = 0.9, dist = 0.1) => {
         handleAimSuccess(score, dist, true);
       };
       reticle.addEventListener("click", () => handleAimSuccess(0.9, 0.08, true));
+      reticle.addEventListener("raycaster-intersected", onRaycastIntersection);
+      reticle.addEventListener("raycaster-intersected-cleared", stopHold);
       reticle.addEventListener("pointerdown", () => startHold(0.9, 0.08));
       reticle.addEventListener("mousedown", () => startHold(0.9, 0.08));
       reticle.addEventListener("pointerup", stopHold);
       reticle.addEventListener("mouseup", stopHold);
-      reticle.addEventListener("pointercancel", stopHold);
-      reticle.addEventListener("touchstart", () => startHold(0.9, 0.08), { passive: true });
-      reticle.addEventListener("touchend", stopHold);
     }
 
     if (graphic && typeof graphic.addEventListener === "function") {
-      graphic.addEventListener("pointerdown", (ev) => {
-        const intersection = ev && ev.detail && ev.detail.intersection ? ev.detail.intersection : null;
-        const distance = intersection ? calcIntersectionDistance(intersection.point, { x: 0, y: 0.16, z: 0 }) : 0.12;
-        const accuracy = calcRaycastAimAccuracy(distance);
-        startHold(accuracy, distance);
-      });
-      graphic.addEventListener("mousedown", (ev) => {
-        const intersection = ev && ev.detail && ev.detail.intersection ? ev.detail.intersection : null;
-        const distance = intersection ? calcIntersectionDistance(intersection.point, { x: 0, y: 0.16, z: 0 }) : 0.12;
-        const accuracy = calcRaycastAimAccuracy(distance);
-        startHold(accuracy, distance);
-      });
-      graphic.addEventListener("pointerup", stopHold);
-      graphic.addEventListener("mouseup", stopHold);
+      graphic.addEventListener("raycaster-intersected", onRaycastIntersection);
+      graphic.addEventListener("raycaster-intersected-cleared", stopHold);
     }
   }
 
@@ -1172,6 +1243,7 @@ export {
   AIM_PASS_THRESHOLD,
   evaluateSelectionState,
   canExecuteSelectedAction,
+  evaluateGazeAimProgress,
   CP_EXIT_ID,
   CP_EXTINGUISHER_ID,
   CP_EVACUATION_ID

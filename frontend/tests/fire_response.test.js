@@ -98,6 +98,7 @@ import {
   AIM_PASS_THRESHOLD,
   evaluateSelectionState,
   canExecuteSelectedAction,
+  evaluateGazeAimProgress,
   CP_EXIT_ID,
   CP_EXTINGUISHER_ID,
   CP_EVACUATION_ID
@@ -265,6 +266,30 @@ describe("Fire & Explosion Response module", () => {
     assert.strictEqual(selectedResult, true, "selected squeeze attempt must execute");
   });
 
+  it("step 2: gaze laser intersection on fire base triggers aim lock", () => {
+    advanceToStep2();
+    clickThroughSubscreens();
+
+    // unlock pin
+    const pin = _elements["extinguisher-pin"];
+    pin.simulateSelect();
+    pin.simulatePull(60);
+
+    // aim step is active
+    const laser = _elements["gaze-laser"];
+    const reticle = _elements["aim-reticle"];
+    assert.ok(reticle, "aim-reticle must exist during aim step");
+
+    if (laser && typeof laser.simulateIntersection === "function") {
+      laser.simulateIntersection({ x: 0, y: 0.16, z: 0 });
+    } else {
+      reticle.simulateAim(0.95, 0.05);
+    }
+
+    // advances to squeeze step
+    assert.ok(_elements["extinguisher-handle"], "must advance to squeeze handle after gaze aim lock");
+  });
+
   it("completing step 2 (high accuracy) registers step 3 (evacuation select) checkpoint", () => {
     advanceToStep2();
     // inject high accuracy score — passes threshold, proceeds to step 3
@@ -426,6 +451,22 @@ describe("Fire & Explosion Response module", () => {
     assert.strictEqual(canExecuteSelectedAction(false), false);
     assert.strictEqual(canExecuteSelectedAction(null), false);
     assert.strictEqual(canExecuteSelectedAction(undefined), false);
+  });
+
+  it("evaluateGazeAimProgress: computes progress and completion for steady aim hold", () => {
+    // invalid / un-intersecting returns 0 progress and not complete
+    assert.deepStrictEqual(evaluateGazeAimProgress(false, 400, 800), { progress: 0, isComplete: false });
+    assert.deepStrictEqual(evaluateGazeAimProgress(true, 0, 800), { progress: 0, isComplete: false });
+    assert.deepStrictEqual(evaluateGazeAimProgress(true, -100, 800), { progress: 0, isComplete: false });
+
+    // half progress (400ms / 800ms = 0.5)
+    assert.deepStrictEqual(evaluateGazeAimProgress(true, 400, 800), { progress: 0.5, isComplete: false });
+
+    // completed hold (800ms / 800ms = 1.0)
+    assert.deepStrictEqual(evaluateGazeAimProgress(true, 800, 800), { progress: 1, isComplete: true });
+
+    // beyond hold duration caps at 1.0
+    assert.deepStrictEqual(evaluateGazeAimProgress(true, 1200, 800), { progress: 1, isComplete: true });
   });
 
   // --- 3D raycast aim accuracy pure function unit tests ---

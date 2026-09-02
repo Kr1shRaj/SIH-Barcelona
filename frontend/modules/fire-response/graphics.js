@@ -13,14 +13,14 @@ function buildFireEntity() {
   entity.innerHTML = `
     <a-cone id="fire-outer-cone" position="0 1.10 0" radius-bottom="0.80" radius-top="0.10" height="2.20" material="color: #ff4500; opacity: 0.92; roughness: 0.4"></a-cone>
     <a-cone id="fire-inner-cone" position="0 0.75 0" radius-bottom="0.55" radius-top="0.05" height="1.50" material="color: #ffeb3b; opacity: 0.95"></a-cone>
-    <a-cylinder id="fire-target-base" position="0 0.08 0" radius="0.85" height="0.15" material="color: #ff1100; opacity: 0.85"></a-cylinder>
+    <a-cylinder id="fire-target-base" class="clickable aim-target" data-raycast-target="aim" position="0 0.08 0" radius="0.85" height="0.15" material="color: #ff1100; opacity: 0.85"></a-cylinder>
   `;
 
   // 3d aim reticle at the base of the fire
   const aimReticle = document.createElement("a-ring");
   aimReticle.id = "aim-reticle";
   if (typeof aimReticle.setAttribute === "function") {
-    aimReticle.setAttribute("class", "clickable");
+    aimReticle.setAttribute("class", "clickable aim-target");
     aimReticle.setAttribute("data-raycast-target", "aim");
     aimReticle.setAttribute("position", "0 0.16 0");
     aimReticle.setAttribute("rotation", "-90 0 0");
@@ -29,7 +29,7 @@ function buildFireEntity() {
     aimReticle.setAttribute("material", "color: #ff3d00; emissive: #ff3d00; emissiveIntensity: 0.8; side: double");
     aimReticle.setAttribute("animation", "property: scale; to: 1.15 1.15 1.15; dir: alternate; dur: 600; loop: true; easing: easeInOutSine");
   } else {
-    aimReticle.className = "clickable";
+    aimReticle.className = "clickable aim-target";
   }
 
   entity.appendChild(aimReticle);

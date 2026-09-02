@@ -43,7 +43,12 @@ function renderArShell(container, tierResult) {
     : `<a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3;" vr-mode-ui="enabled: false" renderer="logarithmicDepthBuffer: true;">
         <a-marker preset="hiro" id="hiro-marker"></a-marker>
         <a-marker preset="kanji" id="kanji-marker"></a-marker>
-        <a-entity camera cursor="rayOrigin: mouse" raycaster="objects: .clickable, [data-raycast-target]"></a-entity>
+        <a-entity id="main-camera" camera cursor="rayOrigin: mouse" raycaster="objects: .clickable, [data-raycast-target]">
+          <a-entity id="gaze-laser" raycaster="objects: .aim-target, [data-raycast-target='aim'], #aim-reticle; showLine: true; far: 30; lineColor: #00e5ff; lineOpacity: 0.85;" position="0 0 0" rotation="0 0 0">
+            <a-ring id="gaze-dot" position="0 0 -1" radius-inner="0.008" radius-outer="0.016" material="color: #00e5ff; shader: flat; opacity: 0.9; side: double"></a-ring>
+            <a-circle position="0 0 -1" radius="0.003" material="color: #ffffff; shader: flat; opacity: 0.95"></a-circle>
+          </a-entity>
+        </a-entity>
       </a-scene>`;
 
   container.innerHTML = `
