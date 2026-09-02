@@ -95,11 +95,11 @@ function _renderFireGraphic(container) {
 
   const graphic = buildFireGraphic();
 
-  // In AR scene, position realistic burning container 2.8m directly ahead (SENAR benchmark)
+  // In AR scene, position realistic burning container 2.4m directly ahead centered on reticle (SENAR benchmark)
   if (scene) {
-    graphic.setAttribute("position", "0 -0.15 -2.8");
+    graphic.setAttribute("position", "0 0.10 -2.4");
     graphic.setAttribute("rotation", "0 0 0");
-    graphic.setAttribute("scale", "0.95 0.95 0.95");
+    graphic.setAttribute("scale", "0.90 0.90 0.90");
     graphic.setAttribute("visible", "true");
     scene.appendChild(graphic);
   } else {
@@ -147,11 +147,11 @@ function _renderExtinguisherGraphic(container) {
 
   const el = buildExtinguisherGraphic();
 
-  // If in AR scene, anchor comfortably in front of user at eye/chest level so whole object is in frame
+  // If in AR scene, anchor comfortably in front of user at eye/chest level so whole object is in frame above overlay
   if (scene) {
-    el.setAttribute("position", "0 -0.40 -1.6");
+    el.setAttribute("position", "0 0.05 -1.5");
     el.setAttribute("rotation", "0 0 0");
-    el.setAttribute("scale", "0.65 0.65 0.65");
+    el.setAttribute("scale", "0.60 0.60 0.60");
     scene.appendChild(el);
   } else {
     const parent = hiroMarker || container;
@@ -410,19 +410,22 @@ function _setupStep2(container, tierInfo) {
   });
 
   // clean up step 1 exit graphic completely so only step 2 entities are visible
-  if (_exitGraphicEl) {
-    if (typeof _exitGraphicEl.setAttribute === "function") _exitGraphicEl.setAttribute("visible", "false");
-    if (_exitGraphicEl.object3D) _exitGraphicEl.object3D.visible = false;
-    if (_exitGraphicEl.parentNode) _exitGraphicEl.parentNode.removeChild(_exitGraphicEl);
-    _exitGraphicEl = null;
-  }
-  if (typeof document !== "undefined" && typeof document.querySelectorAll === "function") {
-    document.querySelectorAll("#exit-graphic, #exit-board, #exit-arrow-shaft, #exit-arrow-head").forEach((el) => {
+  const scene = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? document.querySelector("a-scene")
+    : null;
+  if (scene && typeof scene.querySelectorAll === "function") {
+    scene.querySelectorAll("#exit-graphic, #exit-board, #exit-arrow-shaft, #exit-arrow-head").forEach((el) => {
       if (typeof el.setAttribute === "function") el.setAttribute("visible", "false");
       if (el.object3D) el.object3D.visible = false;
       if (el.parentNode) el.parentNode.removeChild(el);
       else if (typeof el.remove === "function") el.remove();
     });
+  }
+  if (_exitGraphicEl) {
+    if (typeof _exitGraphicEl.setAttribute === "function") _exitGraphicEl.setAttribute("visible", "false");
+    if (_exitGraphicEl.object3D) _exitGraphicEl.object3D.visible = false;
+    if (_exitGraphicEl.parentNode) _exitGraphicEl.parentNode.removeChild(_exitGraphicEl);
+    _exitGraphicEl = null;
   }
 
   const graphic = _renderFireGraphic(container);
@@ -749,8 +752,8 @@ function _setupStep2(container, tierInfo) {
     const fireGraphic = document.getElementById("fire-graphic");
     if (fireGraphic && typeof fireGraphic.setAttribute === "function") {
       fireGraphic.setAttribute("visible", "true");
-      fireGraphic.setAttribute("position", "0 -0.05 -2.6");
-      fireGraphic.setAttribute("scale", "0.95 0.95 0.95");
+      fireGraphic.setAttribute("position", "0 0.10 -2.4");
+      fireGraphic.setAttribute("scale", "0.90 0.90 0.90");
     }
 
     const bTitle = document.getElementById("billboard-step-title");
