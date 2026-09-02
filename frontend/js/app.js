@@ -75,7 +75,7 @@ function renderArShell(container, tierResult) {
 }
 
 // boot tier 2 marker tracking flow
-async function _bootTier2(container, decision) {
+async function bootTier2(container, decision) {
   const { viewport, statusCard } = renderArShell(container, decision);
   bindModuleLifecycleUI(statusCard);
 
@@ -94,15 +94,39 @@ async function _bootTier2(container, decision) {
       `;
       _bindScaffoldButton(statusCard);
     }
+    return trackingState;
   } catch (err) {
     logger.error({ event: "marker_init_failed", error: err.message }, "Marker tracking failed");
-    if (statusCard) {
-      statusCard.innerHTML = `
-        <h3>Camera Error</h3>
-        <p>${err.message}</p>
-      `;
-    }
+    renderUnsupportedView(container, {
+      tier: 0,
+      mode: "unsupported",
+      reason: err.message || "Marker tracking failed"
+    });
+    return null;
   }
+}
+
+// fall back to tier 2 marker mode when webxr fail at runtime
+async function handleWebXRFallback(container, caps, err, loggerInstance = logger) {
+  if (loggerInstance && typeof loggerInstance.warn === "function") {
+    loggerInstance.warn({
+      event: "webxr_fallback_to_tier2",
+      errorName: (err && err.name) || "Error",
+      errorMessage: (err && err.message) || String(err),
+      errorStack: err && err.stack,
+      caps
+    }, "WebXR runtime failed; falling back to Tier 2 (marker)");
+  }
+
+  const fallbackDecision = {
+    tier: 2,
+    mode: "marker",
+    reason: "webxr_failed_fallback_to_marker",
+    caps,
+    originalError: err && err.message
+  };
+
+  return await bootTier2(container, fallbackDecision);
 }
 
 // start mobile app and init audio and ar
@@ -122,66 +146,25 @@ async function initApp() {
   }
 
   if (decision.tier === 1) {
-    const { canvas, statusCard } = renderArShell(appContainer, decision);
-    bindModuleLifecycleUI(statusCard);
+    try {
+      const { canvas, statusCard } = renderArShell(appContainer, decision);
+      bindModuleLifecycleUI(statusCard);
+      const sessionData = await initWebXRSession(canvas);
+      setTierLoaders(1, loadModule3DScene, sessionData.session);
 
-    if (statusCard) {
-      statusCard.innerHTML = `
-        <h3>AR Tier 1 Ready (WebXR)</h3>
-        <p>Device supports WebXR. Tap to start AR session or switch to Hiro marker.</p>
-        <div style="display:flex;gap:0.6rem;margin-top:0.8rem;flex-wrap:wrap;">
-          <button id="btn-start-webxr" style="padding:0.65rem 1.1rem;background:#00e676;color:#000;border:none;border-radius:8px;font-weight:bold;cursor:pointer;font-size:0.95rem;">🚀 Start WebXR AR</button>
-          <button id="btn-fallback-marker" style="padding:0.65rem 1.1rem;background:#334155;color:#fff;border:none;border-radius:8px;font-weight:bold;cursor:pointer;font-size:0.95rem;">📷 Use Hiro Marker (Tier 2)</button>
-        </div>
-      `;
-
-      const btnFallbackMarker = statusCard.querySelector("#btn-fallback-marker");
-      btnFallbackMarker?.addEventListener("click", () => {
-        logger.info({ event: "user_selected_marker_mode" }, "User selected marker mode fallback");
-        _bootTier2(appContainer, {
-          tier: 2,
-          mode: "marker",
-          reason: "user_selected_marker_mode",
-          caps
-        });
-      });
-
-      const btnStartWebXR = statusCard.querySelector("#btn-start-webxr");
-      btnStartWebXR?.addEventListener("click", async () => {
-        try {
-          btnStartWebXR.disabled = true;
-          btnStartWebXR.textContent = "Starting WebXR Session...";
-          const sessionData = await initWebXRSession(canvas);
-          setTierLoaders(1, loadModule3DScene, sessionData.session);
-
-          statusCard.innerHTML = `
-            <h3>AR Tier 1 Active (WebXR)</h3>
-            <p>Plane tracking ready. Pick a module to begin.</p>
-            ${_scaffoldModuleButton()}
-          `;
-          _bindScaffoldButton(statusCard);
-        } catch (err) {
-          logger.warn({ event: "webxr_init_failed", error: err.message }, "WebXR session request failed, falling back to marker");
-          statusCard.innerHTML = `
-            <div style="background:rgba(15,23,42,0.92);padding:14px;border-radius:10px;border:1px solid #f59e0b;margin-bottom:16px;">
-              <h3 style="color:#f59e0b;font-size:1rem;">WebXR Unavailable</h3>
-              <p style="margin:4px 0 8px 0;font-size:0.85rem;color:#cbd5e1;">${err.message}</p>
-              <p style="font-weight:bold;color:#10b981;font-size:0.9rem;">Switching to Tier 2 (Hiro Marker)...</p>
-            </div>
-          `;
-          setTimeout(() => {
-            _bootTier2(appContainer, {
-              tier: 2,
-              mode: "marker",
-              reason: "webxr_session_not_supported_fallback",
-              caps
-            });
-          }, 1200);
-        }
-      });
+      if (statusCard) {
+        statusCard.innerHTML = `
+          <h3>AR Tier 1 Active (WebXR)</h3>
+          <p>Plane tracking ready. Pick a module to begin.</p>
+          ${_scaffoldModuleButton()}
+        `;
+        _bindScaffoldButton(statusCard);
+      }
+    } catch (err) {
+      await handleWebXRFallback(appContainer, caps, err, logger);
     }
   } else if (decision.tier === 2) {
-    _bootTier2(appContainer, decision);
+    await bootTier2(appContainer, decision);
   }
 }
 
@@ -245,4 +228,4 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
   }
 }
 
-export { initApp, renderUnsupportedView, renderArShell, bindModuleLifecycleUI };
+export { initApp, renderUnsupportedView, renderArShell, bindModuleLifecycleUI, bootTier2, handleWebXRFallback };

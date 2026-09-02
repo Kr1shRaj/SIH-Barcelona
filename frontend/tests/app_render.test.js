@@ -1,12 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { renderUnsupportedView, renderArShell, bindModuleLifecycleUI } from "../js/app.js";
+import { renderUnsupportedView, renderArShell, bindModuleLifecycleUI, handleWebXRFallback, bootTier2 } from "../js/app.js";
 
 // mock minimal dom element
 function createMockElement() {
   return {
     innerHTML: "",
-    children: []
+    children: [],
+    querySelector: () => null
   };
 }
 
@@ -71,5 +72,61 @@ describe("App UI Shell and Error States", () => {
     // simulate module unloaded
     listeners["safear:module_unloaded"]();
     assert.strictEqual(mockStatusCard.style.display, "block", "status card must be restored when module unloads");
+  });
+
+  it("handleWebXRFallback automatically falls back to Tier 2 marker shell and logs structured error", async () => {
+    const mockContainer = createMockElement();
+    const caps = {
+      isSecureContext: true,
+      hasWebXR: true,
+      supportsImmersiveAr: true,
+      hasGetUserMedia: true
+    };
+    const webxrError = new Error("The specified session configuration is not supported");
+    webxrError.name = "NotSupportedError";
+
+    const loggedEvents = [];
+    const testLogger = {
+      info: (data, msg) => loggedEvents.push({ level: "info", data, msg }),
+      warn: (data, msg) => loggedEvents.push({ level: "warn", data, msg }),
+      error: (data, msg) => loggedEvents.push({ level: "error", data, msg })
+    };
+
+    await handleWebXRFallback(mockContainer, caps, webxrError, testLogger);
+
+    // must log structured fallback event with error details
+    const fallbackLog = loggedEvents.find(e => e.data && e.data.event === "webxr_fallback_to_tier2");
+    assert.ok(fallbackLog, "must log structured webxr_fallback_to_tier2 event");
+    assert.strictEqual(fallbackLog.data.errorName, "NotSupportedError");
+    assert.strictEqual(fallbackLog.data.errorMessage, "The specified session configuration is not supported");
+
+    // container must render Tier 2 marker markup, never dead-end
+    assert.ok(mockContainer.innerHTML.includes("Tier 2: Marker (Hiro)"), "must render Tier 2 marker badge");
+    assert.ok(!mockContainer.innerHTML.includes("WebXR Failed"), "must not render dead-end WebXR Failed screen");
+  });
+
+  it("bootTier2 initializes marker shell and falls back to unsupported view on error", async () => {
+    const mockContainer = createMockElement();
+    const decision = {
+      tier: 2,
+      mode: "marker"
+    };
+
+    const trackingState = await bootTier2(mockContainer, decision);
+    assert.ok(trackingState, "bootTier2 should return tracking state");
+    assert.strictEqual(trackingState.isTracking, true);
+
+    // Simulate failure in container rendering
+    renderUnsupportedView(mockContainer, {
+      tier: 0,
+      mode: "unsupported",
+      reason: "Camera access unavailable on device"
+    });
+
+    // Verify clean centered full-screen markup is rendered, not a stray corner button
+    assert.ok(mockContainer.innerHTML.includes("Device Not Supported"));
+    assert.ok(mockContainer.innerHTML.includes("unsupported-screen"));
+    assert.ok(mockContainer.innerHTML.includes("Camera access unavailable on device"));
+    assert.ok(!mockContainer.innerHTML.includes("WebXR Failed"));
   });
 });

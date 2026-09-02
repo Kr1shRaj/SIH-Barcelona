@@ -32,7 +32,18 @@ async function initWebXRSession(canvasElement, options = {}) {
     ...options.sessionInit
   };
 
-  const session = await navigator.xr.requestSession("immersive-ar", sessionOptions);
+  let session;
+  try {
+    session = await navigator.xr.requestSession("immersive-ar", sessionOptions);
+  } catch (err) {
+    logger.warn({
+      event: "webxr_request_session_failed",
+      errorName: err.name || "Error",
+      errorMessage: err.message,
+      sessionOptions
+    }, "navigator.xr.requestSession rejected");
+    throw err;
+  }
 
   const gl = canvasElement.getContext("webgl", { xrCompatible: true });
   if (!gl) {
