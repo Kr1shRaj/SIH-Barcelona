@@ -82,81 +82,79 @@ function _calcAimAccuracy(input, arg2, arg3) {
   return null;
 }
 
-// render 3D fire entity inside kanji marker or fallback container
+// render 3D fire entity in AR space directly in front of user (no stickers required)
 function _renderFireGraphic(container) {
+  const scene = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? document.querySelector("a-scene")
+    : null;
   const kanjiMarker = typeof document !== "undefined" && typeof document.querySelector === "function"
     ? (document.querySelector("#kanji-marker") || document.querySelector("a-marker[preset='kanji']"))
     : null;
-  const marker = kanjiMarker || ((typeof document !== "undefined" && typeof document.querySelector === "function")
-    ? document.querySelector("a-marker")
-    : null);
-
-  if (marker && typeof marker.querySelector === "function") {
-    const testBox = marker.querySelector("#test-box");
-    if (testBox) {
-      if (testBox.style) testBox.style.display = "none";
-      if (typeof testBox.remove === "function") testBox.remove();
-    }
-  }
 
   const graphic = buildFireGraphic();
-  const parent = marker || container;
-  if (parent && parent.appendChild) {
-    parent.appendChild(graphic);
-  }
 
-  // fire renders when kanji marker is detected and hides when lost
-  if (kanjiMarker && typeof kanjiMarker.addEventListener === "function") {
-    if (typeof graphic.setAttribute === "function") {
-      graphic.setAttribute("visible", "false");
+  // If in AR scene, anchor fire directly ahead in room space so trainee needs no physical sticker
+  if (scene) {
+    graphic.setAttribute("position", "0.45 -0.35 -2.5");
+    graphic.setAttribute("rotation", "0 0 0");
+    graphic.setAttribute("scale", "1.1 1.1 1.1");
+    graphic.setAttribute("visible", "true");
+    scene.appendChild(graphic);
+  } else {
+    const parent = kanjiMarker || container;
+    if (parent && parent.appendChild) {
+      parent.appendChild(graphic);
     }
-
-    kanjiMarker.addEventListener("markerFound", () => {
-      if (typeof graphic.setAttribute === "function") {
-        graphic.setAttribute("visible", "true");
-      }
-      logger.info({ event: "kanji_marker_found" }, "Kanji marker detected — fire visible");
-    });
-
-    kanjiMarker.addEventListener("markerLost", () => {
-      if (typeof graphic.setAttribute === "function") {
-        graphic.setAttribute("visible", "false");
-      }
-      logger.info({ event: "kanji_marker_lost" }, "Kanji marker lost — fire hidden");
-    });
   }
 
   return graphic;
 }
 
-// render 3D exit sign entity inside hiro marker or fallback container
+// render 3D exit sign entity in AR space directly in front of user
 function _renderExitGraphic(container) {
+  const scene = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? document.querySelector("a-scene")
+    : null;
   const hiroMarker = typeof document !== "undefined" && typeof document.querySelector === "function"
     ? (document.querySelector("#hiro-marker") || document.querySelector("a-marker[preset='hiro']"))
     : null;
-  const marker = hiroMarker || ((typeof document !== "undefined" && typeof document.querySelector === "function")
-    ? document.querySelector("a-marker")
-    : null);
+
   const el = buildExitGraphic();
-  const parent = marker || container;
-  if (parent && parent.appendChild) {
-    parent.appendChild(el);
+  if (scene) {
+    el.setAttribute("position", "0 0.85 -2.2");
+    el.setAttribute("rotation", "0 0 0");
+    scene.appendChild(el);
+  } else {
+    const parent = hiroMarker || container;
+    if (parent && parent.appendChild) {
+      parent.appendChild(el);
+    }
   }
   return el;
 }
 
-// render 3D fire extinguisher entity inside hiro marker or fallback container
+// render 3D fire extinguisher directly in front of trainee (markerless/world AR)
 function _renderExtinguisherGraphic(container) {
+  const scene = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? document.querySelector("a-scene")
+    : null;
   const hiroMarker = typeof document !== "undefined" && typeof document.querySelector === "function"
     ? (document.querySelector("#hiro-marker") || document.querySelector("a-marker[preset='hiro']"))
     : null;
-  const marker = hiroMarker || ((typeof document !== "undefined" && typeof document.querySelector === "function")
-    ? document.querySelector("a-marker")
-    : null);
+
   const el = buildExtinguisherGraphic();
-  const parent = marker || container;
-  if (parent && parent.appendChild) {
-    parent.appendChild(el);
+
+  // If in AR scene, anchor directly in front of user at chest level — NO STICKERS REQUIRED!
+  if (scene) {
+    el.setAttribute("position", "0 -0.35 -1.4");
+    el.setAttribute("rotation", "0 0 0");
+    el.setAttribute("scale", "0.9 0.9 0.9");
+    scene.appendChild(el);
+  } else {
+    const parent = hiroMarker || container;
+    if (parent && parent.appendChild) {
+      parent.appendChild(el);
+    }
   }
   return el;
 }
@@ -427,8 +425,8 @@ function _setupStep2(container, tierInfo) {
     overlay.innerHTML = `
       <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (1/4)</div>
       <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">P — Pull the Pin</div>
-      <div id="pin-instruction-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Tap the golden safety pin to select it, then drag right to unlock.</div>
-      <div id="pin-status-badge" style="display:inline-block;padding:4px 10px;border-radius:6px;background:#334155;color:#94a3b8;font-size:0.8rem;font-weight:bold;margin-bottom:0.4rem;">⚪ PIN NOT SELECTED — TAP PIN TO SELECT</div>
+      <div id="pin-instruction-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Tap the golden safety pin (or button below) to select, then drag right to unlock.</div>
+      <button id="pin-status-badge" style="display:block;width:100%;max-width:340px;padding:12px 18px;border-radius:10px;border:2px solid #00e5ff;background:#0f172a;color:#00e5ff;font-size:0.95rem;font-weight:bold;cursor:pointer;margin:0.5rem 0;box-shadow:0 0 15px rgba(0,229,255,0.3);pointer-events:auto !important;text-align:center;">👉 TAP HERE TO SELECT PIN</button>
     `;
 
     // target 3d pin sub-entities and 3d progress bar
@@ -450,13 +448,15 @@ function _setupStep2(container, tierInfo) {
       isSelected = selected;
       if (statusBadge) {
         if (selected) {
-          statusBadge.textContent = "🔵 PIN SELECTED — DRAG RIGHT TO PULL";
-          statusBadge.style.background = "rgba(0, 229, 255, 0.25)";
-          statusBadge.style.color = "#00e5ff";
+          statusBadge.textContent = "👉 SWIPE RIGHT OR TAP TO PULL PIN";
+          statusBadge.style.background = "linear-gradient(135deg, #00e5ff, #00b0ff)";
+          statusBadge.style.color = "#000000";
+          statusBadge.style.boxShadow = "0 0 20px rgba(0, 229, 255, 0.6)";
         } else {
-          statusBadge.textContent = "⚪ PIN NOT SELECTED — TAP PIN TO SELECT";
-          statusBadge.style.background = "#334155";
-          statusBadge.style.color = "#94a3b8";
+          statusBadge.textContent = "👉 TAP HERE TO SELECT PIN";
+          statusBadge.style.background = "#0f172a";
+          statusBadge.style.color = "#00e5ff";
+          statusBadge.style.boxShadow = "0 0 15px rgba(0, 229, 255, 0.3)";
         }
       }
       if (instructionText) {
@@ -656,7 +656,11 @@ function _setupStep2(container, tierInfo) {
       if (statusBadge) {
         statusBadge.style.cursor = "pointer";
         statusBadge.addEventListener("click", () => {
-          if (!isSelected) applySelectedVisuals(true);
+          if (!isSelected) {
+            applySelectedVisuals(true);
+          } else {
+            handleFinish(true);
+          }
         });
       }
 
@@ -861,8 +865,8 @@ function _setupStep2(container, tierInfo) {
     overlay.innerHTML = `
       <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (3/4)</div>
       <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">S — Squeeze the Handle</div>
-      <div id="squeeze-instruction-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Tap the 3D operating lever to select it, then press &amp; hold for 1.5s.</div>
-      <div id="squeeze-status-badge" style="display:inline-block;padding:4px 10px;border-radius:6px;background:#334155;color:#94a3b8;font-size:0.8rem;font-weight:bold;margin-bottom:0.4rem;">⚪ LEVER NOT SELECTED — TAP LEVER TO SELECT</div>
+      <div id="squeeze-instruction-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Tap the 3D operating lever (or button below) to select, then press &amp; hold 1.5s.</div>
+      <button id="squeeze-status-badge" style="display:block;width:100%;max-width:340px;padding:12px 18px;border-radius:10px;border:2px solid #ff9100;background:#0f172a;color:#ff9100;font-size:0.95rem;font-weight:bold;cursor:pointer;margin:0.5rem 0;box-shadow:0 0 15px rgba(255,145,0,0.3);pointer-events:auto !important;text-align:center;">👉 TAP HERE TO SELECT LEVER</button>
       <div style="width:100%;max-width:280px;height:8px;background:#334155;border-radius:4px;overflow:hidden;margin:0.5rem 0;">
         <div id="squeeze-progress-bar" style="width:0%;height:100%;background:#ff6a00;transition:width 0.08s linear;"></div>
       </div>
@@ -912,13 +916,15 @@ function _setupStep2(container, tierInfo) {
       isSelected = selected;
       if (statusBadge) {
         if (selected) {
-          statusBadge.textContent = "🟠 LEVER SELECTED — PRESS & HOLD LEVER";
-          statusBadge.style.background = "rgba(255, 145, 0, 0.25)";
-          statusBadge.style.color = "#ff9100";
+          statusBadge.textContent = "👉 PRESS & HOLD HERE (1.5s) TO DISCHARGE";
+          statusBadge.style.background = "linear-gradient(135deg, #ff9100, #ff6a00)";
+          statusBadge.style.color = "#000000";
+          statusBadge.style.boxShadow = "0 0 20px rgba(255, 145, 0, 0.6)";
         } else {
-          statusBadge.textContent = "⚪ LEVER NOT SELECTED — TAP LEVER TO SELECT";
-          statusBadge.style.background = "#334155";
-          statusBadge.style.color = "#94a3b8";
+          statusBadge.textContent = "👉 TAP HERE TO SELECT LEVER";
+          statusBadge.style.background = "#0f172a";
+          statusBadge.style.color = "#ff9100";
+          statusBadge.style.boxShadow = "0 0 15px rgba(255, 145, 0, 0.3)";
         }
       }
       if (instructionText) {
@@ -1060,8 +1066,15 @@ function _setupStep2(container, tierInfo) {
       if (statusBadge) {
         statusBadge.style.cursor = "pointer";
         statusBadge.addEventListener("click", () => {
-          if (!isSelected) applySelectedVisuals(true);
+          if (!isSelected) {
+            applySelectedVisuals(true);
+          } else {
+            handleSqueezeSuccess(true);
+          }
         });
+        statusBadge.addEventListener("pointerdown", startSqueeze);
+        statusBadge.addEventListener("mousedown", startSqueeze);
+        statusBadge.addEventListener("touchstart", startSqueeze, { passive: true });
       }
 
       const releaseTargets = [
