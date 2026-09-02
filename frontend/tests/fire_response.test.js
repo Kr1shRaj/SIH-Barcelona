@@ -96,6 +96,8 @@ import {
   SWEEP_MIN_COVERAGE,
   MOTION_SWEEP_TARGET_SPAN,
   AIM_PASS_THRESHOLD,
+  evaluateSelectionState,
+  canExecuteSelectedAction,
   CP_EXIT_ID,
   CP_EXTINGUISHER_ID,
   CP_EVACUATION_ID
@@ -133,9 +135,10 @@ function advanceToStep2() {
 // helper: fire PASS extinguisher sequence with simulated accuracy score
 function confirmAimWithScore(score) {
   clickThroughSubscreens();
-  // P - Pull pin
+  // P - Pull pin (tap-to-select then pull)
   const pin = _elements["extinguisher-pin"];
   assert.ok(pin, "extinguisher-pin must exist in step 2 (P)");
+  if (typeof pin.simulateSelect === "function") pin.simulateSelect();
   if (typeof pin.simulatePull === "function") {
     pin.simulatePull(60);
   } else {
@@ -152,9 +155,10 @@ function confirmAimWithScore(score) {
     reticle.click();
   }
 
-  // S - Squeeze handle
+  // S - Squeeze handle (tap-to-select then squeeze)
   const handle = _elements["extinguisher-handle"];
   assert.ok(handle, "extinguisher-handle must exist in step 2 (S)");
+  if (typeof handle.simulateSelect === "function") handle.simulateSelect();
   if (typeof handle.simulateSqueeze === "function") {
     handle.simulateSqueeze(1500);
   } else {
@@ -214,6 +218,51 @@ describe("Fire & Explosion Response module", () => {
     assert.ok(document.getElementById("extinguisher-pin"), "extinguisher-pin entity must exist");
     assert.ok(document.getElementById("extinguisher-pin-progress"), "extinguisher-pin-progress entity must exist");
     assert.ok(document.getElementById("pin-progress-fill"), "pin-progress-fill entity must exist");
+  });
+
+  it("step 2: pin requires tap-to-select before pull drag executes", () => {
+    advanceToStep2();
+    clickThroughSubscreens();
+    const pin = _elements["extinguisher-pin"];
+    assert.ok(pin, "extinguisher-pin must exist");
+
+    // pull without selecting must return false / not execute
+    const unselectedResult = pin.simulatePull(60, true);
+    assert.strictEqual(unselectedResult, false, "unselected pull attempt must not execute");
+
+    // tap-to-select pin
+    pin.simulateSelect();
+
+    // now pull executes successfully
+    const selectedResult = pin.simulatePull(60, true);
+    assert.strictEqual(selectedResult, true, "selected pull attempt must execute");
+  });
+
+  it("step 2: handle requires tap-to-select before squeeze hold executes", () => {
+    advanceToStep2();
+    clickThroughSubscreens();
+    // unlock pin first to advance to aim/squeeze
+    const pin = _elements["extinguisher-pin"];
+    pin.simulateSelect();
+    pin.simulatePull(60);
+
+    const reticle = _elements["aim-reticle"];
+    assert.ok(reticle, "aim-reticle must exist");
+    reticle.simulateAim(0.9, 0.08);
+
+    const handle = _elements["extinguisher-handle"];
+    assert.ok(handle, "extinguisher-handle must exist");
+
+    // squeeze without selecting must return false
+    const unselectedResult = handle.simulateSqueeze(1500, true);
+    assert.strictEqual(unselectedResult, false, "unselected squeeze attempt must not execute");
+
+    // tap-to-select handle
+    handle.simulateSelect();
+
+    // now squeeze executes successfully
+    const selectedResult = handle.simulateSqueeze(1500, true);
+    assert.strictEqual(selectedResult, true, "selected squeeze attempt must execute");
   });
 
   it("completing step 2 (high accuracy) registers step 3 (evacuation select) checkpoint", () => {
@@ -359,6 +408,24 @@ describe("Fire & Explosion Response module", () => {
     assert.strictEqual(isSweepComplete(0.9), true);
     assert.strictEqual(isSweepComplete(0.74), false);
     assert.strictEqual(isSweepComplete(0), false);
+  });
+
+  // --- tap-to-select state transition pure function unit tests ---
+
+  it("evaluateSelectionState: transitions selection state on action", () => {
+    assert.strictEqual(evaluateSelectionState(false, "select"), true);
+    assert.strictEqual(evaluateSelectionState(true, "select"), true);
+    assert.strictEqual(evaluateSelectionState(true, "deselect"), false);
+    assert.strictEqual(evaluateSelectionState(false, "deselect"), false);
+    assert.strictEqual(evaluateSelectionState(false, "toggle"), true);
+    assert.strictEqual(evaluateSelectionState(true, "toggle"), false);
+  });
+
+  it("canExecuteSelectedAction: requires selected state to proceed", () => {
+    assert.strictEqual(canExecuteSelectedAction(true), true);
+    assert.strictEqual(canExecuteSelectedAction(false), false);
+    assert.strictEqual(canExecuteSelectedAction(null), false);
+    assert.strictEqual(canExecuteSelectedAction(undefined), false);
   });
 
   // --- 3D raycast aim accuracy pure function unit tests ---

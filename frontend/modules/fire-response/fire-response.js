@@ -358,6 +358,19 @@ function isSweepComplete(coverageFraction, threshold = SWEEP_MIN_COVERAGE) {
   return typeof coverageFraction === "number" && !isNaN(coverageFraction) && coverageFraction >= threshold;
 }
 
+// transition selection state on interactive 3d target
+function evaluateSelectionState(currentState = false, actionType = "toggle") {
+  if (actionType === "select") return true;
+  if (actionType === "deselect") return false;
+  if (actionType === "toggle") return !currentState;
+  return Boolean(currentState);
+}
+
+// verify whether gesture action can proceed based on selection state
+function canExecuteSelectedAction(isSelected = false) {
+  return isSelected === true;
+}
+
 // step 2: aim — user performs sequential PASS physical gesture interactions
 function _setupStep2(container, tierInfo) {
   _currentStep = 2;
@@ -384,27 +397,68 @@ function _setupStep2(container, tierInfo) {
   let _recordedAccuracy = null;
   let _recordedDistance = null;
 
-  // pass sub-step 1: P — Pull pin drag gesture targeting 3D extinguisher
+  // pass sub-step 1: P — Pull pin tap-to-select then drag gesture on 3D extinguisher
   function _renderPullPin() {
     if (!overlay) return;
     overlay.innerHTML = `
       <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (1/4)</div>
       <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">P — Pull the Pin</div>
-      <div style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Drag the safety pin on the 3D extinguisher to the right to unlock.</div>
+      <div id="pin-instruction-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Tap the golden safety pin to select it, then drag right to unlock.</div>
+      <div id="pin-status-badge" style="display:inline-block;padding:4px 10px;border-radius:6px;background:#334155;color:#94a3b8;font-size:0.8rem;font-weight:bold;margin-bottom:0.4rem;">⚪ PIN NOT SELECTED — TAP PIN TO SELECT</div>
     `;
 
-    // target 3d pin sub-entity, hit proxy, and 3d progress bar
+    // target 3d pin sub-entities and 3d progress bar
     const pin = document.getElementById("extinguisher-pin");
-    const pinHitbox = document.getElementById("pin-hitbox");
     const progressFill = document.getElementById("pin-progress-fill");
+    const statusBadge = document.getElementById("pin-status-badge");
+    const instructionText = document.getElementById("pin-instruction-text");
 
     const BASE_PIN_X = 0.08;
     const BASE_PIN_Y = 1.78;
     const BASE_PIN_Z = 0.15;
 
+    let isSelected = false;
     let startX = null;
     let currentDrag = 0;
     let completed = false;
+
+    function applySelectedVisuals(selected) {
+      isSelected = selected;
+      if (statusBadge) {
+        if (selected) {
+          statusBadge.textContent = "🔵 PIN SELECTED — DRAG RIGHT TO PULL";
+          statusBadge.style.background = "rgba(0, 229, 255, 0.25)";
+          statusBadge.style.color = "#00e5ff";
+        } else {
+          statusBadge.textContent = "⚪ PIN NOT SELECTED — TAP PIN TO SELECT";
+          statusBadge.style.background = "#334155";
+          statusBadge.style.color = "#94a3b8";
+        }
+      }
+      if (instructionText) {
+        instructionText.textContent = selected
+          ? "Pin selected! Now drag your finger to the right to pull the pin."
+          : "Tap the golden safety pin to select it, then drag right to unlock.";
+      }
+      const shaft = document.getElementById("ext-pin-shaft");
+      const ring = document.getElementById("ext-pin-ring");
+      if (shaft && typeof shaft.setAttribute === "function") {
+        shaft.setAttribute(
+          "material",
+          selected
+            ? "color: #00e5ff; emissive: #00e5ff; emissiveIntensity: 0.8; metalness: 0.8; roughness: 0.2"
+            : "color: #fbbf24; metalness: 0.8; roughness: 0.2"
+        );
+      }
+      if (ring && typeof ring.setAttribute === "function") {
+        ring.setAttribute(
+          "material",
+          selected
+            ? "color: #00e5ff; emissive: #00e5ff; emissiveIntensity: 0.9; metalness: 0.6; roughness: 0.2"
+            : "color: #fbbf24; emissive: #f59e0b; emissiveIntensity: 0.7; metalness: 0.6; roughness: 0.2"
+        );
+      }
+    }
 
     function handleFinish(sync = false) {
       if (completed) return;
@@ -421,6 +475,11 @@ function _setupStep2(container, tierInfo) {
         pinRing.setAttribute("material", "color: #10b981; metalness: 0.8; roughness: 0.2");
         if (typeof pinRing.removeAttribute === "function") pinRing.removeAttribute("animation");
       }
+      if (statusBadge) {
+        statusBadge.textContent = "✔ PIN UNLOCKED";
+        statusBadge.style.background = "rgba(16, 185, 129, 0.25)";
+        statusBadge.style.color = "#10b981";
+      }
       if (progressFill && typeof progressFill.setAttribute === "function") {
         progressFill.setAttribute("scale", "1 1 1");
       }
@@ -432,19 +491,41 @@ function _setupStep2(container, tierInfo) {
     }
 
     if (pin) {
-      pin.simulatePull = (dist = 60) => {
-        if (isPinPullComplete(dist, PIN_PULL_THRESHOLD_PX)) handleFinish(true);
+      pin.simulateSelect = () => {
+        applySelectedVisuals(true);
       };
-      pin.addEventListener("click", () => handleFinish(true));
+      pin.simulatePull = (dist = 60, requireSelected = false) => {
+        if (requireSelected && !canExecuteSelectedAction(isSelected)) {
+          return false;
+        }
+        if (isPinPullComplete(dist, PIN_PULL_THRESHOLD_PX)) {
+          handleFinish(true);
+          return true;
+        }
+        return false;
+      };
+      pin.addEventListener("click", () => {
+        if (!isSelected) {
+          applySelectedVisuals(true);
+        } else {
+          handleFinish(true);
+        }
+      });
 
-      const onPointerStart = (clientX) => {
+      const onSelectTap = (e) => {
         if (completed) return;
+        if (e && typeof e.stopPropagation === "function") e.stopPropagation();
+        applySelectedVisuals(true);
+      };
+
+      const onDragStart = (clientX) => {
+        if (completed || !canExecuteSelectedAction(isSelected)) return;
         startX = clientX;
         currentDrag = 0;
       };
 
-      const onPointerMove = (clientX) => {
-        if (startX === null || completed) return;
+      const onDragMove = (clientX) => {
+        if (startX === null || completed || !canExecuteSelectedAction(isSelected)) return;
         currentDrag = Math.max(0, clientX - startX);
         const fraction = Math.min(1, currentDrag / PIN_PULL_THRESHOLD_PX);
         if (pin && typeof pin.setAttribute === "function") {
@@ -458,9 +539,9 @@ function _setupStep2(container, tierInfo) {
         }
       };
 
-      const onPointerEnd = () => {
+      const onDragEnd = () => {
         startX = null;
-        if (!completed) {
+        if (!completed && isSelected) {
           if (pin && typeof pin.setAttribute === "function") {
             pin.setAttribute("position", `${BASE_PIN_X} ${BASE_PIN_Y} ${BASE_PIN_Z}`);
           }
@@ -470,44 +551,48 @@ function _setupStep2(container, tierInfo) {
         }
       };
 
-      const interactiveTargets = [pin, pinHitbox].filter(Boolean);
-      interactiveTargets.forEach((target) => {
-        target.addEventListener("pointerdown", (e) => {
-          onPointerStart(e.clientX);
-          target.setPointerCapture?.(e.pointerId);
-        });
-        target.addEventListener("mousedown", (e) => onPointerStart(e.clientX));
-        target.addEventListener("pointermove", (e) => onPointerMove(e.clientX));
-        target.addEventListener("pointerup", (e) => {
-          onPointerEnd();
-          target.releasePointerCapture?.(e.pointerId);
-        });
-        target.addEventListener("mouseup", onPointerEnd);
+      // real tap directly on pin mesh elements triggers select
+      const pinMeshes = [
+        pin,
+        document.getElementById("ext-pin-shaft"),
+        document.getElementById("ext-pin-ring")
+      ].filter(Boolean);
 
-        target.addEventListener("touchstart", (e) => {
-          if (e.touches && e.touches[0]) onPointerStart(e.touches[0].clientX);
+      pinMeshes.forEach((mesh) => {
+        mesh.addEventListener("pointerdown", (e) => {
+          if (!isSelected) {
+            onSelectTap(e);
+          } else {
+            onDragStart(e.clientX);
+          }
+        });
+        mesh.addEventListener("mousedown", (e) => {
+          if (!isSelected) {
+            onSelectTap(e);
+          } else {
+            onDragStart(e.clientX);
+          }
+        });
+        mesh.addEventListener("touchstart", (e) => {
+          if (!isSelected) {
+            onSelectTap(e);
+          } else if (e.touches && e.touches[0]) {
+            onDragStart(e.touches[0].clientX);
+          }
         }, { passive: true });
-        target.addEventListener("touchmove", (e) => {
-          if (e.touches && e.touches[0]) onPointerMove(e.touches[0].clientX);
-        }, { passive: true });
-        target.addEventListener("touchend", onPointerEnd);
       });
 
-      // also wire drag on overlay for flexible mobile touch
-      overlay.addEventListener("pointerdown", (e) => {
-        if (startX === null) onPointerStart(e.clientX);
-      });
+      // dragging once selected can track over overlay/screen
       overlay.addEventListener("pointermove", (e) => {
-        if (startX !== null) onPointerMove(e.clientX);
+        if (isSelected && startX !== null) onDragMove(e.clientX);
       });
-      overlay.addEventListener("pointerup", onPointerEnd);
-      overlay.addEventListener("touchstart", (e) => {
-        if (startX === null && e.touches && e.touches[0]) onPointerStart(e.touches[0].clientX);
-      }, { passive: true });
+      overlay.addEventListener("pointerup", onDragEnd);
       overlay.addEventListener("touchmove", (e) => {
-        if (startX !== null && e.touches && e.touches[0]) onPointerMove(e.touches[0].clientX);
+        if (isSelected && startX !== null && e.touches && e.touches[0]) {
+          onDragMove(e.touches[0].clientX);
+        }
       }, { passive: true });
-      overlay.addEventListener("touchend", onPointerEnd);
+      overlay.addEventListener("touchend", onDragEnd);
     }
   }
 
@@ -615,37 +700,78 @@ function _setupStep2(container, tierInfo) {
     }
   }
 
-  // pass sub-step 3: S — Squeeze 3D operating lever directly (no DOM button)
+  // pass sub-step 3: S — Squeeze 3D operating lever directly (tap-to-select then press-and-hold)
   function _renderSqueeze() {
     if (!overlay) return;
     overlay.innerHTML = `
       <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (3/4)</div>
       <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">S — Squeeze the Handle</div>
-      <div style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Press and hold the operating lever on top of the 3D extinguisher for 1.5s.</div>
+      <div id="squeeze-instruction-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Tap the 3D operating lever to select it, then press &amp; hold for 1.5s.</div>
+      <div id="squeeze-status-badge" style="display:inline-block;padding:4px 10px;border-radius:6px;background:#334155;color:#94a3b8;font-size:0.8rem;font-weight:bold;margin-bottom:0.4rem;">⚪ LEVER NOT SELECTED — TAP LEVER TO SELECT</div>
       <div style="width:100%;max-width:280px;height:8px;background:#334155;border-radius:4px;overflow:hidden;margin:0.5rem 0;">
         <div id="squeeze-progress-bar" style="width:0%;height:100%;background:#ff6a00;transition:width 0.08s linear;"></div>
       </div>
-      <div id="squeeze-status-label" style="font-size:0.85rem;color:#94a3b8;font-weight:bold;">HOLD 3D OPERATING LEVER</div>
+      <div id="squeeze-status-label" style="font-size:0.85rem;color:#94a3b8;font-weight:bold;">AWAITING LEVER SELECTION</div>
     `;
 
     const progressBar = document.getElementById("squeeze-progress-bar");
     const statusLabel = document.getElementById("squeeze-status-label");
+    const statusBadge = document.getElementById("squeeze-status-badge");
+    const instructionText = document.getElementById("squeeze-instruction-text");
     const handle = document.getElementById("extinguisher-handle");
 
-    if (handle && typeof handle.setAttribute === "function") {
-      handle.setAttribute("material", "color: #ff6a00; emissive: #ff6a00; emissiveIntensity: 0.7; metalness: 0.5; roughness: 0.3");
-      handle.setAttribute("animation", "property: scale; to: 1.15 1.15 1.15; dir: alternate; dur: 500; loop: true; easing: easeInOutSine");
-    }
-
+    let isSelected = false;
     let startTime = null;
     let timer = null;
     let completed = false;
+
+    function applySelectedVisuals(selected) {
+      isSelected = selected;
+      if (statusBadge) {
+        if (selected) {
+          statusBadge.textContent = "🟠 LEVER SELECTED — PRESS & HOLD LEVER";
+          statusBadge.style.background = "rgba(255, 145, 0, 0.25)";
+          statusBadge.style.color = "#ff9100";
+        } else {
+          statusBadge.textContent = "⚪ LEVER NOT SELECTED — TAP LEVER TO SELECT";
+          statusBadge.style.background = "#334155";
+          statusBadge.style.color = "#94a3b8";
+        }
+      }
+      if (instructionText) {
+        instructionText.textContent = selected
+          ? "Lever selected! Now press and hold the lever for 1.5s to discharge."
+          : "Tap the 3D operating lever to select it, then press & hold for 1.5s.";
+      }
+      if (statusLabel) {
+        statusLabel.textContent = selected ? "PRESS & HOLD SELECTED 3D LEVER" : "AWAITING LEVER SELECTION";
+        statusLabel.style.color = selected ? "#ff9100" : "#94a3b8";
+      }
+      if (handle && typeof handle.setAttribute === "function") {
+        handle.setAttribute(
+          "material",
+          selected
+            ? "color: #ff9100; emissive: #ff9100; emissiveIntensity: 0.85; metalness: 0.5; roughness: 0.3"
+            : "color: #334155; metalness: 0.5; roughness: 0.3"
+        );
+        if (selected) {
+          handle.setAttribute("animation", "property: scale; to: 1.15 1.15 1.15; dir: alternate; dur: 500; loop: true; easing: easeInOutSine");
+        } else if (typeof handle.removeAttribute === "function") {
+          handle.removeAttribute("animation");
+        }
+      }
+    }
 
     function handleSqueezeSuccess(sync = false) {
       if (completed) return;
       completed = true;
       clearInterval(timer);
       if (progressBar) progressBar.style.width = "100%";
+      if (statusBadge) {
+        statusBadge.textContent = "✔ AGENT DISCHARGED";
+        statusBadge.style.background = "rgba(16, 185, 129, 0.25)";
+        statusBadge.style.color = "#10b981";
+      }
       if (statusLabel) {
         statusLabel.textContent = "✔ DISCHARGING AGENT!";
         statusLabel.style.color = "#10b981";
@@ -662,13 +788,34 @@ function _setupStep2(container, tierInfo) {
     }
 
     if (handle) {
-      handle.simulateSqueeze = (durationMs = 1500) => {
-        if (isSqueezeComplete(durationMs, SQUEEZE_HOLD_DURATION_MS)) handleSqueezeSuccess(true);
+      handle.simulateSelect = () => {
+        applySelectedVisuals(true);
       };
-      handle.addEventListener("click", () => handleSqueezeSuccess(true));
+      handle.simulateSqueeze = (durationMs = 1500, requireSelected = false) => {
+        if (requireSelected && !canExecuteSelectedAction(isSelected)) {
+          return false;
+        }
+        if (isSqueezeComplete(durationMs, SQUEEZE_HOLD_DURATION_MS)) {
+          handleSqueezeSuccess(true);
+          return true;
+        }
+        return false;
+      };
+      handle.addEventListener("click", () => {
+        if (!isSelected) {
+          applySelectedVisuals(true);
+        } else {
+          handleSqueezeSuccess(true);
+        }
+      });
 
-      const startSqueeze = () => {
+      const startSqueeze = (e) => {
         if (completed) return;
+        if (!isSelected) {
+          if (e && typeof e.stopPropagation === "function") e.stopPropagation();
+          applySelectedVisuals(true);
+          return;
+        }
         startTime = Date.now();
         clearInterval(timer);
         if (statusLabel) {
@@ -690,9 +837,9 @@ function _setupStep2(container, tierInfo) {
         clearInterval(timer);
         startTime = null;
         if (progressBar) progressBar.style.width = "0%";
-        if (statusLabel) {
-          statusLabel.textContent = "HOLD 3D OPERATING LEVER";
-          statusLabel.style.color = "#94a3b8";
+        if (statusLabel && isSelected) {
+          statusLabel.textContent = "PRESS & HOLD SELECTED 3D LEVER";
+          statusLabel.style.color = "#ff9100";
         }
       };
 
@@ -1023,6 +1170,8 @@ export {
   FIRE_BASE_MAX_DISTANCE_3D,
   FIRE_BASE_TARGET_3D,
   AIM_PASS_THRESHOLD,
+  evaluateSelectionState,
+  canExecuteSelectedAction,
   CP_EXIT_ID,
   CP_EXTINGUISHER_ID,
   CP_EVACUATION_ID

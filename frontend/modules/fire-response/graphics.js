@@ -110,38 +110,34 @@ function buildExtinguisherEntity() {
   const pinShaft = document.createElement("a-cylinder");
   pinShaft.id = "ext-pin-shaft";
   if (typeof pinShaft.setAttribute === "function") {
+    pinShaft.setAttribute("class", "clickable");
+    pinShaft.setAttribute("data-raycast-target", "pin");
     pinShaft.setAttribute("rotation", "90 0 0");
     pinShaft.setAttribute("radius", "0.08");
     pinShaft.setAttribute("height", "0.38");
     pinShaft.setAttribute("material", "color: #fbbf24; metalness: 0.8; roughness: 0.2");
+  } else {
+    pinShaft.className = "clickable";
   }
 
   // visible gold pull ring with gentle pulse animation affordance
   const pinRing = document.createElement("a-torus");
   pinRing.id = "ext-pin-ring";
   if (typeof pinRing.setAttribute === "function") {
+    pinRing.setAttribute("class", "clickable");
+    pinRing.setAttribute("data-raycast-target", "pin");
     pinRing.setAttribute("position", "0.20 0 0");
     pinRing.setAttribute("rotation", "0 90 0");
     pinRing.setAttribute("radius", "0.16");
     pinRing.setAttribute("radius-tubular", "0.032");
     pinRing.setAttribute("material", "color: #fbbf24; emissive: #f59e0b; emissiveIntensity: 0.7; metalness: 0.6; roughness: 0.2");
     pinRing.setAttribute("animation", "property: scale; to: 1.25 1.25 1.25; dir: alternate; dur: 700; loop: true; easing: easeInOutSine");
-  }
-
-  // generous invisible touch hit proxy (1.1m box ~ dominant touch target)
-  const pinHitbox = document.createElement("a-box");
-  pinHitbox.id = "pin-hitbox";
-  if (typeof pinHitbox.setAttribute === "function") {
-    pinHitbox.setAttribute("class", "clickable");
-    pinHitbox.setAttribute("width", "1.10");
-    pinHitbox.setAttribute("height", "1.10");
-    pinHitbox.setAttribute("depth", "1.10");
-    pinHitbox.setAttribute("material", "opacity: 0.0; transparent: true");
+  } else {
+    pinRing.className = "clickable";
   }
 
   pin.appendChild(pinShaft);
   pin.appendChild(pinRing);
-  pin.appendChild(pinHitbox);
 
   // 3d progress bar next to pin in marker space
   const progressContainer = document.createElement("a-entity");
