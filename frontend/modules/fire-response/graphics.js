@@ -15,7 +15,7 @@ function buildFireEntity() {
     <!-- industrial metal waste bin fuel source with charred steel rim -->
     <a-cylinder id="fire-barrel" position="0 -0.40 0" radius="0.52" height="0.80" material="color: #1e293b; metalness: 0.7; roughness: 0.4"></a-cylinder>
     <a-torus id="fire-barrel-rim" position="0 0 0" rotation="90 0 0" radius="0.52" radius-tubular="0.025" material="color: #0f172a; metalness: 0.85"></a-torus>
-    <a-cylinder id="fire-embers" position="0 -0.02 0" radius="0.48" height="0.06" material="color: #ff2200; emissive: #ff3300; emissiveIntensity: 1.8; shader: flat" animation="property: material.emissiveIntensity; to: 2.2; from: 1.4; dir: alternate; dur: 200; loop: true"></a-cylinder>
+    <a-cylinder id="fire-embers" position="0 -0.02 0" radius="0.48" height="0.06" material="color: #ff4400; shader: flat; opacity: 0.95" animation="property: material.color; type: color; to: #ff6600; from: #ff2200; dir: alternate; dur: 200; loop: true"></a-cylinder>
 
     <!-- dynamic flickering flame tongues (SENAR realistic fire look with radiant emissive glow) -->
     <a-cone id="fire-outer-cone" position="0 0.85 0" radius-bottom="0.56" radius-top="0.04" height="1.80" material="color: #ff3d00; shader: flat; opacity: 0.90; transparent: true" animation="property: scale; to: 1.08 1.18 1.08; from: 0.92 0.85 0.92; dir: alternate; dur: 220; loop: true; easing: easeInOutSine"></a-cone>
@@ -44,7 +44,7 @@ function buildFireEntity() {
     aimReticle.setAttribute("rotation", "-90 0 0");
     aimReticle.setAttribute("radius-inner", "0.45");
     aimReticle.setAttribute("radius-outer", "0.78");
-    aimReticle.setAttribute("material", "color: #ff3d00; emissive: #ff3d00; emissiveIntensity: 0.9; side: double");
+    aimReticle.setAttribute("material", "color: #ff3d00; shader: flat; side: double");
     aimReticle.setAttribute("animation", "property: scale; to: 1.15 1.15 1.15; dir: alternate; dur: 600; loop: true; easing: easeInOutSine");
   } else {
     aimReticle.className = "clickable aim-target";
@@ -69,9 +69,9 @@ function buildExitEntity() {
 
   // standard ISO green emergency exit board with unmistakable white directional arrow silhouette
   entity.innerHTML = `
-    <a-box id="exit-board" position="0 0 0" width="1.10" height="0.55" depth="0.06" material="color: #00873d; emissive: #005a28; emissiveIntensity: 0.35"></a-box>
-    <a-box id="exit-arrow-shaft" position="-0.13 0 0.035" width="0.42" height="0.15" depth="0.01" material="color: #ffffff; emissive: #ffffff; emissiveIntensity: 0.3"></a-box>
-    <a-triangle id="exit-arrow-head" vertex-a="0.36 0 0.035" vertex-b="0.08 0.20 0.035" vertex-c="0.08 -0.20 0.035" material="color: #ffffff; emissive: #ffffff; emissiveIntensity: 0.3"></a-triangle>
+    <a-box id="exit-board" position="0 0 0" width="1.10" height="0.55" depth="0.06" material="color: #00c853; shader: flat"></a-box>
+    <a-box id="exit-arrow-shaft" position="-0.13 0 0.035" width="0.42" height="0.15" depth="0.01" material="color: #ffffff; shader: flat"></a-box>
+    <a-triangle id="exit-arrow-head" vertex-a="0.36 0 0.035" vertex-b="0.08 0.20 0.035" vertex-c="0.08 -0.20 0.035" material="color: #ffffff; shader: flat"></a-triangle>
   `;
 
   return entity;
@@ -93,10 +93,10 @@ function buildExtinguisherEntity() {
   // extinguisher centered directly at (0, 0, 0) on Hiro marker with PBR composite detailing
   entity.innerHTML = `
     <!-- realistic crimson powder-coat cylinder with curved dome ends -->
-    <a-cylinder id="ext-body" position="0 0 0" radius="0.38" height="1.30" material="color: #b91c1c; metalness: 0.35; roughness: 0.25"></a-cylinder>
-    <a-sphere id="ext-top-dome" position="0 0.65 0" radius="0.38" scale="1 0.40 1" material="color: #b91c1c; metalness: 0.35; roughness: 0.25"></a-sphere>
-    <a-sphere id="ext-bottom-dome" position="0 -0.65 0" radius="0.38" scale="1 0.30 1" material="color: #b91c1c; metalness: 0.35; roughness: 0.25"></a-sphere>
-    <a-cylinder id="ext-base" position="0 -0.74 0" radius="0.41" height="0.14" material="color: #09090b; roughness: 0.85"></a-cylinder>
+    <a-cylinder id="ext-body" position="0 0 0" radius="0.38" height="1.30" material="color: #ef4444; shader: flat"></a-cylinder>
+    <a-sphere id="ext-top-dome" position="0 0.65 0" radius="0.38" scale="1 0.40 1" material="color: #ef4444; shader: flat"></a-sphere>
+    <a-sphere id="ext-bottom-dome" position="0 -0.65 0" radius="0.38" scale="1 0.30 1" material="color: #ef4444; shader: flat"></a-sphere>
+    <a-cylinder id="ext-base" position="0 -0.74 0" radius="0.41" height="0.14" material="color: #1e293b; shader: flat"></a-cylinder>
 
     <!-- industrial pass instruction decal plate on front cylinder body -->
     <a-plane id="ext-decal-plate" position="0 0 0.385" width="0.46" height="0.65" material="color: #ffffff; roughness: 0.3"></a-plane>
@@ -188,7 +188,7 @@ function buildExtinguisherEntity() {
     pinRing.setAttribute("rotation", "0 90 0");
     pinRing.setAttribute("radius", "0.16");
     pinRing.setAttribute("radius-tubular", "0.032");
-    pinRing.setAttribute("material", "color: #fbbf24; emissive: #f59e0b; emissiveIntensity: 0.7; metalness: 0.6; roughness: 0.2");
+    pinRing.setAttribute("material", "color: #fbbf24; shader: flat");
     pinRing.setAttribute("animation", "property: scale; to: 1.25 1.25 1.25; dir: alternate; dur: 700; loop: true; easing: easeInOutSine");
   } else {
     pinRing.className = "clickable";
@@ -202,7 +202,7 @@ function buildExtinguisherEntity() {
     tamperSeal.setAttribute("width", "0.05");
     tamperSeal.setAttribute("height", "0.20");
     tamperSeal.setAttribute("depth", "0.05");
-    tamperSeal.setAttribute("material", "color: #eab308; emissive: #ca8a04; emissiveIntensity: 0.5");
+    tamperSeal.setAttribute("material", "color: #eab308; shader: flat");
   }
 
   // generous invisible touch hit target for pin (45cm radius sphere centered on ring)
@@ -237,7 +237,7 @@ function buildExtinguisherEntity() {
     phantomShaft.setAttribute("rotation", "90 0 0");
     phantomShaft.setAttribute("radius", "0.08");
     phantomShaft.setAttribute("height", "0.38");
-    phantomShaft.setAttribute("material", "color: #00e5ff; emissive: #00e5ff; emissiveIntensity: 0.9; opacity: 0.45; transparent: true");
+    phantomShaft.setAttribute("material", "color: #00e5ff; shader: flat; opacity: 0.45; transparent: true");
   }
 
   const phantomRing = document.createElement("a-torus");
@@ -247,7 +247,7 @@ function buildExtinguisherEntity() {
     phantomRing.setAttribute("rotation", "0 90 0");
     phantomRing.setAttribute("radius", "0.16");
     phantomRing.setAttribute("radius-tubular", "0.032");
-    phantomRing.setAttribute("material", "color: #00e5ff; emissive: #00e5ff; emissiveIntensity: 0.95; opacity: 0.55; transparent: true");
+    phantomRing.setAttribute("material", "color: #00e5ff; shader: flat; opacity: 0.55; transparent: true");
   }
 
   phantomPin.appendChild(phantomShaft);
@@ -275,7 +275,7 @@ function buildExtinguisherEntity() {
     arrowCone.setAttribute("radius-top", "0.01");
     arrowCone.setAttribute("height", "0.36");
     arrowCone.setAttribute("rotation", "180 0 0");
-    arrowCone.setAttribute("material", "color: #facc15; emissive: #facc15; emissiveIntensity: 1.0; side: double");
+    arrowCone.setAttribute("material", "color: #facc15; shader: flat; side: double");
   }
 
   const arrowShaft = document.createElement("a-cylinder");
@@ -286,7 +286,7 @@ function buildExtinguisherEntity() {
     arrowShaft.setAttribute("position", "0 0.16 0");
     arrowShaft.setAttribute("radius", "0.06");
     arrowShaft.setAttribute("height", "0.32");
-    arrowShaft.setAttribute("material", "color: #facc15; emissive: #facc15; emissiveIntensity: 0.9; side: double");
+    arrowShaft.setAttribute("material", "color: #facc15; shader: flat; side: double");
   }
 
   const arrowText = document.createElement("a-text");
@@ -345,7 +345,7 @@ function buildExtinguisherEntity() {
 
   spatialBillboard.innerHTML = `
     <a-box id="billboard-bg" position="0 0 0" width="0.95" height="0.65" depth="0.03" material="color: #0f172a; opacity: 0.88; roughness: 0.5"></a-box>
-    <a-box id="billboard-border" position="0 0 0.018" width="0.97" height="0.67" depth="0.005" material="color: #00e5ff; opacity: 0.75; emissive: #00e5ff; emissiveIntensity: 0.4; wireframe: true"></a-box>
+    <a-box id="billboard-border" position="0 0 0.018" width="0.97" height="0.67" depth="0.005" material="color: #00e5ff; opacity: 0.75; shader: flat; wireframe: true"></a-box>
     <a-text id="billboard-step-badge" value="🔥 STEP 2 / 3 — PASS" align="center" position="0 0.22 0.035" scale="0.42 0.42 0.42" color="#f59e0b"></a-text>
     <a-text id="billboard-step-title" value="P — PULL PIN" align="center" position="0 0.10 0.035" scale="0.55 0.55 0.55" color="#ffffff"></a-text>
     <a-text id="billboard-step-desc" value="Tap pin or arrow,\nthen drag right." align="center" position="0 -0.04 0.035" scale="0.34 0.34 0.34" color="#94a3b8"></a-text>

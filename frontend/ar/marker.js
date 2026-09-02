@@ -6,7 +6,7 @@ const logger = createLogger("ARMarker");
 async function loadMarkerModuleScene(moduleId, trackingState) {
   if (moduleId === "fire-response") {
     // overlay UI anchors to document body; marker tracking handle available for future use
-    const { startFireModule } = await import("../modules/fire-response/fire-response.js");
+    const { startFireModule } = await import(`../modules/fire-response/fire-response.js?v=${Date.now()}`);
     const container = typeof document !== "undefined" ? document.getElementById("ar-viewport") : null;
     startFireModule(container, { tier: 2, trackingState });
     return;

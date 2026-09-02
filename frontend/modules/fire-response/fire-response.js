@@ -84,26 +84,32 @@ function _calcAimAccuracy(input, arg2, arg3) {
   return null;
 }
 
-// render 3D fire entity in AR space directly in front of user (no stickers required)
+// render 3D fire entity anchored to camera so AR.js shows it without printed marker
 function _renderFireGraphic(container) {
+  const camera = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? (document.querySelector("#main-camera") || document.querySelector("[camera]"))
+    : null;
   const scene = typeof document !== "undefined" && typeof document.querySelector === "function"
     ? document.querySelector("a-scene")
-    : null;
-  const kanjiMarker = typeof document !== "undefined" && typeof document.querySelector === "function"
-    ? (document.querySelector("#kanji-marker") || document.querySelector("a-marker[preset='kanji']"))
     : null;
 
   const graphic = buildFireGraphic();
 
-  // In AR scene, position realistic burning container 2.4m directly ahead centered on reticle (SENAR benchmark)
-  if (scene) {
+  // anchor to camera so fire is always visible (SENAR markerless benchmark)
+  if (camera) {
+    graphic.setAttribute("position", "0 -0.10 -2.5");
+    graphic.setAttribute("rotation", "0 0 0");
+    graphic.setAttribute("scale", "0.50 0.50 0.50");
+    graphic.setAttribute("visible", "true");
+    camera.appendChild(graphic);
+  } else if (scene) {
     graphic.setAttribute("position", "0 0.10 -2.4");
     graphic.setAttribute("rotation", "0 0 0");
     graphic.setAttribute("scale", "0.90 0.90 0.90");
     graphic.setAttribute("visible", "true");
     scene.appendChild(graphic);
   } else {
-    const parent = kanjiMarker || container;
+    const parent = container;
     if (parent && parent.appendChild) {
       parent.appendChild(graphic);
     }
@@ -112,23 +118,28 @@ function _renderFireGraphic(container) {
   return graphic;
 }
 
-// render 3D exit sign entity in AR space directly in front of user
+// render 3D exit sign entity anchored to camera so AR.js shows it without marker
 function _renderExitGraphic(container) {
+  const camera = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? (document.querySelector("#main-camera") || document.querySelector("[camera]"))
+    : null;
   const scene = typeof document !== "undefined" && typeof document.querySelector === "function"
     ? document.querySelector("a-scene")
-    : null;
-  const hiroMarker = typeof document !== "undefined" && typeof document.querySelector === "function"
-    ? (document.querySelector("#hiro-marker") || document.querySelector("a-marker[preset='hiro']"))
     : null;
 
   const el = buildExitGraphic();
   _exitGraphicEl = el;
-  if (scene) {
+  // anchor to camera so exit sign renders without printed marker
+  if (camera) {
+    el.setAttribute("position", "0 0.60 -2.5");
+    el.setAttribute("rotation", "0 0 0");
+    camera.appendChild(el);
+  } else if (scene) {
     el.setAttribute("position", "0 0.85 -2.2");
     el.setAttribute("rotation", "0 0 0");
     scene.appendChild(el);
   } else {
-    const parent = hiroMarker || container;
+    const parent = container;
     if (parent && parent.appendChild) {
       parent.appendChild(el);
     }
@@ -138,6 +149,9 @@ function _renderExitGraphic(container) {
 
 // render 3D fire extinguisher directly in front of trainee (markerless/world AR)
 function _renderExtinguisherGraphic(container) {
+  const camera = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? (document.querySelector("#main-camera") || document.querySelector("[camera]"))
+    : null;
   const scene = typeof document !== "undefined" && typeof document.querySelector === "function"
     ? document.querySelector("a-scene")
     : null;
@@ -147,8 +161,13 @@ function _renderExtinguisherGraphic(container) {
 
   const el = buildExtinguisherGraphic();
 
-  // If in AR scene, anchor comfortably in front of user at eye/chest level so whole object is in frame above overlay
-  if (scene) {
+  // anchor extinguisher to first-person view (SENAR trainee hands look)
+  if (camera) {
+    el.setAttribute("position", "0.25 -0.35 -0.90");
+    el.setAttribute("rotation", "0 -15 0");
+    el.setAttribute("scale", "0.22 0.22 0.22");
+    camera.appendChild(el);
+  } else if (scene) {
     el.setAttribute("position", "0 0.05 -1.5");
     el.setAttribute("rotation", "0 0 0");
     el.setAttribute("scale", "0.60 0.60 0.60");
@@ -413,17 +432,31 @@ function _setupStep2(container, tierInfo) {
   const scene = typeof document !== "undefined" && typeof document.querySelector === "function"
     ? document.querySelector("a-scene")
     : null;
-  if (scene && typeof scene.querySelectorAll === "function") {
-    scene.querySelectorAll("#exit-graphic, #exit-board, #exit-arrow-shaft, #exit-arrow-head").forEach((el) => {
-      if (typeof el.setAttribute === "function") el.setAttribute("visible", "false");
-      if (el.object3D) el.object3D.visible = false;
-      if (el.parentNode) el.parentNode.removeChild(el);
-      else if (typeof el.remove === "function") el.remove();
-    });
-  }
+  const camera = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? (document.querySelector("#main-camera") || document.querySelector("[camera]"))
+    : null;
+  const searchRoots = [scene, camera].filter(Boolean);
+  searchRoots.forEach((root) => {
+    if (root && typeof root.querySelectorAll === "function") {
+      root.querySelectorAll("#exit-graphic, #exit-board, #exit-arrow-shaft, #exit-arrow-head").forEach((el) => {
+        if (typeof el.removeAttribute === "function") el.removeAttribute("animation");
+        if (typeof el.setAttribute === "function") el.setAttribute("visible", "false");
+        if (el.object3D) {
+          el.object3D.visible = false;
+          if (root.object3D) root.object3D.remove(el.object3D);
+        }
+        if (el.parentNode) el.parentNode.removeChild(el);
+      });
+    }
+  });
   if (_exitGraphicEl) {
+    if (typeof _exitGraphicEl.removeAttribute === "function") _exitGraphicEl.removeAttribute("animation");
     if (typeof _exitGraphicEl.setAttribute === "function") _exitGraphicEl.setAttribute("visible", "false");
-    if (_exitGraphicEl.object3D) _exitGraphicEl.object3D.visible = false;
+    if (_exitGraphicEl.object3D) {
+      _exitGraphicEl.object3D.visible = false;
+      const parentObj = _exitGraphicEl.parentEl && _exitGraphicEl.parentEl.object3D;
+      if (parentObj) parentObj.remove(_exitGraphicEl.object3D);
+    }
     if (_exitGraphicEl.parentNode) _exitGraphicEl.parentNode.removeChild(_exitGraphicEl);
     _exitGraphicEl = null;
   }
@@ -752,8 +785,8 @@ function _setupStep2(container, tierInfo) {
     const fireGraphic = document.getElementById("fire-graphic");
     if (fireGraphic && typeof fireGraphic.setAttribute === "function") {
       fireGraphic.setAttribute("visible", "true");
-      fireGraphic.setAttribute("position", "0 0.10 -2.4");
-      fireGraphic.setAttribute("scale", "0.90 0.90 0.90");
+      fireGraphic.setAttribute("position", "0 -0.10 -2.5");
+      fireGraphic.setAttribute("scale", "0.50 0.50 0.50");
     }
 
     const bTitle = document.getElementById("billboard-step-title");
