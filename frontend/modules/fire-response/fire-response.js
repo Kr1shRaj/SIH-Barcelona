@@ -366,9 +366,9 @@ function _setupStep2(container, tierInfo) {
     const pinHitbox = document.getElementById("pin-hitbox");
     const progressFill = document.getElementById("pin-progress-fill");
 
-    const BASE_PIN_X = 0.05;
-    const BASE_PIN_Y = 1.22;
-    const BASE_PIN_Z = 0.10;
+    const BASE_PIN_X = 0.08;
+    const BASE_PIN_Y = 1.78;
+    const BASE_PIN_Z = 0.15;
 
     let startX = null;
     let currentDrag = 0;
@@ -378,7 +378,7 @@ function _setupStep2(container, tierInfo) {
       if (completed) return;
       completed = true;
       if (pin && typeof pin.setAttribute === "function") {
-        pin.setAttribute("position", `${BASE_PIN_X + 0.28} ${BASE_PIN_Y} ${BASE_PIN_Z}`);
+        pin.setAttribute("position", `${BASE_PIN_X + 0.40} ${BASE_PIN_Y} ${BASE_PIN_Z}`);
       }
       const pinShaft = document.getElementById("ext-pin-shaft");
       const pinRing = document.getElementById("ext-pin-ring");
@@ -416,7 +416,7 @@ function _setupStep2(container, tierInfo) {
         currentDrag = Math.max(0, clientX - startX);
         const fraction = Math.min(1, currentDrag / PIN_PULL_THRESHOLD_PX);
         if (pin && typeof pin.setAttribute === "function") {
-          pin.setAttribute("position", `${BASE_PIN_X + fraction * 0.28} ${BASE_PIN_Y} ${BASE_PIN_Z}`);
+          pin.setAttribute("position", `${BASE_PIN_X + fraction * 0.40} ${BASE_PIN_Y} ${BASE_PIN_Z}`);
         }
         if (progressFill && typeof progressFill.setAttribute === "function") {
           progressFill.setAttribute("scale", `${Math.max(0.01, fraction)} 1 1`);
@@ -444,11 +444,13 @@ function _setupStep2(container, tierInfo) {
           onPointerStart(e.clientX);
           target.setPointerCapture?.(e.pointerId);
         });
+        target.addEventListener("mousedown", (e) => onPointerStart(e.clientX));
         target.addEventListener("pointermove", (e) => onPointerMove(e.clientX));
         target.addEventListener("pointerup", (e) => {
           onPointerEnd();
           target.releasePointerCapture?.(e.pointerId);
         });
+        target.addEventListener("mouseup", onPointerEnd);
 
         target.addEventListener("touchstart", (e) => {
           if (e.touches && e.touches[0]) onPointerStart(e.touches[0].clientX);
@@ -555,7 +557,9 @@ function _setupStep2(container, tierInfo) {
       };
       reticle.addEventListener("click", () => handleAimSuccess(0.9, 0.08, true));
       reticle.addEventListener("pointerdown", () => startHold(0.9, 0.08));
+      reticle.addEventListener("mousedown", () => startHold(0.9, 0.08));
       reticle.addEventListener("pointerup", stopHold);
+      reticle.addEventListener("mouseup", stopHold);
       reticle.addEventListener("pointercancel", stopHold);
       reticle.addEventListener("touchstart", () => startHold(0.9, 0.08), { passive: true });
       reticle.addEventListener("touchend", stopHold);
@@ -564,11 +568,18 @@ function _setupStep2(container, tierInfo) {
     if (graphic && typeof graphic.addEventListener === "function") {
       graphic.addEventListener("pointerdown", (ev) => {
         const intersection = ev && ev.detail && ev.detail.intersection ? ev.detail.intersection : null;
-        const distance = intersection ? calcIntersectionDistance(intersection.point, { x: 0.45, y: 0.12, z: -0.10 }) : 0.12;
+        const distance = intersection ? calcIntersectionDistance(intersection.point, { x: 0.65, y: 0.16, z: -0.20 }) : 0.12;
+        const accuracy = calcRaycastAimAccuracy(distance);
+        startHold(accuracy, distance);
+      });
+      graphic.addEventListener("mousedown", (ev) => {
+        const intersection = ev && ev.detail && ev.detail.intersection ? ev.detail.intersection : null;
+        const distance = intersection ? calcIntersectionDistance(intersection.point, { x: 0.65, y: 0.16, z: -0.20 }) : 0.12;
         const accuracy = calcRaycastAimAccuracy(distance);
         startHold(accuracy, distance);
       });
       graphic.addEventListener("pointerup", stopHold);
+      graphic.addEventListener("mouseup", stopHold);
     }
   }
 
@@ -654,7 +665,9 @@ function _setupStep2(container, tierInfo) {
       };
 
       handle.addEventListener("pointerdown", startSqueeze);
+      handle.addEventListener("mousedown", startSqueeze);
       handle.addEventListener("pointerup", stopSqueeze);
+      handle.addEventListener("mouseup", stopSqueeze);
       handle.addEventListener("pointercancel", stopSqueeze);
       handle.addEventListener("touchstart", startSqueeze, { passive: true });
       handle.addEventListener("touchend", stopSqueeze);
@@ -891,7 +904,8 @@ function cleanupFireModule() {
     "extinguisher-pin-progress",
     "exit-graphic",
     "evacuation-options",
-    "aim-accuracy-display"
+    "aim-accuracy-display",
+    "test-box"
   ].forEach((id) => {
     if (typeof document !== "undefined") {
       document.getElementById(id)?.remove();

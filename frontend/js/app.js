@@ -41,9 +41,7 @@ function renderArShell(container, tierResult) {
   const tierMarkup = tierResult.tier === 1
     ? '<canvas id="xr-canvas" class="ar-canvas"></canvas>'
     : `<a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3;" vr-mode-ui="enabled: false" renderer="logarithmicDepthBuffer: true;">
-        <a-marker preset="hiro" id="hiro-marker">
-          <a-box id="test-box" position="0 0.5 0" material="color: red; opacity: 0.8;"></a-box>
-        </a-marker>
+        <a-marker preset="hiro" id="hiro-marker"></a-marker>
         <a-entity camera cursor="rayOrigin: mouse" raycaster="objects: .clickable, [data-raycast-target]"></a-entity>
       </a-scene>`;
 
