@@ -6,6 +6,22 @@ const MAX_CONTEXT_BYTES = 4096;
 const MAX_DURATION_MS = 4 * 60 * 60 * 1000;
 const QUEUE_STORAGE_KEY = "safear_attempt_sync_queue";
 
+let _activeSession = null;
+let _boundListener = null;
+
+// generate standard uuid v4 string safely
+function _generateUUIDv4() {
+  const gCrypto = typeof globalThis !== "undefined" && globalThis.crypto ? globalThis.crypto : (typeof window !== "undefined" ? window.crypto : null);
+  if (gCrypto && typeof gCrypto.randomUUID === "function") {
+    return gCrypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 // check if iso timestamp string is real utc timestamp with milliseconds
 function _isValidIsoTimestamp(str) {
   if (typeof str !== "string") return false;
@@ -261,9 +277,169 @@ function queueAttemptForSync(attemptRecord) {
   return queue;
 }
 
+// start active assessment session to collect checkpoints
+function startAssessmentSession({
+  workerId = "WRK-DEFAULT",
+  moduleId,
+  moduleVersion = 1,
+  engineVersion = "1.0.0",
+  deviceId = "dev-local",
+  arTier = 2,
+  locale = "hi",
+  passThreshold = 0.7,
+  weights = {},
+  startedAt = new Date().toISOString(),
+  attemptId = _generateUUIDv4()
+} = {}) {
+  if (!moduleId || typeof moduleId !== "string") {
+    throw new Error("moduleId is required to start assessment session");
+  }
+
+  _activeSession = {
+    attemptId,
+    workerId,
+    moduleId,
+    moduleVersion,
+    engineVersion,
+    deviceId,
+    arTier,
+    locale,
+    passThreshold,
+    weights,
+    startedAt,
+    checkpoints: new Map()
+  };
+
+  return { ..._activeSession, checkpoints: [] };
+}
+
+// get snapshot of currently active assessment session
+function getActiveSession() {
+  if (!_activeSession) return null;
+  return {
+    ..._activeSession,
+    checkpoints: Array.from(_activeSession.checkpoints.values())
+  };
+}
+
+// record checkpoint result into active assessment session
+function recordCheckpointResult(detail) {
+  if (!_activeSession) {
+    return null;
+  }
+
+  if (!detail || typeof detail !== "object" || !detail.checkpointId || !detail.type) {
+    throw new Error("invalid checkpoint detail payload");
+  }
+
+  // prevent duplicate checkpoint registration breaking contract
+  if (_activeSession.checkpoints.has(detail.checkpointId)) {
+    return _activeSession.checkpoints.get(detail.checkpointId);
+  }
+
+  let score = 0;
+  if (typeof detail.score === "number" && Number.isFinite(detail.score) && detail.score >= 0 && detail.score <= 1) {
+    score = detail.score;
+  } else if (detail.context && typeof detail.context.accuracy === "number") {
+    score = detail.context.accuracy;
+  } else if (detail.context && typeof detail.context.score === "number") {
+    score = detail.context.score;
+  } else {
+    score = detail.passed ? 1 : 0;
+  }
+
+  const weight = (_activeSession.weights && _activeSession.weights[detail.checkpointId]) || detail.weight || 1;
+  const timestamp = detail.timestamp || new Date().toISOString();
+
+  const record = {
+    checkpointId: detail.checkpointId,
+    type: detail.type,
+    passed: Boolean(detail.passed),
+    score,
+    weight,
+    timestamp,
+    context: detail.context || {}
+  };
+
+  _activeSession.checkpoints.set(detail.checkpointId, record);
+  return record;
+}
+
+// finish session, evaluate assessment result, queue for offline sync
+function finishAssessmentSession(options = {}) {
+  if (!_activeSession) {
+    throw new Error("no active assessment session to finish");
+  }
+
+  const session = _activeSession;
+  const completedAt = options.completedAt || new Date().toISOString();
+  const checkpointsList = Array.from(session.checkpoints.values());
+
+  const attemptRecord = {
+    contractVersion: "1.0",
+    attemptId: session.attemptId,
+    workerId: session.workerId,
+    moduleId: session.moduleId,
+    moduleVersion: session.moduleVersion,
+    engineVersion: session.engineVersion,
+    deviceId: session.deviceId,
+    arTier: session.arTier,
+    locale: session.locale,
+    startedAt: session.startedAt,
+    completedAt,
+    checkpoints: checkpointsList,
+    passThresholdUsed: session.passThreshold
+  };
+
+  const evaluated = evaluateAssessment(attemptRecord, session.passThreshold);
+  queueAttemptForSync(evaluated);
+
+  _activeSession = null;
+  return evaluated;
+}
+
+// abort active assessment session without saving
+function abortAssessmentSession() {
+  _activeSession = null;
+}
+
+// wire event listener to record checkpoints from window events
+function bindAssessmentSessionListeners(targetWindow) {
+  const win = targetWindow || (typeof window !== "undefined" ? window : null);
+  if (!win || typeof win.addEventListener !== "function") return;
+
+  if (_boundListener) {
+    win.removeEventListener("safear:checkpoint", _boundListener);
+  }
+
+  _boundListener = (ev) => {
+    if (ev && ev.detail) {
+      recordCheckpointResult(ev.detail);
+    }
+  };
+
+  win.addEventListener("safear:checkpoint", _boundListener);
+}
+
+// remove assessment event listener
+function unbindAssessmentSessionListeners(targetWindow) {
+  const win = targetWindow || (typeof window !== "undefined" ? window : null);
+  if (win && _boundListener && typeof win.removeEventListener === "function") {
+    win.removeEventListener("safear:checkpoint", _boundListener);
+    _boundListener = null;
+  }
+}
+
 export {
   evaluateAssessment,
   queueAttemptForSync,
   getQueuedAttempts,
-  clearAttemptQueue
+  clearAttemptQueue,
+  startAssessmentSession,
+  getActiveSession,
+  recordCheckpointResult,
+  finishAssessmentSession,
+  abortAssessmentSession,
+  bindAssessmentSessionListeners,
+  unbindAssessmentSessionListeners
 };

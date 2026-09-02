@@ -4,7 +4,14 @@ import {
   evaluateAssessment,
   queueAttemptForSync,
   getQueuedAttempts,
-  clearAttemptQueue
+  clearAttemptQueue,
+  startAssessmentSession,
+  getActiveSession,
+  recordCheckpointResult,
+  finishAssessmentSession,
+  abortAssessmentSession,
+  bindAssessmentSessionListeners,
+  unbindAssessmentSessionListeners
 } from "../assessment/engine.js";
 
 // mock local storage for node test runner
@@ -15,6 +22,24 @@ if (typeof globalThis.localStorage === "undefined") {
     setItem: (key, val) => { store[key] = String(val); },
     removeItem: (key) => { delete store[key]; },
     clear: () => { store = {}; }
+  };
+}
+
+// event bus for custom events in test environment
+const _eventListeners = {};
+if (typeof globalThis.window === "undefined") {
+  globalThis.window = {
+    dispatchEvent(ev) {
+      (_eventListeners[ev.type] || []).forEach((fn) => fn(ev));
+    },
+    addEventListener(type, fn) {
+      if (!_eventListeners[type]) _eventListeners[type] = [];
+      _eventListeners[type].push(fn);
+    },
+    removeEventListener(type, fn) {
+      if (!_eventListeners[type]) return;
+      _eventListeners[type] = _eventListeners[type].filter((f) => f !== fn);
+    }
   };
 }
 
@@ -124,6 +149,7 @@ function createValidGasAttempt(overrides = {}) {
 describe("Assessment Engine — evaluateAssessment", () => {
   beforeEach(() => {
     clearAttemptQueue();
+    abortAssessmentSession();
   });
 
   describe("passing attempt evaluations", () => {
@@ -143,7 +169,6 @@ describe("Assessment Engine — evaluateAssessment", () => {
       assert.strictEqual(result.status, "completed");
       assert.strictEqual(result.checkpoints.length, 3);
 
-      // check that context was sanitized and 'correct' stripped
       const step3Context = result.checkpoints[2].context;
       assert.strictEqual(step3Context.selected, "sound_alarm_then_evacuate");
       assert.strictEqual(Object.prototype.hasOwnProperty.call(step3Context, "correct"), false);
@@ -160,12 +185,10 @@ describe("Assessment Engine — evaluateAssessment", () => {
       assert.strictEqual(result.passThresholdUsed, 0.7);
       assert.strictEqual(result.passed, true);
 
-      // check that context was sanitized and 'correct' stripped from buddy procedure
       const buddyContext = result.checkpoints[2].context;
       assert.strictEqual(buddyContext.selected, "standby_outside_with_lifeline");
       assert.strictEqual(Object.prototype.hasOwnProperty.call(buddyContext, "correct"), false);
 
-      // verify ppe context diagnostic fields survive
       const ppeContext = result.checkpoints[1].context;
       assert.deepStrictEqual(ppeContext.missing, ["safety_harness"]);
     });
@@ -385,5 +408,149 @@ describe("Offline Queue — queueAttemptForSync", () => {
   it("throws when trying to queue null or malformed attempt", () => {
     assert.throws(() => queueAttemptForSync(null), /attemptRecord must be an object/);
     assert.throws(() => queueAttemptForSync({}), /attemptRecord must have a valid UUID v4 attemptId/);
+  });
+});
+
+describe("Assessment Session Lifecycle", () => {
+  beforeEach(() => {
+    clearAttemptQueue();
+    abortAssessmentSession();
+    unbindAssessmentSessionListeners();
+  });
+
+  it("starts an active assessment session with default properties", () => {
+    const session = startAssessmentSession({
+      workerId: "WRK-0002",
+      moduleId: "fire-response",
+      locale: "hi"
+    });
+
+    assert.strictEqual(session.workerId, "WRK-0002");
+    assert.strictEqual(session.moduleId, "fire-response");
+    assert.strictEqual(session.passThreshold, 0.7);
+    assert.strictEqual(session.locale, "hi");
+
+    const active = getActiveSession();
+    assert.ok(active !== null);
+    assert.strictEqual(active.moduleId, "fire-response");
+  });
+
+  it("records valid checkpoints into active session and ignores duplicates", () => {
+    startAssessmentSession({
+      moduleId: "fire-response",
+      startedAt: "2026-09-01T10:14:02.118Z"
+    });
+
+    const cp1 = recordCheckpointResult({
+      checkpointId: "fire_exit_identification",
+      type: "proximity",
+      passed: true,
+      timestamp: "2026-09-01T10:14:39.902Z",
+      context: { method: "button_confirm" }
+    });
+
+    assert.strictEqual(cp1.score, 1);
+    assert.strictEqual(cp1.checkpointId, "fire_exit_identification");
+
+    // record duplicate
+    const cp1Dup = recordCheckpointResult({
+      checkpointId: "fire_exit_identification",
+      type: "proximity",
+      passed: true,
+      timestamp: "2026-09-01T10:14:40.000Z"
+    });
+
+    assert.strictEqual(cp1Dup.timestamp, "2026-09-01T10:14:39.902Z");
+
+    const active = getActiveSession();
+    assert.strictEqual(active.checkpoints.length, 1);
+  });
+
+  it("completes and evaluates active session, queuing attempt for sync", () => {
+    startAssessmentSession({
+      attemptId: "a3f1c9e2-5b47-4d18-9e6a-2c8b7f0d4e51",
+      workerId: "WRK-0001",
+      moduleId: "fire-response",
+      moduleVersion: 1,
+      engineVersion: "1.0.0",
+      deviceId: "dev-8f3a2b1c",
+      arTier: 2,
+      locale: "hi",
+      passThreshold: 0.7,
+      startedAt: "2026-09-01T10:14:02.118Z"
+    });
+
+    recordCheckpointResult({
+      checkpointId: "fire_exit_identification",
+      type: "proximity",
+      passed: true,
+      timestamp: "2026-09-01T10:14:39.902Z",
+      context: { method: "button_confirm" }
+    });
+
+    recordCheckpointResult({
+      checkpointId: "fire_extinguisher_aim",
+      type: "aim",
+      passed: true,
+      timestamp: "2026-09-01T10:16:20.410Z",
+      context: { accuracy: 0.75, target: "base", distance: 0.2 }
+    });
+
+    recordCheckpointResult({
+      checkpointId: "fire_evacuation_sequence",
+      type: "select",
+      passed: true,
+      timestamp: "2026-09-01T10:17:41.556Z",
+      context: { selected: "sound_alarm_then_evacuate", correct: "sound_alarm_then_evacuate" }
+    });
+
+    const evaluated = finishAssessmentSession({
+      completedAt: "2026-09-01T10:17:41.556Z"
+    });
+
+    assert.strictEqual(evaluated.passed, true);
+    assert.strictEqual(evaluated.percentage, 91.67);
+    assert.strictEqual(evaluated.totalScore, 2.75);
+    assert.strictEqual(evaluated.status, "completed");
+
+    // verify offline queue has attempt
+    const queued = getQueuedAttempts();
+    assert.strictEqual(queued.length, 1);
+    assert.strictEqual(queued[0].attemptId, "a3f1c9e2-5b47-4d18-9e6a-2c8b7f0d4e51");
+
+    // verify active session is reset (no state leakage)
+    assert.strictEqual(getActiveSession(), null);
+  });
+
+  it("binds window events to automatically record safear:checkpoint events", () => {
+    startAssessmentSession({
+      moduleId: "gas-leak",
+      startedAt: "2026-09-01T11:02:15.004Z"
+    });
+
+    bindAssessmentSessionListeners(window);
+
+    window.dispatchEvent(new CustomEvent("safear:checkpoint", {
+      detail: {
+        checkpointId: "gas_hazard_zone_recognition",
+        type: "proximity",
+        passed: true,
+        timestamp: "2026-09-01T11:03:01.220Z",
+        context: { method: "button_confirm" }
+      }
+    }));
+
+    const active = getActiveSession();
+    assert.strictEqual(active.checkpoints.length, 1);
+    assert.strictEqual(active.checkpoints[0].checkpointId, "gas_hazard_zone_recognition");
+  });
+
+  it("aborts active session without saving or leaking state", () => {
+    startAssessmentSession({ moduleId: "fire-response" });
+    assert.ok(getActiveSession() !== null);
+
+    abortAssessmentSession();
+    assert.strictEqual(getActiveSession(), null);
+    assert.strictEqual(getQueuedAttempts().length, 0);
   });
 });

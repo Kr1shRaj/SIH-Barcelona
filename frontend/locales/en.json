@@ -1,0 +1,44 @@
+{
+  "app": {
+    "title": "SafeAR — Industrial Safety Training",
+    "select_language": "Select Language",
+    "start_training": "Start Training"
+  },
+  "modules": {
+    "fire_response": {
+      "title": "Fire & Explosion Response",
+      "step_exit": "Identify Emergency Exit",
+      "step_exit_desc": "Locate emergency exit. Face the green arrow.",
+      "btn_exit": "✔ I see the exit",
+      "step_extinguisher": "Extinguisher Use",
+      "step_extinguisher_desc": "Aim at the base of the 3D fire. Tap to aim, then confirm.",
+      "btn_aim_confirm": "✔ Confirm aim",
+      "step_evacuate": "Evacuation Sequence",
+      "step_evacuate_desc": "What is the correct action after using extinguisher?",
+      "complete_pass": "✅ MODULE COMPLETE",
+      "complete_review": "⚠ MODULE COMPLETE — Review step 3",
+      "complete_desc": "All checkpoints fired. Assessment engine will score your attempt.",
+      "btn_exit_module": "✖ Exit Module"
+    },
+    "gas_leak": {
+      "title": "Gas Leak & Confined Space Protocol",
+      "step_hazard": "Hazard Zone Recognition",
+      "step_hazard_desc": "Identify marked toxic/confined gas perimeter in AR space.",
+      "btn_hazard": "✔ Hazard Zone Acknowledged",
+      "step_ppe": "PPE Selection",
+      "step_ppe_desc": "Select all required PPE for hazardous gas entry:",
+      "btn_ppe_confirm": "✔ Confirm PPE Selection",
+      "step_buddy": "Buddy System Protocol",
+      "step_buddy_desc": "What is the safety attendant role outside the confined opening?",
+      "complete_pass": "✅ MODULE COMPLETE",
+      "complete_review": "⚠ MODULE COMPLETE — Review step 3",
+      "complete_desc": "All gas protocol checkpoints fired. Assessment engine will score your attempt.",
+      "btn_exit_module": "✖ Exit Module"
+    }
+  },
+  "cert": {
+    "passed": "Training Passed!",
+    "score": "Your Score",
+    "qr_ready": "Certificate QR Code Ready"
+  }
+}

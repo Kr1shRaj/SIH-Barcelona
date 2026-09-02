@@ -2,6 +2,8 @@ import { createLogger } from "../../js/logger.js";
 import { registerCheckpoint, fireCheckpointResult } from "../../ar/interactions.js";
 import { unloadModule } from "../../js/module-loader.js";
 import { buildHazardZoneEntity, buildPpeDisplayEntity } from "./graphics.js";
+import { t } from "../../js/i18n.js";
+import { playNarration, stopNarration } from "../../js/audio.js";
 
 const logger = createLogger("GasLeakModule");
 
@@ -152,7 +154,7 @@ function _renderPpeOptions(container, onConfirm) {
   const confirmBtn = document.createElement("button");
   confirmBtn.id = "btn-confirm-ppe";
   confirmBtn.style.cssText = "padding:0.75rem;background:#f59e0b;color:#000;border:none;border-radius:8px;font-size:1rem;font-weight:bold;cursor:pointer;margin-top:0.4rem;";
-  confirmBtn.textContent = "✔ Confirm PPE Selection";
+  confirmBtn.textContent = t("modules.gas_leak.btn_ppe_confirm", {}, "✔ Confirm PPE Selection");
   confirmBtn.addEventListener("click", () => {
     onConfirm(Array.from(selectedSet));
   });
@@ -206,6 +208,7 @@ function _renderBuddyOptions(container, onSelect) {
 function _setupStep1(container, tierInfo) {
   _currentStep = 1;
   logger.info({ event: "gas_step_start", step: 1, tier: tierInfo && tierInfo.tier }, "Hazard zone recognition");
+  playNarration({ moduleId: "gas-leak", stepKey: "step_1_hazard" });
 
   registerCheckpoint({
     id: CP_HAZARD_ZONE_ID,
@@ -219,16 +222,18 @@ function _setupStep1(container, tierInfo) {
 
   const overlay = document.getElementById("gas-module-overlay");
   if (overlay) {
+    const title = t("modules.gas_leak.step_hazard", {}, "HAZARD ZONE RECOGNITION");
+    const desc = t("modules.gas_leak.step_hazard_desc", {}, "Identify marked toxic/confined gas perimeter in AR space.");
     overlay.innerHTML = `
-      <div style="font-size:1.1rem;font-weight:bold;color:#f59e0b">☣ STEP 1 / 3 — HAZARD ZONE RECOGNITION</div>
-      <div style="margin:0.5rem 0">Identify marked toxic/confined gas perimeter in AR space.</div>
+      <div style="font-size:1.1rem;font-weight:bold;color:#f59e0b">☣ STEP 1 / 3 — ${title}</div>
+      <div style="margin:0.5rem 0">${desc}</div>
     `;
   }
 
   const btn = document.createElement("button");
   btn.id = "btn-hazard-found";
   btn.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.5rem;background:#10b981;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;";
-  btn.textContent = "✔ Hazard Zone Acknowledged";
+  btn.textContent = t("modules.gas_leak.btn_hazard", {}, "✔ Hazard Zone Acknowledged");
   btn.addEventListener("click", () => {
     fireCheckpointResult(CP_HAZARD_ZONE_ID, true, { method: "button_confirm" });
     _setupStep2(container, tierInfo);
@@ -240,6 +245,7 @@ function _setupStep1(container, tierInfo) {
 function _setupStep2(container, tierInfo) {
   _currentStep = 2;
   logger.info({ event: "gas_step_start", step: 2, tier: tierInfo && tierInfo.tier }, "PPE selection");
+  playNarration({ moduleId: "gas-leak", stepKey: "step_2_ppe" });
 
   registerCheckpoint({
     id: CP_PPE_SELECTION_ID,
@@ -253,9 +259,11 @@ function _setupStep2(container, tierInfo) {
 
   const overlay = document.getElementById("gas-module-overlay");
   if (overlay) {
+    const title = t("modules.gas_leak.step_ppe", {}, "PPE SELECTION");
+    const desc = t("modules.gas_leak.step_ppe_desc", {}, "Select all required PPE for hazardous gas entry:");
     overlay.innerHTML = `
-      <div style="font-size:1.1rem;font-weight:bold;color:#f59e0b">☣ STEP 2 / 3 — PPE SELECTION</div>
-      <div style="margin:0.4rem 0;font-size:0.9rem">Select all required PPE for hazardous gas entry:</div>
+      <div style="font-size:1.1rem;font-weight:bold;color:#f59e0b">☣ STEP 2 / 3 — ${title}</div>
+      <div style="margin:0.4rem 0;font-size:0.9rem">${desc}</div>
     `;
   }
 
@@ -275,6 +283,7 @@ function _setupStep2(container, tierInfo) {
 function _setupStep3(_container) {
   _currentStep = 3;
   logger.info({ event: "gas_step_start", step: 3 }, "Buddy procedure");
+  playNarration({ moduleId: "gas-leak", stepKey: "step_3_buddy" });
 
   registerCheckpoint({
     id: CP_BUDDY_PROCEDURE_ID,
@@ -286,9 +295,11 @@ function _setupStep3(_container) {
 
   const overlay = document.getElementById("gas-module-overlay");
   if (overlay) {
+    const title = t("modules.gas_leak.step_buddy", {}, "BUDDY SYSTEM PROTOCOL");
+    const desc = t("modules.gas_leak.step_buddy_desc", {}, "What is the safety attendant role outside the confined opening?");
     overlay.innerHTML = `
-      <div style="font-size:1.1rem;font-weight:bold;color:#f59e0b">☣ STEP 3 / 3 — BUDDY SYSTEM PROTOCOL</div>
-      <div style="margin:0.5rem 0;font-size:0.9rem">What is the safety attendant role outside the confined opening?</div>
+      <div style="font-size:1.1rem;font-weight:bold;color:#f59e0b">☣ STEP 3 / 3 — ${title}</div>
+      <div style="margin:0.5rem 0;font-size:0.9rem">${desc}</div>
     `;
   }
 
@@ -303,6 +314,8 @@ function _setupStep3(_container) {
 
 // clean up all gas module visuals and overlay from DOM and a-marker
 function cleanupGasLeakModule() {
+  _currentStep = 0;
+  stopNarration();
   ["gas-module-overlay", "gas-hazard-graphic", "gas-ppe-graphic", "gas-ppe-options", "gas-buddy-options"].forEach((id) => {
     if (typeof document !== "undefined") {
       document.getElementById(id)?.remove();
@@ -325,17 +338,20 @@ function _showComplete(lastPassed) {
   _currentStep = 0;
   const overlay = document.getElementById("gas-module-overlay");
   if (overlay) {
+    const titlePass = t("modules.gas_leak.complete_pass", {}, "✅ MODULE COMPLETE");
+    const titleReview = t("modules.gas_leak.complete_review", {}, "⚠ MODULE COMPLETE — Review step 3");
+    const desc = t("modules.gas_leak.complete_desc", {}, "All gas protocol checkpoints fired. Assessment engine will score your attempt.");
     overlay.innerHTML = `
       <div style="font-size:1.2rem;font-weight:bold;color:${lastPassed ? "#10b981" : "#f59e0b"}">
-        ${lastPassed ? "✅ MODULE COMPLETE" : "⚠ MODULE COMPLETE — Review step 3"}
+        ${lastPassed ? titlePass : titleReview}
       </div>
-      <div style="margin:0.5rem 0;font-size:0.95rem">All gas protocol checkpoints fired. Assessment engine will score your attempt.</div>
+      <div style="margin:0.5rem 0;font-size:0.95rem">${desc}</div>
     `;
 
     const btnExit = document.createElement("button");
     btnExit.id = "btn-module-exit";
     btnExit.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.5rem;background:#f59e0b;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;";
-    btnExit.textContent = "✖ Exit Module";
+    btnExit.textContent = t("modules.gas_leak.btn_exit_module", {}, "✖ Exit Module");
     btnExit.addEventListener("click", () => {
       cleanupGasLeakModule();
       unloadModule();
@@ -351,11 +367,10 @@ function startGasLeakModule(container, tierInfo) {
   logger.info({ event: "gas_module_start", tier: tierInfo && tierInfo.tier }, "Gas leak module starting");
 
   cleanupGasLeakModule();
-  _createOverlay(container, "<div>Loading Gas Leak &amp; Confined Space Protocol...</div>");
+  _createOverlay(container, `<div>${t("modules.gas_leak.title", {}, "Loading Gas Leak & Confined Space Protocol...")}</div>`);
   _setupStep1(container, tierInfo);
 }
 
-// legacy alias
 const handlePpeSelection = evaluatePpeSelection;
 
 export {
