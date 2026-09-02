@@ -93,12 +93,12 @@ function _renderFireGraphic(container) {
 
   const graphic = buildFireGraphic();
 
-  // If in AR scene, anchor fire directly ahead in room space so trainee needs no physical sticker
+  // In AR scene, position fire 3.5m ahead at room floor level (hidden during Step P pin pull)
   if (scene) {
-    graphic.setAttribute("position", "1.1 -0.40 -3.2");
+    graphic.setAttribute("position", "0 -0.40 -3.5");
     graphic.setAttribute("rotation", "0 0 0");
-    graphic.setAttribute("scale", "0.75 0.75 0.75");
-    graphic.setAttribute("visible", "true");
+    graphic.setAttribute("scale", "0.85 0.85 0.85");
+    graphic.setAttribute("visible", "false");
     scene.appendChild(graphic);
   } else {
     const parent = kanjiMarker || container;
@@ -498,6 +498,10 @@ function _setupStep2(container, tierInfo) {
       if (arrowText && typeof arrowText.setAttribute === "function") {
         arrowText.setAttribute("value", selected ? "DRAG RIGHT 👉" : "TAP PIN");
       }
+      const phantomPin = document.getElementById("phantom-ghost-pin");
+      if (phantomPin && typeof phantomPin.setAttribute === "function") {
+        phantomPin.setAttribute("visible", selected ? "false" : "true");
+      }
       const bPill = document.getElementById("billboard-pill-text");
       if (bPill) {
         bPill.setAttribute("value", selected ? "🔵 PIN SELECTED — DRAG RIGHT" : "⚪ AWAITING PIN SELECTION");
@@ -729,6 +733,11 @@ function _setupStep2(container, tierInfo) {
     const gazeLaser = document.getElementById("gaze-laser");
     const gazeDot = document.getElementById("gaze-dot");
     const kanjiMarker = document.getElementById("kanji-marker");
+    const fireGraphic = document.getElementById("fire-graphic");
+    if (fireGraphic && typeof fireGraphic.setAttribute === "function") {
+      fireGraphic.setAttribute("visible", "true");
+      fireGraphic.setAttribute("position", "0 -0.40 -3.5");
+    }
 
     const bTitle = document.getElementById("billboard-step-title");
     const bDesc = document.getElementById("billboard-step-desc");

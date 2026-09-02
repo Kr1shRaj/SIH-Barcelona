@@ -318,11 +318,12 @@ function buildExtinguisherEntity() {
   progressContainer.appendChild(progressBg);
   progressContainer.appendChild(progressFill);
 
-  // world-anchored 3d spatial step billboard (Scope AR benchmark)
+  // world-anchored 3d spatial step billboard (hidden by default to avoid visual clutter)
   const spatialBillboard = document.createElement("a-entity");
   spatialBillboard.id = "spatial-step-billboard";
   if (typeof spatialBillboard.setAttribute === "function") {
     spatialBillboard.setAttribute("position", "0.95 0.65 0.10");
+    spatialBillboard.setAttribute("visible", "false");
   }
 
   spatialBillboard.innerHTML = `
