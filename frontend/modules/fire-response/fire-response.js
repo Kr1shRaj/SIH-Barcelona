@@ -95,9 +95,9 @@ function _renderFireGraphic(container) {
 
   // If in AR scene, anchor fire directly ahead in room space so trainee needs no physical sticker
   if (scene) {
-    graphic.setAttribute("position", "0.45 -0.35 -2.5");
+    graphic.setAttribute("position", "1.1 -0.40 -3.2");
     graphic.setAttribute("rotation", "0 0 0");
-    graphic.setAttribute("scale", "1.1 1.1 1.1");
+    graphic.setAttribute("scale", "0.75 0.75 0.75");
     graphic.setAttribute("visible", "true");
     scene.appendChild(graphic);
   } else {
@@ -144,11 +144,11 @@ function _renderExtinguisherGraphic(container) {
 
   const el = buildExtinguisherGraphic();
 
-  // If in AR scene, anchor directly in front of user at chest level — NO STICKERS REQUIRED!
+  // If in AR scene, anchor comfortably in front of user at eye/chest level so whole object is in frame
   if (scene) {
-    el.setAttribute("position", "0 -0.35 -1.4");
+    el.setAttribute("position", "0 -0.45 -2.0");
     el.setAttribute("rotation", "0 0 0");
-    el.setAttribute("scale", "0.9 0.9 0.9");
+    el.setAttribute("scale", "0.55 0.55 0.55");
     scene.appendChild(el);
   } else {
     const parent = hiroMarker || container;
@@ -655,13 +655,17 @@ function _setupStep2(container, tierInfo) {
 
       if (statusBadge) {
         statusBadge.style.cursor = "pointer";
-        statusBadge.addEventListener("click", () => {
+        const triggerBadge = (e) => {
+          if (e && typeof e.stopPropagation === "function") e.stopPropagation();
           if (!isSelected) {
             applySelectedVisuals(true);
           } else {
             handleFinish(true);
           }
-        });
+        };
+        statusBadge.addEventListener("click", triggerBadge);
+        statusBadge.addEventListener("touchend", triggerBadge);
+        statusBadge.addEventListener("pointerup", triggerBadge);
       }
 
       // dragging once selected tracks smoothly anywhere on the screen
@@ -671,6 +675,14 @@ function _setupStep2(container, tierInfo) {
         typeof document !== "undefined" ? document : null
       ].filter((t) => t && typeof t.addEventListener === "function");
       dragTargets.forEach((target) => {
+        target.addEventListener("pointerdown", (e) => {
+          if (isSelected) onDragStart(e.clientX);
+        });
+        target.addEventListener("touchstart", (e) => {
+          if (isSelected && e.touches && e.touches[0]) {
+            onDragStart(e.touches[0].clientX);
+          }
+        }, { passive: true });
         target.addEventListener("pointermove", (e) => {
           if (isSelected && startX !== null) onDragMove(e.clientX);
         });
@@ -682,6 +694,17 @@ function _setupStep2(container, tierInfo) {
         }, { passive: true });
         target.addEventListener("touchend", onDragEnd);
       });
+
+      // tap anywhere on viewport or canvas selects pin if not selected, or pulls if selected
+      const viewport = typeof document !== "undefined" ? (document.getElementById("ar-viewport") || document.body) : null;
+      if (viewport && typeof viewport.addEventListener === "function") {
+        viewport.addEventListener("click", (e) => {
+          if (completed) return;
+          if (!isSelected) {
+            applySelectedVisuals(true);
+          }
+        });
+      }
     }
   }
 
