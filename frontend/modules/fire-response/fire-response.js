@@ -216,7 +216,7 @@ function _setupStep2(container, tierInfo) {
   const overlay = document.getElementById("fire-module-overlay");
   if (overlay) {
     const stepLabel = t("app.step_indicator", { current: 2, total: 3 }, "STEP 2 / 3");
-    const title = t("modules.fire_response.step_extinguisher", {}, "EXTINGUISHER USE");
+    const title = t("modules.fire_response.step_extinguisher", {}, "USE FIRE EXTINGUISHER");
     const desc = t("modules.fire_response.step_extinguisher_desc", {}, "Aim at the <strong>base</strong> of the 3D fire. Tap to aim, then confirm.");
     overlay.innerHTML = `
       <div style="font-size:1.1rem;font-weight:bold;color:#ff6a00">🔥 ${stepLabel} — ${title}</div>

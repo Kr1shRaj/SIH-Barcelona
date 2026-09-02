@@ -11,7 +11,7 @@
       "step_exit": "Identify Emergency Exit",
       "step_exit_desc": "Locate emergency exit. Face the green arrow.",
       "btn_exit": "✔ I see the exit",
-      "step_extinguisher": "Extinguisher Use",
+      "step_extinguisher": "Use Fire Extinguisher",
       "step_extinguisher_desc": "Aim at the base of the 3D fire. Tap to aim, then confirm.",
       "btn_aim_confirm": "✔ Confirm aim",
       "step_evacuate": "Evacuation Sequence",
