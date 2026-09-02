@@ -254,7 +254,7 @@ canvas.a-canvas {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 2px 8px rgba(0, 0, 0, 0.85) !important;
   box-sizing: border-box !important;
   z-index: 100 !important;
-  pointer-events: auto !important;
+  pointer-events: none !important;
   display: flex !important;
   flex-direction: column !important;
   align-items: center !important;
@@ -269,12 +269,17 @@ canvas.a-canvas {
 }
 
 #fire-module-overlay button,
-#gas-module-overlay button {
+#gas-module-overlay button,
+#fire-module-overlay a,
+#gas-module-overlay a,
+#pin-status-badge,
+#squeeze-status-badge {
   width: 100% !important;
   max-width: 360px !important;
   min-height: 48px !important;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6) !important;
   touch-action: manipulation !important;
+  pointer-events: auto !important;
 }
 
 .unsupported-screen {

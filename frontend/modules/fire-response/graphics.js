@@ -98,6 +98,22 @@ function buildExtinguisherEntity() {
     handle.className = "clickable";
   }
 
+  // generous invisible touch hit target for lever (65cm x 35cm x 35cm box)
+  const handleHitArea = document.createElement("a-box");
+  handleHitArea.id = "handle-hit-area";
+  if (typeof handleHitArea.setAttribute === "function") {
+    handleHitArea.setAttribute("class", "clickable");
+    handleHitArea.setAttribute("data-raycast-target", "handle");
+    handleHitArea.setAttribute("position", "0 0 0");
+    handleHitArea.setAttribute("width", "0.65");
+    handleHitArea.setAttribute("height", "0.35");
+    handleHitArea.setAttribute("depth", "0.35");
+    handleHitArea.setAttribute("material", "opacity: 0.0; transparent: true");
+  } else {
+    handleHitArea.className = "clickable";
+  }
+  handle.appendChild(handleHitArea);
+
   // pin root sub-entity on extinguisher top
   const pin = document.createElement("a-entity");
   pin.id = "extinguisher-pin";
@@ -139,20 +155,40 @@ function buildExtinguisherEntity() {
     pinRing.className = "clickable";
   }
 
+  // generous invisible touch hit target for pin (45cm radius sphere centered on ring)
+  const pinHitArea = document.createElement("a-sphere");
+  pinHitArea.id = "pin-hit-area";
+  if (typeof pinHitArea.setAttribute === "function") {
+    pinHitArea.setAttribute("class", "clickable");
+    pinHitArea.setAttribute("data-raycast-target", "pin");
+    pinHitArea.setAttribute("position", "0.20 0 0");
+    pinHitArea.setAttribute("radius", "0.45");
+    pinHitArea.setAttribute("material", "opacity: 0.0; transparent: true");
+  } else {
+    pinHitArea.className = "clickable";
+  }
+
   pin.appendChild(pinShaft);
   pin.appendChild(pinRing);
+  pin.appendChild(pinHitArea);
 
   // 3d dynamic guide arrow pointing directly at interactive pin
   const guideArrow = document.createElement("a-entity");
   guideArrow.id = "extinguisher-guide-arrow";
   if (typeof guideArrow.setAttribute === "function") {
+    guideArrow.setAttribute("class", "clickable");
+    guideArrow.setAttribute("data-raycast-target", "pin");
     guideArrow.setAttribute("position", "0.26 1.45 0.15");
     guideArrow.setAttribute("animation", "property: position; to: 0.26 1.15 0.15; dir: alternate; dur: 500; loop: true; easing: easeInOutSine");
+  } else {
+    guideArrow.className = "clickable";
   }
 
   const arrowCone = document.createElement("a-cone");
   arrowCone.id = "guide-arrow-cone";
   if (typeof arrowCone.setAttribute === "function") {
+    arrowCone.setAttribute("class", "clickable");
+    arrowCone.setAttribute("data-raycast-target", "pin");
     arrowCone.setAttribute("position", "0 -0.15 0");
     arrowCone.setAttribute("radius-bottom", "0.16");
     arrowCone.setAttribute("radius-top", "0.01");
@@ -164,6 +200,8 @@ function buildExtinguisherEntity() {
   const arrowShaft = document.createElement("a-cylinder");
   arrowShaft.id = "guide-arrow-shaft";
   if (typeof arrowShaft.setAttribute === "function") {
+    arrowShaft.setAttribute("class", "clickable");
+    arrowShaft.setAttribute("data-raycast-target", "pin");
     arrowShaft.setAttribute("position", "0 0.16 0");
     arrowShaft.setAttribute("radius", "0.06");
     arrowShaft.setAttribute("height", "0.32");

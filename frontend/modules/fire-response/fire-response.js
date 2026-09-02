@@ -581,14 +581,25 @@ function _setupStep2(container, tierInfo) {
         }
       };
 
-      // real tap directly on pin mesh elements triggers select
+      // real tap directly on pin mesh elements, hit target, or guide arrow triggers select
       const pinMeshes = [
         pin,
         document.getElementById("ext-pin-shaft"),
-        document.getElementById("ext-pin-ring")
+        document.getElementById("ext-pin-ring"),
+        document.getElementById("pin-hit-area"),
+        document.getElementById("extinguisher-guide-arrow"),
+        document.getElementById("guide-arrow-cone"),
+        document.getElementById("guide-arrow-shaft")
       ].filter(Boolean);
 
       pinMeshes.forEach((mesh) => {
+        mesh.addEventListener("click", () => {
+          if (!isSelected) {
+            applySelectedVisuals(true);
+          } else {
+            handleFinish(true);
+          }
+        });
         mesh.addEventListener("pointerdown", (e) => {
           if (!isSelected) {
             onSelectTap(e);
@@ -612,17 +623,31 @@ function _setupStep2(container, tierInfo) {
         }, { passive: true });
       });
 
-      // dragging once selected can track over overlay/screen
-      overlay.addEventListener("pointermove", (e) => {
-        if (isSelected && startX !== null) onDragMove(e.clientX);
+      if (statusBadge) {
+        statusBadge.style.cursor = "pointer";
+        statusBadge.addEventListener("click", () => {
+          if (!isSelected) applySelectedVisuals(true);
+        });
+      }
+
+      // dragging once selected tracks smoothly anywhere on the screen
+      const dragTargets = [
+        typeof window !== "undefined" ? window : null,
+        overlay,
+        typeof document !== "undefined" ? document : null
+      ].filter((t) => t && typeof t.addEventListener === "function");
+      dragTargets.forEach((target) => {
+        target.addEventListener("pointermove", (e) => {
+          if (isSelected && startX !== null) onDragMove(e.clientX);
+        });
+        target.addEventListener("pointerup", onDragEnd);
+        target.addEventListener("touchmove", (e) => {
+          if (isSelected && startX !== null && e.touches && e.touches[0]) {
+            onDragMove(e.touches[0].clientX);
+          }
+        }, { passive: true });
+        target.addEventListener("touchend", onDragEnd);
       });
-      overlay.addEventListener("pointerup", onDragEnd);
-      overlay.addEventListener("touchmove", (e) => {
-        if (isSelected && startX !== null && e.touches && e.touches[0]) {
-          onDragMove(e.touches[0].clientX);
-        }
-      }, { passive: true });
-      overlay.addEventListener("touchend", onDragEnd);
     }
   }
 
@@ -961,13 +986,38 @@ function _setupStep2(container, tierInfo) {
         }
       };
 
-      handle.addEventListener("pointerdown", startSqueeze);
-      handle.addEventListener("mousedown", startSqueeze);
-      handle.addEventListener("pointerup", stopSqueeze);
-      handle.addEventListener("mouseup", stopSqueeze);
-      handle.addEventListener("pointercancel", stopSqueeze);
-      handle.addEventListener("touchstart", startSqueeze, { passive: true });
-      handle.addEventListener("touchend", stopSqueeze);
+      const handleMeshes = [
+        handle,
+        document.getElementById("handle-hit-area"),
+        document.getElementById("extinguisher-guide-arrow"),
+        document.getElementById("guide-arrow-cone"),
+        document.getElementById("guide-arrow-shaft")
+      ].filter(Boolean);
+
+      handleMeshes.forEach((mesh) => {
+        mesh.addEventListener("pointerdown", startSqueeze);
+        mesh.addEventListener("mousedown", startSqueeze);
+        mesh.addEventListener("touchstart", startSqueeze, { passive: true });
+      });
+
+      if (statusBadge) {
+        statusBadge.style.cursor = "pointer";
+        statusBadge.addEventListener("click", () => {
+          if (!isSelected) applySelectedVisuals(true);
+        });
+      }
+
+      const releaseTargets = [
+        typeof window !== "undefined" ? window : null,
+        overlay,
+        typeof document !== "undefined" ? document : null
+      ].filter((t) => t && typeof t.addEventListener === "function");
+      releaseTargets.forEach((target) => {
+        target.addEventListener("pointerup", stopSqueeze);
+        target.addEventListener("mouseup", stopSqueeze);
+        target.addEventListener("pointercancel", stopSqueeze);
+        target.addEventListener("touchend", stopSqueeze);
+      });
     }
   }
 
