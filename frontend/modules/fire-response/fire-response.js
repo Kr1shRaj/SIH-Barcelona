@@ -1,7 +1,7 @@
 import { createLogger } from "../../js/logger.js";
 import { registerCheckpoint, fireCheckpointResult } from "../../ar/interactions.js";
 import { unloadModule } from "../../js/module-loader.js";
-import { buildFireGraphic, buildExitGraphic } from "./graphics.js";
+import { buildFireGraphic, buildExitGraphic, buildExtinguisherGraphic } from "./graphics.js";
 
 const logger = createLogger("FireModule");
 
@@ -109,6 +109,19 @@ function _renderExitGraphic(container) {
     ? document.querySelector("a-marker")
     : null;
   const el = buildExitGraphic();
+  const parent = marker || container;
+  if (parent && parent.appendChild) {
+    parent.appendChild(el);
+  }
+  return el;
+}
+
+// render 3D fire extinguisher entity inside a-marker or fallback container
+function _renderExtinguisherGraphic(container) {
+  const marker = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? document.querySelector("a-marker")
+    : null;
+  const el = buildExtinguisherGraphic();
   const parent = marker || container;
   if (parent && parent.appendChild) {
     parent.appendChild(el);
@@ -309,36 +322,24 @@ function _setupStep2(container, tierInfo) {
   });
 
   const graphic = _renderFireGraphic(container);
+  _renderExtinguisherGraphic(container);
   const overlay = document.getElementById("fire-module-overlay");
 
   let _recordedAccuracy = null;
   let _recordedDistance = null;
 
-  // pass sub-step 1: P — Pull pin drag gesture
+  // pass sub-step 1: P — Pull pin drag gesture targeting 3D extinguisher
   function _renderPullPin() {
     if (!overlay) return;
     overlay.innerHTML = `
       <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (1/4)</div>
       <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">P — Pull the Pin</div>
-      <div style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Drag the safety pin to the right to unlock the operating lever.</div>
+      <div style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Drag the safety pin on the 3D extinguisher to the right to unlock.</div>
     `;
 
-    const track = document.createElement("div");
-    track.id = "pin-track";
-    track.style.cssText = "position:relative;width:100%;max-width:280px;height:54px;background:rgba(30,41,59,0.9);border:2px dashed #f59e0b;border-radius:27px;display:flex;align-items:center;padding:4px;box-sizing:border-box;margin:0.5rem 0;";
-
-    const pin = document.createElement("div");
-    pin.id = "extinguisher-pin";
-    pin.style.cssText = "position:absolute;left:4px;height:44px;padding:0 14px;background:#ef4444;color:#fff;border-radius:22px;display:flex;align-items:center;gap:6px;font-weight:bold;font-size:0.9rem;cursor:grab;touch-action:none;user-select:none;box-shadow:0 2px 6px rgba(0,0,0,0.5);";
-    pin.innerHTML = "<span>⭕</span> <span>Pull Pin ➔</span>";
-
-    const label = document.createElement("div");
-    label.style.cssText = "width:100%;text-align:right;padding-right:16px;color:#94a3b8;font-size:0.75rem;font-weight:bold;letter-spacing:0.5px;";
-    label.textContent = "PULL 50PX ➔";
-
-    track.appendChild(pin);
-    track.appendChild(label);
-    overlay.appendChild(track);
+    // target 3d pin sub-entity and 3d progress bar
+    const pin = document.getElementById("extinguisher-pin");
+    const progressFill = document.getElementById("pin-progress-fill");
 
     let startX = null;
     let currentDrag = 0;
@@ -347,8 +348,13 @@ function _setupStep2(container, tierInfo) {
     function handleFinish(sync = false) {
       if (completed) return;
       completed = true;
-      pin.style.background = "#10b981";
-      pin.innerHTML = "<span>✔</span> <span>PIN PULLED!</span>";
+      if (pin && typeof pin.setAttribute === "function") {
+        pin.setAttribute("material", "color: #10b981; metalness: 0.8; roughness: 0.2");
+        pin.setAttribute("position", "0.12 0.38 0.04");
+      }
+      if (progressFill && typeof progressFill.setAttribute === "function") {
+        progressFill.setAttribute("scale", "1 1 1");
+      }
       if (sync) {
         _renderAim();
       } else {
@@ -356,43 +362,79 @@ function _setupStep2(container, tierInfo) {
       }
     }
 
-    pin.simulatePull = (dist = 60) => {
-      if (isPinPullComplete(dist, PIN_PULL_THRESHOLD_PX)) handleFinish(true);
-    };
-    pin.addEventListener("click", () => handleFinish(true));
-    pin.addEventListener("pointerdown", (e) => {
-      startX = e.clientX;
-      currentDrag = 0;
-      pin.setPointerCapture?.(e.pointerId);
-    });
-    pin.addEventListener("pointermove", (e) => {
-      if (startX === null || completed) return;
-      currentDrag = Math.max(0, e.clientX - startX);
-      pin.style.transform = `translateX(${Math.min(currentDrag, 140)}px)`;
-      if (isPinPullComplete(currentDrag, PIN_PULL_THRESHOLD_PX)) {
-        handleFinish(false);
-      }
-    });
-    pin.addEventListener("pointerup", (e) => {
-      startX = null;
-      if (!completed) pin.style.transform = "translateX(0px)";
-      pin.releasePointerCapture?.(e.pointerId);
-    });
-    pin.addEventListener("touchstart", (e) => {
-      if (e.touches && e.touches[0]) startX = e.touches[0].clientX;
-    }, { passive: true });
-    pin.addEventListener("touchmove", (e) => {
-      if (startX === null || completed || !e.touches || !e.touches[0]) return;
-      currentDrag = Math.max(0, e.touches[0].clientX - startX);
-      pin.style.transform = `translateX(${Math.min(currentDrag, 140)}px)`;
-      if (isPinPullComplete(currentDrag, PIN_PULL_THRESHOLD_PX)) {
-        handleFinish(false);
-      }
-    }, { passive: true });
-    pin.addEventListener("touchend", () => {
-      startX = null;
-      if (!completed) pin.style.transform = "translateX(0px)";
-    });
+    if (pin) {
+      pin.simulatePull = (dist = 60) => {
+        if (isPinPullComplete(dist, PIN_PULL_THRESHOLD_PX)) handleFinish(true);
+      };
+      pin.addEventListener("click", () => handleFinish(true));
+
+      const onPointerStart = (clientX) => {
+        if (completed) return;
+        startX = clientX;
+        currentDrag = 0;
+      };
+
+      const onPointerMove = (clientX) => {
+        if (startX === null || completed) return;
+        currentDrag = Math.max(0, clientX - startX);
+        const fraction = Math.min(1, currentDrag / PIN_PULL_THRESHOLD_PX);
+        if (pin && typeof pin.setAttribute === "function") {
+          pin.setAttribute("position", `${0.02 + fraction * 0.08} 0.38 0.04`);
+        }
+        if (progressFill && typeof progressFill.setAttribute === "function") {
+          progressFill.setAttribute("scale", `${Math.max(0.01, fraction)} 1 1`);
+        }
+        if (isPinPullComplete(currentDrag, PIN_PULL_THRESHOLD_PX)) {
+          handleFinish(false);
+        }
+      };
+
+      const onPointerEnd = () => {
+        startX = null;
+        if (!completed) {
+          if (pin && typeof pin.setAttribute === "function") {
+            pin.setAttribute("position", "0.02 0.38 0.04");
+          }
+          if (progressFill && typeof progressFill.setAttribute === "function") {
+            progressFill.setAttribute("scale", "0.01 1 1");
+          }
+        }
+      };
+
+      pin.addEventListener("pointerdown", (e) => {
+        onPointerStart(e.clientX);
+        pin.setPointerCapture?.(e.pointerId);
+      });
+      pin.addEventListener("pointermove", (e) => onPointerMove(e.clientX));
+      pin.addEventListener("pointerup", (e) => {
+        onPointerEnd();
+        pin.releasePointerCapture?.(e.pointerId);
+      });
+
+      pin.addEventListener("touchstart", (e) => {
+        if (e.touches && e.touches[0]) onPointerStart(e.touches[0].clientX);
+      }, { passive: true });
+      pin.addEventListener("touchmove", (e) => {
+        if (e.touches && e.touches[0]) onPointerMove(e.touches[0].clientX);
+      }, { passive: true });
+      pin.addEventListener("touchend", onPointerEnd);
+
+      // also wire drag on overlay for flexible mobile touch
+      overlay.addEventListener("pointerdown", (e) => {
+        if (startX === null) onPointerStart(e.clientX);
+      });
+      overlay.addEventListener("pointermove", (e) => {
+        if (startX !== null) onPointerMove(e.clientX);
+      });
+      overlay.addEventListener("pointerup", onPointerEnd);
+      overlay.addEventListener("touchstart", (e) => {
+        if (startX === null && e.touches && e.touches[0]) onPointerStart(e.touches[0].clientX);
+      }, { passive: true });
+      overlay.addEventListener("touchmove", (e) => {
+        if (startX !== null && e.touches && e.touches[0]) onPointerMove(e.touches[0].clientX);
+      }, { passive: true });
+      overlay.addEventListener("touchend", onPointerEnd);
+    }
   }
 
   // pass sub-step 2: A — Aim sustained hold on fire base
@@ -742,7 +784,16 @@ function _setupStep3(_container) {
 // clean up all fire module graphics and overlay from DOM and a-marker
 function cleanupFireModule() {
   _currentStep = 0;
-  ["fire-module-overlay", "fire-graphic", "exit-graphic", "evacuation-options", "aim-accuracy-display"].forEach((id) => {
+  [
+    "fire-module-overlay",
+    "fire-graphic",
+    "extinguisher-graphic",
+    "extinguisher-pin",
+    "extinguisher-pin-progress",
+    "exit-graphic",
+    "evacuation-options",
+    "aim-accuracy-display"
+  ].forEach((id) => {
     if (typeof document !== "undefined") {
       document.getElementById(id)?.remove();
     }
@@ -755,6 +806,8 @@ function cleanupFireModule() {
       if (oldFire && typeof oldFire.remove === "function") oldFire.remove();
       const oldExit = marker.querySelector("#exit-graphic");
       if (oldExit && typeof oldExit.remove === "function") oldExit.remove();
+      const oldExt = marker.querySelector("#extinguisher-graphic");
+      if (oldExt && typeof oldExt.remove === "function") oldExt.remove();
     }
   }
 }

@@ -206,6 +206,14 @@ describe("Fire & Explosion Response module", () => {
     assert.ok(!cps.some((c) => c.id === CP_EVACUATION_ID), "evacuation CP must not register before step 2");
   });
 
+  it("step 2 renders 3D extinguisher entity with pin and 3D progress indicator", () => {
+    advanceToStep2();
+    assert.ok(document.getElementById("extinguisher-graphic"), "extinguisher-graphic entity must exist");
+    assert.ok(document.getElementById("extinguisher-pin"), "extinguisher-pin entity must exist");
+    assert.ok(document.getElementById("extinguisher-pin-progress"), "extinguisher-pin-progress entity must exist");
+    assert.ok(document.getElementById("pin-progress-fill"), "pin-progress-fill entity must exist");
+  });
+
   it("completing step 2 (high accuracy) registers step 3 (evacuation select) checkpoint", () => {
     advanceToStep2();
     // inject high accuracy score — passes threshold, proceeds to step 3
