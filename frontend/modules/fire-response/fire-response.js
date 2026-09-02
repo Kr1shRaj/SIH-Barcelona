@@ -2,6 +2,15 @@ import { createLogger } from "../../js/logger.js";
 import { registerCheckpoint, fireCheckpointResult } from "../../ar/interactions.js";
 import { unloadModule } from "../../js/module-loader.js";
 import { buildFireGraphic, buildExitGraphic } from "./graphics.js";
+import { t } from "../../js/i18n.js";
+import { playNarration, stopNarration } from "../../js/audio.js";
+import {
+  startAssessmentSession,
+  finishAssessmentSession,
+  abortAssessmentSession,
+  getActiveSession,
+  bindAssessmentSessionListeners
+} from "../../assessment/engine.js";
 
 const logger = createLogger("FireModule");
 
@@ -120,10 +129,10 @@ function _renderExitGraphic(container) {
 function _renderEvacuationOptions(container, onSelect) {
   const CORRECT = "sound_alarm_then_evacuate";
   const options = [
-    { id: "gather_belongings",       label: "Gather belongings first" },
-    { id: "sound_alarm_then_evacuate", label: "Sound alarm → evacuate" },
-    { id: "use_elevator",            label: "Use elevator to escape" },
-    { id: "wait_for_instructions",   label: "Wait at desk for instructions" }
+    { id: "gather_belongings", label: t("modules.fire_response.opt_gather_belongings", {}, "Gather belongings first") },
+    { id: "sound_alarm_then_evacuate", label: t("modules.fire_response.opt_sound_alarm_then_evacuate", {}, "Sound alarm → evacuate") },
+    { id: "use_elevator", label: t("modules.fire_response.opt_use_elevator", {}, "Use elevator to escape") },
+    { id: "wait_for_instructions", label: t("modules.fire_response.opt_wait_for_instructions", {}, "Wait at desk for instructions") }
   ];
 
   const wrapper = document.createElement("div");
@@ -154,6 +163,7 @@ function _renderEvacuationOptions(container, onSelect) {
 function _setupStep1(container, tierInfo) {
   _currentStep = 1;
   logger.info({ event: "fire_step_start", step: 1 }, "Exit identification");
+  playNarration({ moduleId: "fire-response", stepKey: "step_1_exit" });
 
   registerCheckpoint({
     id: CP_EXIT_ID,
@@ -165,22 +175,22 @@ function _setupStep1(container, tierInfo) {
 
   _renderExitGraphic(container);
 
-  // desc text via innerHTML is fine — it has no interactive children
   const overlay = document.getElementById("fire-module-overlay");
   if (overlay) {
+    const stepLabel = t("app.step_indicator", { current: 1, total: 3 }, "STEP 1 / 3");
+    const title = t("modules.fire_response.step_exit", {}, "EXIT IDENTIFICATION");
+    const desc = t("modules.fire_response.step_exit_desc", {}, "Locate emergency exit. Face the green arrow.");
     overlay.innerHTML = `
-      <div style="font-size:1.1rem;font-weight:bold;color:#ff6a00">🔥 STEP 1 / 3 — EXIT IDENTIFICATION</div>
-      <div style="margin:0.5rem 0">Locate emergency exit. Face the green arrow.</div>
+      <div style="font-size:1.1rem;font-weight:bold;color:#ff6a00">🔥 ${stepLabel} — ${title}</div>
+      <div style="margin:0.5rem 0">${desc}</div>
     `;
   }
 
-  // create button programmatically so getElementById can find it in test and browser alike
   const btn = document.createElement("button");
   btn.id = "btn-exit-found";
   btn.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;";
-  btn.textContent = "✔ I see the exit";
+  btn.textContent = t("modules.fire_response.btn_exit", {}, "✔ I see the exit");
   btn.addEventListener("click", () => {
-    // passed = true: user correctly identified the exit location
     fireCheckpointResult(CP_EXIT_ID, true, { method: "button_confirm" });
     _setupStep2(container, tierInfo);
   });
@@ -191,6 +201,7 @@ function _setupStep1(container, tierInfo) {
 function _setupStep2(container, tierInfo) {
   _currentStep = 2;
   logger.info({ event: "fire_step_start", step: 2, tier: tierInfo && tierInfo.tier }, "Extinguisher aim");
+  playNarration({ moduleId: "fire-response", stepKey: "step_2_extinguisher" });
 
   registerCheckpoint({
     id: CP_EXTINGUISHER_ID,
@@ -204,23 +215,23 @@ function _setupStep2(container, tierInfo) {
 
   const overlay = document.getElementById("fire-module-overlay");
   if (overlay) {
+    const stepLabel = t("app.step_indicator", { current: 2, total: 3 }, "STEP 2 / 3");
+    const title = t("modules.fire_response.step_extinguisher", {}, "USE FIRE EXTINGUISHER");
+    const desc = t("modules.fire_response.step_extinguisher_desc", {}, "Aim at the <strong>base</strong> of the 3D fire. Tap to aim, then confirm.");
     overlay.innerHTML = `
-      <div style="font-size:1.1rem;font-weight:bold;color:#ff6a00">🔥 STEP 2 / 3 — EXTINGUISHER USE</div>
-      <div style="margin:0.5rem 0">Aim at the <strong>base</strong> of the 3D fire. Tap to aim, then confirm.</div>
+      <div style="font-size:1.1rem;font-weight:bold;color:#ff6a00">🔥 ${stepLabel} — ${title}</div>
+      <div style="margin:0.5rem 0">${desc}</div>
     `;
   }
 
-  // confirm button — fires after user has aimed to record their score
   const btnConfirm = document.createElement("button");
   btnConfirm.id = "btn-aim-confirm";
   btnConfirm.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.5rem;background:#ff6a00;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:none;";
-  btnConfirm.textContent = "✔ Confirm aim";
+  btnConfirm.textContent = t("modules.fire_response.btn_aim_confirm", {}, "✔ Confirm aim");
   if (overlay) overlay.appendChild(btnConfirm);
 
-  // stores recorded aim point/distance
   let _recordedAim = null;
 
-  // handle aim event (raycaster click or touch/pointer)
   const handleAimEvent = (ev) => {
     const intersection = ev && ev.detail && ev.detail.intersection ? ev.detail.intersection : null;
     if (intersection && intersection.point) {
@@ -235,13 +246,11 @@ function _setupStep2(container, tierInfo) {
     } else if (ev && typeof ev._testAccuracy === "number") {
       _recordedAim = { distance: null, accuracy: ev._testAccuracy, method: "test_accuracy" };
     } else if (ev && ev.clientX !== undefined && ev.clientY !== undefined) {
-      // 2D tap fallback
       _recordedAim = { x: ev.clientX, y: ev.clientY, method: "2d_tap" };
     }
     btnConfirm.style.display = "inline-block";
   };
 
-  // listen on the 3D entity itself (A-Frame cursor raycaster emits 'click' on intersected entity)
   if (graphic && typeof graphic.addEventListener === "function") {
     graphic.addEventListener("click", handleAimEvent);
     graphic.addEventListener("pointerdown", handleAimEvent);
@@ -309,6 +318,7 @@ function _setupStep2(container, tierInfo) {
 function _setupStep3(_container) {
   _currentStep = 3;
   logger.info({ event: "fire_step_start", step: 3 }, "Evacuation sequence");
+  playNarration({ moduleId: "fire-response", stepKey: "step_3_evacuate" });
 
   registerCheckpoint({
     id: CP_EVACUATION_ID,
@@ -320,14 +330,16 @@ function _setupStep3(_container) {
 
   const overlay = document.getElementById("fire-module-overlay");
   if (overlay) {
+    const stepLabel = t("app.step_indicator", { current: 3, total: 3 }, "STEP 3 / 3");
+    const title = t("modules.fire_response.step_evacuate", {}, "EVACUATE THE AREA");
+    const desc = t("modules.fire_response.step_evacuate_desc", {}, "What is the correct action after using extinguisher?");
     overlay.innerHTML = `
-      <div style="font-size:1.1rem;font-weight:bold;color:#ff6a00">🔥 STEP 3 / 3 — EVACUATION</div>
-      <div style="margin:0.5rem 0">What is the correct action after using extinguisher?</div>
+      <div style="font-size:1.1rem;font-weight:bold;color:#ff6a00">🔥 ${stepLabel} — ${title}</div>
+      <div style="margin:0.5rem 0">${desc}</div>
     `;
   }
 
   _renderEvacuationOptions(overlay, (selectedId, passed) => {
-    // context carries what the user picked so assessment engine can log the wrong answer too
     fireCheckpointResult(CP_EVACUATION_ID, passed, {
       selected: selectedId,
       correct: "sound_alarm_then_evacuate"
@@ -339,6 +351,10 @@ function _setupStep3(_container) {
 // clean up all fire module graphics and overlay from DOM and a-marker
 function cleanupFireModule() {
   _currentStep = 0;
+  stopNarration();
+  if (getActiveSession()) {
+    abortAssessmentSession();
+  }
   ["fire-module-overlay", "fire-graphic", "exit-graphic", "evacuation-options", "aim-accuracy-display"].forEach((id) => {
     if (typeof document !== "undefined") {
       document.getElementById(id)?.remove();
@@ -359,19 +375,32 @@ function cleanupFireModule() {
 // show completion panel after all three steps done
 function _showComplete(lastPassed) {
   _currentStep = 0;
+
+  // finalize assessment attempt if session is active
+  if (getActiveSession()) {
+    try {
+      finishAssessmentSession();
+    } catch (err) {
+      logger.warn({ event: "assessment_finish_error", error: err.message }, "Assessment finalize failed");
+    }
+  }
+
   const overlay = document.getElementById("fire-module-overlay");
   if (overlay) {
+    const titlePass = t("modules.fire_response.complete_pass", {}, "✅ MODULE COMPLETE");
+    const titleReview = t("modules.fire_response.complete_review", {}, "⚠ MODULE COMPLETE — Review step 3");
+    const desc = t("modules.fire_response.complete_desc", {}, "All checkpoints fired. Assessment engine will score your attempt.");
     overlay.innerHTML = `
       <div style="font-size:1.2rem;font-weight:bold;color:${lastPassed ? "#00e676" : "#ff6a00"}">
-        ${lastPassed ? "✅ MODULE COMPLETE" : "⚠ MODULE COMPLETE — Review step 3"}
+        ${lastPassed ? titlePass : titleReview}
       </div>
-      <div style="margin:0.5rem 0;font-size:0.95rem">All checkpoints fired. Assessment engine will score your attempt.</div>
+      <div style="margin:0.5rem 0;font-size:0.95rem">${desc}</div>
     `;
 
     const btnExit = document.createElement("button");
     btnExit.id = "btn-module-exit";
     btnExit.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.5rem;background:#ff6a00;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;";
-    btnExit.textContent = "✖ Exit Module";
+    btnExit.textContent = t("modules.fire_response.btn_exit_module", {}, "✖ Exit Module");
     btnExit.addEventListener("click", () => {
       cleanupFireModule();
       unloadModule();
@@ -386,17 +415,18 @@ function startFireModule(container, tierInfo) {
   _currentStep = 0;
   logger.info({ event: "fire_module_start", tier: tierInfo && tierInfo.tier }, "Fire module starting");
 
-  // remove stale overlay/graphics if reloading
   cleanupFireModule();
 
-  // create base overlay panel (will be updated per step)
-  _createOverlay(container, "<div>Loading Fire &amp; Explosion Response...</div>");
+  // initialize assessment session if not already started by loader
+  if (!getActiveSession()) {
+    bindAssessmentSessionListeners();
+    startAssessmentSession({ moduleId: "fire-response" });
+  }
 
-  // step 1 starts immediately; pass tierInfo through so step 2 knows which tier is active
+  _createOverlay(container, `<div>${t("modules.fire_response.title", {}, "Loading Fire & Explosion Response...")}</div>`);
   _setupStep1(container, tierInfo);
 }
 
-// public aliases for tests and external callers
 const calcAimAccuracy = _calcAimAccuracy;
 
 export {
@@ -413,4 +443,3 @@ export {
   CP_EXTINGUISHER_ID,
   CP_EVACUATION_ID
 };
-

@@ -3,6 +3,8 @@ import { detectDeviceCaps, selectArTier } from "../ar/tier.js";
 import { initWebXRSession, loadModule3DScene } from "../ar/webxr.js";
 import { initMarkerTracking, loadMarkerModuleScene } from "../ar/marker.js";
 import { setTierLoaders, loadModule, unloadModule } from "./module-loader.js";
+import { loadLocale } from "./i18n.js";
+import { bindAssessmentSessionListeners } from "../assessment/engine.js";
 
 const logger = createLogger("AppBoot");
 
@@ -80,6 +82,18 @@ async function initApp() {
   if (!appContainer) {
     return;
   }
+
+  // bootstrap default and fallback locales and bind assessment listeners
+  try {
+    await Promise.allSettled([
+      loadLocale("hi"),
+      loadLocale("en")
+    ]);
+  } catch (err) {
+    logger.warn({ event: "locale_bootstrap_error", error: err.message }, "Locale bootstrap warning");
+  }
+
+  bindAssessmentSessionListeners();
 
   // probe device hardware caps
   const caps = await detectDeviceCaps(window);
