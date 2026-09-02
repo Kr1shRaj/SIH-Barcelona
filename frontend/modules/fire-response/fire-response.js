@@ -321,6 +321,12 @@ function _setupStep2(container, tierInfo) {
     }
   });
 
+  // clean up step 1 exit graphic so only step 2 entities are visible
+  const oldExit = document.getElementById("exit-graphic");
+  if (oldExit && typeof oldExit.remove === "function") {
+    oldExit.remove();
+  }
+
   const graphic = _renderFireGraphic(container);
   _renderExtinguisherGraphic(container);
   const overlay = document.getElementById("fire-module-overlay");
@@ -343,7 +349,7 @@ function _setupStep2(container, tierInfo) {
     const progressFill = document.getElementById("pin-progress-fill");
 
     const BASE_PIN_X = 0.03;
-    const BASE_PIN_Y = 0.62;
+    const BASE_PIN_Y = 0.57;
     const BASE_PIN_Z = 0.05;
 
     let startX = null;
@@ -735,6 +741,12 @@ function _setupStep2(container, tierInfo) {
 function _setupStep3(_container) {
   _currentStep = 3;
   logger.info({ event: "fire_step_start", step: 3 }, "Evacuation sequence");
+
+  // clean up step 2 extinguisher and fire graphics for step 3
+  ["extinguisher-graphic", "fire-graphic"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && typeof el.remove === "function") el.remove();
+  });
 
   registerCheckpoint({
     id: CP_EVACUATION_ID,
