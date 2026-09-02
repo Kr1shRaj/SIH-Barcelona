@@ -43,6 +43,8 @@ function renderArShell(container, tierResult) {
     : `<a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3;" vr-mode-ui="enabled: false" renderer="logarithmicDepthBuffer: true;">
         <a-marker preset="hiro" id="hiro-marker"></a-marker>
         <a-marker preset="kanji" id="kanji-marker"></a-marker>
+        <a-light type="ambient" color="#ffffff" intensity="1.2"></a-light>
+        <a-light type="directional" position="1 4 2" intensity="1.0"></a-light>
         <a-entity id="main-camera" camera cursor="rayOrigin: mouse" raycaster="objects: .clickable, [data-raycast-target]">
           <a-entity id="gaze-laser" raycaster="objects: .aim-target, [data-raycast-target='aim'], #aim-reticle; showLine: true; far: 30; lineColor: #00e5ff; lineOpacity: 0.85;" position="0 0 0" rotation="0 0 0">
             <a-ring id="gaze-dot" position="0 0 -1" radius-inner="0.008" radius-outer="0.016" material="color: #00e5ff; shader: flat; opacity: 0.9; side: double"></a-ring>
@@ -59,8 +61,6 @@ function renderArShell(container, tierResult) {
       <header class="header-bar">
         <div class="app-title">🛡️ SafeAR</div>
         <div style="margin-left:auto;display:flex;align-items:center;gap:10px;">
-          <a href="/markers/kanji.html" target="_blank" style="font-size:0.75rem;color:#00e5ff;text-decoration:none;font-weight:bold;background:rgba(0,229,255,0.15);padding:3px 8px;border-radius:4px;border:1px solid rgba(0,229,255,0.4);">🔥 Kanji</a>
-          <a href="/markers/hiro.html" target="_blank" style="font-size:0.75rem;color:#3b82f6;text-decoration:none;font-weight:bold;background:rgba(59,130,246,0.15);padding:3px 8px;border-radius:4px;border:1px solid rgba(59,130,246,0.4);">🧯 Hiro</a>
           <span class="tier-badge ${tierClass}">${tierLabel}</span>
         </div>
       </header>

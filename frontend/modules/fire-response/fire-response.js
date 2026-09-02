@@ -19,6 +19,8 @@ const FIRE_BASE_MAX_DISTANCE_3D = 0.8;
 // target 3D base coordinate relative to marker space
 const FIRE_BASE_TARGET_3D = { x: 0, y: 0.3, z: 0 };
 
+let _exitGraphicEl = null;
+
 // track which step is active; steps are sequential — next only registers after prev passes
 let _currentStep = 0;
 
@@ -93,12 +95,12 @@ function _renderFireGraphic(container) {
 
   const graphic = buildFireGraphic();
 
-  // In AR scene, position fire 3.5m ahead at room floor level (hidden during Step P pin pull)
+  // In AR scene, position realistic burning container 2.8m directly ahead (SENAR benchmark)
   if (scene) {
-    graphic.setAttribute("position", "0 -0.40 -3.5");
+    graphic.setAttribute("position", "0 -0.15 -2.8");
     graphic.setAttribute("rotation", "0 0 0");
-    graphic.setAttribute("scale", "0.85 0.85 0.85");
-    graphic.setAttribute("visible", "false");
+    graphic.setAttribute("scale", "0.95 0.95 0.95");
+    graphic.setAttribute("visible", "true");
     scene.appendChild(graphic);
   } else {
     const parent = kanjiMarker || container;
@@ -120,6 +122,7 @@ function _renderExitGraphic(container) {
     : null;
 
   const el = buildExitGraphic();
+  _exitGraphicEl = el;
   if (scene) {
     el.setAttribute("position", "0 0.85 -2.2");
     el.setAttribute("rotation", "0 0 0");
@@ -146,9 +149,9 @@ function _renderExtinguisherGraphic(container) {
 
   // If in AR scene, anchor comfortably in front of user at eye/chest level so whole object is in frame
   if (scene) {
-    el.setAttribute("position", "0 -0.45 -2.0");
+    el.setAttribute("position", "0 -0.40 -1.6");
     el.setAttribute("rotation", "0 0 0");
-    el.setAttribute("scale", "0.55 0.55 0.55");
+    el.setAttribute("scale", "0.65 0.65 0.65");
     scene.appendChild(el);
   } else {
     const parent = hiroMarker || container;
@@ -406,10 +409,20 @@ function _setupStep2(container, tierInfo) {
     }
   });
 
-  // clean up step 1 exit graphic so only step 2 entities are visible
-  const oldExit = document.getElementById("exit-graphic");
-  if (oldExit && typeof oldExit.remove === "function") {
-    oldExit.remove();
+  // clean up step 1 exit graphic completely so only step 2 entities are visible
+  if (_exitGraphicEl) {
+    if (typeof _exitGraphicEl.setAttribute === "function") _exitGraphicEl.setAttribute("visible", "false");
+    if (_exitGraphicEl.object3D) _exitGraphicEl.object3D.visible = false;
+    if (_exitGraphicEl.parentNode) _exitGraphicEl.parentNode.removeChild(_exitGraphicEl);
+    _exitGraphicEl = null;
+  }
+  if (typeof document !== "undefined" && typeof document.querySelectorAll === "function") {
+    document.querySelectorAll("#exit-graphic, #exit-board, #exit-arrow-shaft, #exit-arrow-head").forEach((el) => {
+      if (typeof el.setAttribute === "function") el.setAttribute("visible", "false");
+      if (el.object3D) el.object3D.visible = false;
+      if (el.parentNode) el.parentNode.removeChild(el);
+      else if (typeof el.remove === "function") el.remove();
+    });
   }
 
   const graphic = _renderFireGraphic(container);
@@ -718,8 +731,8 @@ function _setupStep2(container, tierInfo) {
     overlay.innerHTML = `
       <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (2/4)</div>
       <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">A — Aim at the Base</div>
-      <div id="aim-instruction-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Point your phone camera so the center laser aims at the base of the fire (Kanji marker). Hold steady for 800ms.</div>
-      <div id="aim-status-badge" style="display:inline-block;padding:4px 10px;border-radius:6px;background:#334155;color:#94a3b8;font-size:0.8rem;font-weight:bold;margin-bottom:0.4rem;">⚪ POINT PHONE AT FIRE (KANJI MARKER)</div>
+      <div id="aim-instruction-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Point your phone camera so the center reticle aims at the base of the fire container. Hold steady for 800ms.</div>
+      <div id="aim-status-badge" style="display:inline-block;padding:4px 10px;border-radius:6px;background:#334155;color:#94a3b8;font-size:0.8rem;font-weight:bold;margin-bottom:0.4rem;">⚪ POINT PHONE AT BASE OF FIRE</div>
       <div style="width:100%;max-width:280px;height:8px;background:#334155;border-radius:4px;overflow:hidden;margin:0.5rem 0;">
         <div id="aim-progress-bar" style="width:0%;height:100%;background:#00e676;transition:width 0.08s linear;"></div>
       </div>
@@ -736,14 +749,15 @@ function _setupStep2(container, tierInfo) {
     const fireGraphic = document.getElementById("fire-graphic");
     if (fireGraphic && typeof fireGraphic.setAttribute === "function") {
       fireGraphic.setAttribute("visible", "true");
-      fireGraphic.setAttribute("position", "0 -0.40 -3.5");
+      fireGraphic.setAttribute("position", "0 -0.05 -2.6");
+      fireGraphic.setAttribute("scale", "0.95 0.95 0.95");
     }
 
     const bTitle = document.getElementById("billboard-step-title");
     const bDesc = document.getElementById("billboard-step-desc");
     const bPill = document.getElementById("billboard-pill-text");
     if (bTitle) bTitle.setAttribute("value", "A — AIM AT BASE");
-    if (bDesc) bDesc.setAttribute("value", "Aim laser at fire\nbase on Kanji marker.");
+    if (bDesc) bDesc.setAttribute("value", "Aim reticle at base\nof fire container.");
     if (bPill) bPill.setAttribute("value", "⚪ POINT AT FIRE BASE");
 
     let holdStart = null;
@@ -816,7 +830,7 @@ function _setupStep2(container, tierInfo) {
       holdStart = null;
       if (progressBar) progressBar.style.width = "0%";
       if (statusBadge) {
-        statusBadge.textContent = "⚪ POINT PHONE AT FIRE (KANJI MARKER)";
+        statusBadge.textContent = "⚪ POINT PHONE AT BASE OF FIRE";
         statusBadge.style.background = "#334155";
         statusBadge.style.color = "#94a3b8";
       }
@@ -835,7 +849,7 @@ function _setupStep2(container, tierInfo) {
         if (!completed) {
           stopHold();
           if (statusBadge) {
-            statusBadge.textContent = "⚠️ KANJI MARKER NOT IN VIEW — POINT PHONE AT FIRE";
+            statusBadge.textContent = "⚠️ TARGET LOST — POINT PHONE AT FIRE BASE";
             statusBadge.style.color = "#f59e0b";
           }
         }
@@ -843,7 +857,7 @@ function _setupStep2(container, tierInfo) {
       kanjiMarker.addEventListener("markerFound", () => {
         if (!completed) {
           if (statusBadge) {
-            statusBadge.textContent = "⚪ POINT PHONE AT FIRE (KANJI MARKER)";
+            statusBadge.textContent = "⚪ POINT PHONE AT BASE OF FIRE";
             statusBadge.style.color = "#94a3b8";
           }
         }
@@ -1383,16 +1397,13 @@ function cleanupFireModule() {
     }
   });
 
-  if (typeof document !== "undefined" && typeof document.querySelector === "function") {
-    const marker = document.querySelector("a-marker");
-    if (marker && typeof marker.querySelector === "function") {
-      const oldFire = marker.querySelector("#fire-graphic");
-      if (oldFire && typeof oldFire.remove === "function") oldFire.remove();
-      const oldExit = marker.querySelector("#exit-graphic");
-      if (oldExit && typeof oldExit.remove === "function") oldExit.remove();
-      const oldExt = marker.querySelector("#extinguisher-graphic");
-      if (oldExt && typeof oldExt.remove === "function") oldExt.remove();
-    }
+  if (typeof document !== "undefined" && typeof document.querySelectorAll === "function") {
+    document.querySelectorAll("#exit-graphic, #fire-graphic, #extinguisher-graphic").forEach((el) => {
+      if (typeof el.setAttribute === "function") el.setAttribute("visible", "false");
+      if (el.object3D) el.object3D.visible = false;
+      if (el.parentNode) el.parentNode.removeChild(el);
+      else if (typeof el.remove === "function") el.remove();
+    });
   }
 }
 
