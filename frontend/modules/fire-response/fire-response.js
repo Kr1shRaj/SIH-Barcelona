@@ -452,6 +452,8 @@ function _setupStep2(container, tierInfo) {
       }
       const shaft = document.getElementById("ext-pin-shaft");
       const ring = document.getElementById("ext-pin-ring");
+      const guideArrow = document.getElementById("extinguisher-guide-arrow");
+      const arrowText = document.getElementById("guide-arrow-text");
       if (shaft && typeof shaft.setAttribute === "function") {
         shaft.setAttribute(
           "material",
@@ -468,11 +470,29 @@ function _setupStep2(container, tierInfo) {
             : "color: #fbbf24; emissive: #f59e0b; emissiveIntensity: 0.7; metalness: 0.6; roughness: 0.2"
         );
       }
+      if (guideArrow && typeof guideArrow.setAttribute === "function") {
+        if (selected) {
+          guideArrow.setAttribute("position", "0.55 1.78 0.15");
+          guideArrow.setAttribute("rotation", "0 0 -90");
+          guideArrow.setAttribute("animation", "property: position; to: 0.75 1.78 0.15; from: 0.45 1.78 0.15; dir: alternate; dur: 500; loop: true; easing: easeInOutQuad");
+        } else {
+          guideArrow.setAttribute("position", "0.08 2.45 0.15");
+          guideArrow.setAttribute("rotation", "0 0 0");
+          guideArrow.setAttribute("animation", "property: position; to: 0.08 2.15 0.15; dir: alternate; dur: 600; loop: true; easing: easeInOutQuad");
+        }
+      }
+      if (arrowText && typeof arrowText.setAttribute === "function") {
+        arrowText.setAttribute("value", selected ? "DRAG RIGHT 👉" : "TAP PIN");
+      }
     }
 
     function handleFinish(sync = false) {
       if (completed) return;
       completed = true;
+      const guideArrow = document.getElementById("extinguisher-guide-arrow");
+      if (guideArrow && typeof guideArrow.setAttribute === "function") {
+        guideArrow.setAttribute("visible", "false");
+      }
       if (pin && typeof pin.setAttribute === "function") {
         pin.setAttribute("position", `${BASE_PIN_X + 0.40} ${BASE_PIN_Y} ${BASE_PIN_Z}`);
       }
@@ -790,6 +810,27 @@ function _setupStep2(container, tierInfo) {
     const statusBadge = document.getElementById("squeeze-status-badge");
     const instructionText = document.getElementById("squeeze-instruction-text");
     const handle = document.getElementById("extinguisher-handle");
+    const guideArrow = document.getElementById("extinguisher-guide-arrow");
+    const arrowText = document.getElementById("guide-arrow-text");
+    const arrowCone = document.getElementById("guide-arrow-cone");
+    const arrowShaft = document.getElementById("guide-arrow-shaft");
+
+    // position 3d guide arrow pointing directly at lever
+    if (guideArrow && typeof guideArrow.setAttribute === "function") {
+      guideArrow.setAttribute("visible", "true");
+      guideArrow.setAttribute("position", "0.18 2.45 0");
+      guideArrow.setAttribute("rotation", "0 0 0");
+      guideArrow.setAttribute("animation", "property: position; to: 0.18 2.15 0; from: 0.18 2.45 0; dir: alternate; dur: 600; loop: true; easing: easeInOutQuad");
+    }
+    if (arrowText && typeof arrowText.setAttribute === "function") {
+      arrowText.setAttribute("value", "TAP LEVER");
+    }
+    if (arrowCone && typeof arrowCone.setAttribute === "function") {
+      arrowCone.setAttribute("material", "color: #ff9100; emissive: #ff9100; emissiveIntensity: 0.9");
+    }
+    if (arrowShaft && typeof arrowShaft.setAttribute === "function") {
+      arrowShaft.setAttribute("material", "color: #ff9100; emissive: #ff9100; emissiveIntensity: 0.8");
+    }
 
     let isSelected = false;
     let startTime = null;
@@ -818,6 +859,9 @@ function _setupStep2(container, tierInfo) {
         statusLabel.textContent = selected ? "PRESS & HOLD SELECTED 3D LEVER" : "AWAITING LEVER SELECTION";
         statusLabel.style.color = selected ? "#ff9100" : "#94a3b8";
       }
+      if (arrowText && typeof arrowText.setAttribute === "function") {
+        arrowText.setAttribute("value", selected ? "HOLD 1.5s" : "TAP LEVER");
+      }
       if (handle && typeof handle.setAttribute === "function") {
         handle.setAttribute(
           "material",
@@ -837,6 +881,9 @@ function _setupStep2(container, tierInfo) {
       if (completed) return;
       completed = true;
       clearInterval(timer);
+      if (guideArrow && typeof guideArrow.setAttribute === "function") {
+        guideArrow.setAttribute("visible", "false");
+      }
       if (progressBar) progressBar.style.width = "100%";
       if (statusBadge) {
         statusBadge.textContent = "✔ AGENT DISCHARGED";
@@ -1152,6 +1199,7 @@ function cleanupFireModule() {
     "extinguisher-graphic",
     "extinguisher-pin",
     "extinguisher-pin-progress",
+    "extinguisher-guide-arrow",
     "exit-graphic",
     "evacuation-options",
     "aim-accuracy-display",

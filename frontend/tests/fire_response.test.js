@@ -219,6 +219,7 @@ describe("Fire & Explosion Response module", () => {
     assert.ok(document.getElementById("extinguisher-pin"), "extinguisher-pin entity must exist");
     assert.ok(document.getElementById("extinguisher-pin-progress"), "extinguisher-pin-progress entity must exist");
     assert.ok(document.getElementById("pin-progress-fill"), "pin-progress-fill entity must exist");
+    assert.ok(document.getElementById("extinguisher-guide-arrow"), "extinguisher-guide-arrow entity must exist");
   });
 
   it("step 2: pin requires tap-to-select before pull drag executes", () => {

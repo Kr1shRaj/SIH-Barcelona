@@ -6,6 +6,7 @@ function buildFireEntity() {
     entity.setAttribute("class", "clickable");
     entity.setAttribute("data-raycast-target", "fire");
     entity.setAttribute("position", "0 0 0");
+    entity.setAttribute("rotation", "60 0 0");
   } else {
     entity.className = "clickable";
   }
@@ -66,7 +67,8 @@ function buildExtinguisherEntity() {
   if (typeof entity.setAttribute === "function") {
     entity.setAttribute("class", "clickable");
     entity.setAttribute("position", "0 0 0");
-    entity.setAttribute("rotation", "0 0 0");
+    // tilt 60 deg on X so cylinder stands upright on vertical screen/table, turned -15 deg for 3D profile
+    entity.setAttribute("rotation", "60 -15 0");
   } else {
     entity.className = "clickable";
   }
@@ -138,6 +140,49 @@ function buildExtinguisherEntity() {
 
   pin.appendChild(pinShaft);
   pin.appendChild(pinRing);
+
+  // 3d dynamic guide arrow pointing directly at interactive pin
+  const guideArrow = document.createElement("a-entity");
+  guideArrow.id = "extinguisher-guide-arrow";
+  if (typeof guideArrow.setAttribute === "function") {
+    guideArrow.setAttribute("position", "0.08 2.45 0.15");
+    guideArrow.setAttribute("animation", "property: position; to: 0.08 2.15 0.15; dir: alternate; dur: 600; loop: true; easing: easeInOutQuad");
+  }
+
+  const arrowCone = document.createElement("a-cone");
+  arrowCone.id = "guide-arrow-cone";
+  if (typeof arrowCone.setAttribute === "function") {
+    arrowCone.setAttribute("position", "0 -0.15 0");
+    arrowCone.setAttribute("radius-bottom", "0.14");
+    arrowCone.setAttribute("radius-top", "0.01");
+    arrowCone.setAttribute("height", "0.30");
+    arrowCone.setAttribute("rotation", "180 0 0");
+    arrowCone.setAttribute("material", "color: #facc15; emissive: #eab308; emissiveIntensity: 0.9");
+  }
+
+  const arrowShaft = document.createElement("a-cylinder");
+  arrowShaft.id = "guide-arrow-shaft";
+  if (typeof arrowShaft.setAttribute === "function") {
+    arrowShaft.setAttribute("position", "0 0.12 0");
+    arrowShaft.setAttribute("radius", "0.05");
+    arrowShaft.setAttribute("height", "0.25");
+    arrowShaft.setAttribute("material", "color: #facc15; emissive: #eab308; emissiveIntensity: 0.8");
+  }
+
+  const arrowText = document.createElement("a-text");
+  arrowText.id = "guide-arrow-text";
+  if (typeof arrowText.setAttribute === "function") {
+    arrowText.setAttribute("value", "TAP PIN");
+    arrowText.setAttribute("align", "center");
+    arrowText.setAttribute("position", "0 0.42 0");
+    arrowText.setAttribute("scale", "0.9 0.9 0.9");
+    arrowText.setAttribute("color", "#ffffff");
+    arrowText.setAttribute("material", "shader: flat");
+  }
+
+  guideArrow.appendChild(arrowCone);
+  guideArrow.appendChild(arrowShaft);
+  guideArrow.appendChild(arrowText);
 
   // 3d progress bar next to pin in marker space
   const progressContainer = document.createElement("a-entity");
