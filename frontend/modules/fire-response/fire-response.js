@@ -472,13 +472,13 @@ function _setupStep2(container, tierInfo) {
       }
       if (guideArrow && typeof guideArrow.setAttribute === "function") {
         if (selected) {
-          guideArrow.setAttribute("position", "0.45 0.88 0.15");
+          guideArrow.setAttribute("position", "0.65 0.88 0.15");
           guideArrow.setAttribute("rotation", "0 0 -90");
-          guideArrow.setAttribute("animation", "property: position; to: 0.65 0.88 0.15; from: 0.40 0.88 0.15; dir: alternate; dur: 500; loop: true; easing: easeInOutSine");
+          guideArrow.setAttribute("animation", "property: position; to: 0.85 0.88 0.15; from: 0.55 0.88 0.15; dir: alternate; dur: 500; loop: true; easing: easeInOutSine");
         } else {
-          guideArrow.setAttribute("position", "0.06 1.45 0.15");
+          guideArrow.setAttribute("position", "0.26 1.45 0.15");
           guideArrow.setAttribute("rotation", "0 0 0");
-          guideArrow.setAttribute("animation", "property: position; to: 0.06 1.15 0.15; dir: alternate; dur: 500; loop: true; easing: easeInOutSine");
+          guideArrow.setAttribute("animation", "property: position; to: 0.26 1.15 0.15; dir: alternate; dur: 500; loop: true; easing: easeInOutSine");
         }
       }
       if (arrowText && typeof arrowText.setAttribute === "function") {

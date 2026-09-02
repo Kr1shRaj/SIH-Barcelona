@@ -146,8 +146,8 @@ function buildExtinguisherEntity() {
   const guideArrow = document.createElement("a-entity");
   guideArrow.id = "extinguisher-guide-arrow";
   if (typeof guideArrow.setAttribute === "function") {
-    guideArrow.setAttribute("position", "0.06 1.45 0.15");
-    guideArrow.setAttribute("animation", "property: position; to: 0.06 1.15 0.15; dir: alternate; dur: 500; loop: true; easing: easeInOutSine");
+    guideArrow.setAttribute("position", "0.26 1.45 0.15");
+    guideArrow.setAttribute("animation", "property: position; to: 0.26 1.15 0.15; dir: alternate; dur: 500; loop: true; easing: easeInOutSine");
   }
 
   const arrowCone = document.createElement("a-cone");
@@ -218,6 +218,7 @@ function buildExtinguisherEntity() {
 
   entity.appendChild(handle);
   entity.appendChild(pin);
+  entity.appendChild(guideArrow);
   entity.appendChild(progressContainer);
 
   return entity;
