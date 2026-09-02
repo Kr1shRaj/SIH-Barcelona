@@ -16,60 +16,62 @@
   padding: 0;
 }
 
+/* dynamic viewport sizing preventing mobile chrome cutoff */
 html,
 body {
-  width: 100vw !important;
-  height: 100vh !important;
-  max-width: 100vw !important;
-  max-height: 100vh !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  overflow: hidden !important;
-  position: fixed !important;
-  top: 0 !important;
-  left: 0 !important;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  min-height: 100dvh;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
   font-family: system-ui, -apple-system, sans-serif;
   background-color: var(--color-bg);
   color: var(--color-text);
   -webkit-text-size-adjust: 100%;
 }
 
-/* when AR camera is active, transparent background allows live video to show */
+/* transparent body background for live camera in AR mode */
 body.ar-active,
 #app.ar-active {
   background: transparent !important;
   background-color: transparent !important;
 }
 
+/* full screen app shell with pointer events pass-through */
 #app {
-  position: fixed !important;
-  top: 0 !important;
-  left: 0 !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  max-width: 100vw !important;
-  max-height: 100vh !important;
-  margin: 0 !important;
-  padding: 0 !important;
-  overflow: hidden !important;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 100dvh;
+  margin: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  pointer-events: none;
   z-index: 2;
 }
 
+/* fixed ar camera viewport container */
 .ar-viewport {
-  position: fixed !important;
-  top: 0 !important;
-  left: 0 !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  overflow: hidden !important;
-  z-index: 1 !important;
-  margin: 0 !important;
-  padding: 0 !important;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  z-index: 0;
+  margin: 0;
+  padding: 0;
 }
 
-/* AR.js video element styling: fixed full screen, behind 3D graphics, in front of transparent body */
+/* fixed background video element for arjs */
 video#arjs-video,
 .arjs-video,
 video[id^="arjs-video"] {
@@ -78,8 +80,9 @@ video[id^="arjs-video"] {
   left: 0 !important;
   width: 100vw !important;
   height: 100vh !important;
-  min-width: 100vw !important;
-  min-height: 100vh !important;
+  height: 100dvh !important;
+  min-width: 100% !important;
+  min-height: 100% !important;
   object-fit: cover !important;
   z-index: 0 !important;
   margin: 0 !important;
@@ -87,7 +90,7 @@ video[id^="arjs-video"] {
   pointer-events: none !important;
 }
 
-/* A-Frame scene and 3D WebGL canvas transparent over camera video */
+/* transparent aframe scene overlay */
 a-scene,
 .a-scene,
 a-scene.embedded,
@@ -97,6 +100,7 @@ canvas.a-canvas {
   left: 0 !important;
   width: 100vw !important;
   height: 100vh !important;
+  height: 100dvh !important;
   z-index: 1 !important;
   background: transparent !important;
   margin: 0 !important;
@@ -109,23 +113,22 @@ canvas.a-canvas {
   display: block;
 }
 
+/* hud overlay container with safe area insets */
 .ui-overlay {
-  position: fixed !important;
-  top: 0 !important;
-  left: 0 !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  max-width: 100vw !important;
-  max-height: 100vh !important;
-  z-index: 10 !important;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  min-height: 100dvh;
+  max-width: 100vw;
+  z-index: 10;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  padding: 8px 14px max(14px, env(safe-area-inset-bottom, 14px)) 14px;
+  padding: 10px 14px max(16px, env(safe-area-inset-bottom, 16px)) 14px;
   pointer-events: none;
   box-sizing: border-box;
-  overflow-y: auto !important;
-  -webkit-overflow-scrolling: touch;
 }
 
 .header-bar {
@@ -133,7 +136,7 @@ canvas.a-canvas {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: rgba(15, 23, 42, 0.8);
+  background: rgba(15, 23, 42, 0.85);
   backdrop-filter: blur(8px);
   padding: 8px 14px;
   border-radius: 12px;
@@ -190,7 +193,7 @@ canvas.a-canvas {
   padding: 6px 0;
   pointer-events: auto;
   width: 100%;
-  max-height: 80vh;
+  max-height: 55dvh;
   overflow-y: auto !important;
   -webkit-overflow-scrolling: touch;
   box-sizing: border-box;
@@ -239,77 +242,39 @@ canvas.a-canvas {
   bottom: 0 !important;
   left: 0 !important;
   right: 0 !important;
-  width: 100vw !important;
+  width: 100% !important;
   max-width: 100vw !important;
-  max-height: 85vh !important;
+  max-height: 60dvh !important;
+  max-height: 60vh !important;
   overflow-y: auto !important;
-  -webkit-overflow-scrolling: touch;
-  padding: 14px 16px max(16px, env(safe-area-inset-bottom, 16px)) 16px;
-  background: linear-gradient(to top, rgba(15, 23, 42, 0.96) 0%, rgba(15, 23, 42, 0.85) 70%, transparent 100%);
-  border: none;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 2px 8px rgba(0, 0, 0, 0.85);
-  box-sizing: border-box;
-  z-index: 100 !important;
-  pointer-events: auto;
-}
-
-/* landscape orientation prompt overlay */
-#landscape-prompt {
-  position: fixed !important;
-  top: 0 !important;
-  left: 0 !important;
-  width: 100vw !important;
-  height: 100vh !important;
-  background: rgba(15, 23, 42, 0.98) !important;
-  z-index: 999999 !important;
-  display: none;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 24px !important;
+  -webkit-overflow-scrolling: touch !important;
+  padding: 12px 16px max(20px, env(safe-area-inset-bottom, 20px)) 16px !important;
+  background: linear-gradient(to top, rgba(15, 23, 42, 0.97) 0%, rgba(15, 23, 42, 0.9) 70%, transparent 100%) !important;
+  border: none !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95), 0 2px 8px rgba(0, 0, 0, 0.85) !important;
   box-sizing: border-box !important;
-  color: #ffffff !important;
+  z-index: 100 !important;
   pointer-events: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
 }
 
-@keyframes rotatePhoneAnim {
-  0% { transform: rotate(0deg); }
-  45% { transform: rotate(-90deg); }
-  90% { transform: rotate(-90deg); }
-  100% { transform: rotate(0deg); }
-}
-
-.rotate-phone-icon {
-  font-size: 3.8rem;
-  margin-bottom: 16px;
-  animation: rotatePhoneAnim 2.6s ease-in-out infinite;
-}
-
-#landscape-prompt h2 {
-  font-size: 1.4rem;
-  color: #f59e0b;
-  margin-bottom: 8px;
-  font-weight: 700;
-}
-
-#landscape-prompt p {
-  font-size: 0.95rem;
-  color: #cbd5e1;
-  max-width: 340px;
-  line-height: 1.5;
-}
-
-/* show landscape prompt in portrait mode */
-@media (orientation: portrait) {
-  #landscape-prompt {
-    display: flex !important;
-  }
+/* center and constrain interactive elements inside overlay */
+#fire-module-overlay > *,
+#gas-module-overlay > * {
+  width: 100% !important;
+  max-width: 360px !important;
+  box-sizing: border-box !important;
 }
 
 #fire-module-overlay button,
 #gas-module-overlay button {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  width: 100% !important;
+  max-width: 360px !important;
+  min-height: 48px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6) !important;
+  touch-action: manipulation !important;
 }
 
 .unsupported-screen {
