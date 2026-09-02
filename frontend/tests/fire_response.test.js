@@ -101,7 +101,9 @@ import {
   evaluateGazeAimProgress,
   CP_EXIT_ID,
   CP_EXTINGUISHER_ID,
-  CP_EVACUATION_ID
+  CP_EVACUATION_ID,
+  calcMarkerDistance,
+  isSafeStandoffDistance
 } from "../modules/fire-response/fire-response.js";
 
 // helper: collect safear:checkpoint events during a callback
@@ -220,6 +222,10 @@ describe("Fire & Explosion Response module", () => {
     assert.ok(document.getElementById("extinguisher-pin-progress"), "extinguisher-pin-progress entity must exist");
     assert.ok(document.getElementById("pin-progress-fill"), "pin-progress-fill entity must exist");
     assert.ok(document.getElementById("extinguisher-guide-arrow"), "extinguisher-guide-arrow entity must exist");
+    assert.ok(document.getElementById("tamper-seal"), "tamper-seal entity must exist");
+    assert.ok(document.getElementById("phantom-ghost-pin"), "phantom-ghost-pin entity must exist");
+    assert.ok(document.getElementById("spatial-step-billboard"), "spatial-step-billboard entity must exist");
+    assert.ok(document.getElementById("powder-spray-cone"), "powder-spray-cone entity must exist");
   });
 
   it("step 2: pin requires tap-to-select before pull drag executes", () => {
@@ -583,6 +589,19 @@ describe("Fire & Explosion Response module", () => {
       () => loadMarkerModuleScene("electrical-safety", null),
       /not implemented/
     );
+  });
+
+  it("calcMarkerDistance computes 3D Euclidean distance correctly", () => {
+    assert.strictEqual(calcMarkerDistance(null), null);
+    assert.strictEqual(calcMarkerDistance({ x: 0, y: 0, z: 0 }), 0);
+    assert.strictEqual(Math.round(calcMarkerDistance({ x: 1, y: 2, z: 2 })), 3);
+  });
+
+  it("isSafeStandoffDistance validates 1.5m to 3.5m industrial safety range", () => {
+    assert.strictEqual(isSafeStandoffDistance(null), false);
+    assert.strictEqual(isSafeStandoffDistance(1.0), false, "too close to flame must fail");
+    assert.strictEqual(isSafeStandoffDistance(2.2), true, "optimal 2.2m distance must pass");
+    assert.strictEqual(isSafeStandoffDistance(4.0), false, "too far (>3.5m) must fail");
   });
 });
 

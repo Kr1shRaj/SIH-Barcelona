@@ -73,13 +73,35 @@ function buildExtinguisherEntity() {
     entity.className = "clickable";
   }
 
-  // extinguisher centered directly at (0, 0, 0) on Hiro marker
+  // extinguisher centered directly at (0, 0, 0) on Hiro marker with PBR composite detailing
   entity.innerHTML = `
-    <a-cylinder id="ext-body" position="0 0 0" radius="0.38" height="1.40" material="color: #dc2626; metalness: 0.3; roughness: 0.3"></a-cylinder>
-    <a-cylinder id="ext-base" position="0 -0.72 0" radius="0.40" height="0.12" material="color: #0f172a"></a-cylinder>
-    <a-cylinder id="ext-neck" position="0 0.76 0" radius="0.12" height="0.14" material="color: #1e293b"></a-cylinder>
-    <a-cylinder id="ext-hose" position="-0.30 0.15 0.20" radius="0.06" height="0.95" rotation="20 0 -35" material="color: #0f172a"></a-cylinder>
-    <a-cone id="ext-nozzle" position="-0.45 -0.20 0.30" radius-bottom="0.10" radius-top="0.04" height="0.26" rotation="45 0 -45" material="color: #1e293b"></a-cone>
+    <!-- realistic crimson powder-coat cylinder with curved dome ends -->
+    <a-cylinder id="ext-body" position="0 0 0" radius="0.38" height="1.30" material="color: #b91c1c; metalness: 0.35; roughness: 0.25"></a-cylinder>
+    <a-sphere id="ext-top-dome" position="0 0.65 0" radius="0.38" scale="1 0.40 1" material="color: #b91c1c; metalness: 0.35; roughness: 0.25"></a-sphere>
+    <a-sphere id="ext-bottom-dome" position="0 -0.65 0" radius="0.38" scale="1 0.30 1" material="color: #b91c1c; metalness: 0.35; roughness: 0.25"></a-sphere>
+    <a-cylinder id="ext-base" position="0 -0.74 0" radius="0.41" height="0.14" material="color: #09090b; roughness: 0.85"></a-cylinder>
+
+    <!-- industrial pass instruction decal plate on front cylinder body -->
+    <a-plane id="ext-decal-plate" position="0 0 0.385" width="0.46" height="0.65" material="color: #ffffff; roughness: 0.3"></a-plane>
+    <a-plane id="ext-decal-header" position="0 0.24 0.388" width="0.44" height="0.12" material="color: #1e3a8a; roughness: 0.25"></a-plane>
+    <a-text position="0 0.24 0.390" value="ABC DRY CHEMICAL" align="center" scale="0.36 0.36 0.36" color="#ffffff"></a-text>
+    <a-text position="0 0.08 0.390" value="1. PULL PIN\n2. AIM AT BASE\n3. SQUEEZE LEVER\n4. SWEEP HAZARD" align="center" scale="0.30 0.30 0.30" color="#0f172a"></a-text>
+
+    <!-- brass valve block assembly -->
+    <a-cylinder id="ext-neck" position="0 0.74 0" radius="0.12" height="0.16" material="color: #d97706; metalness: 0.85; roughness: 0.2"></a-cylinder>
+    <a-cylinder id="ext-valve-block" position="0 0.84 0" radius="0.13" height="0.14" material="color: #d97706; metalness: 0.85; roughness: 0.2"></a-cylinder>
+
+    <!-- operational pressure gauge dial on valve front -->
+    <a-cylinder id="ext-gauge-bezel" position="0 0.80 0.15" rotation="90 0 0" radius="0.085" height="0.03" material="color: #d97706; metalness: 0.9; roughness: 0.15"></a-cylinder>
+    <a-cylinder id="ext-gauge-face" position="0 0.80 0.168" rotation="90 0 0" radius="0.075" height="0.008" material="color: #ffffff; roughness: 0.2"></a-cylinder>
+    <a-cylinder id="ext-gauge-green-zone" position="0 0.80 0.172" rotation="90 0 0" radius="0.05" height="0.009" theta-start="60" theta-length="60" material="color: #10b981; shader: flat"></a-cylinder>
+    <a-box id="ext-gauge-needle" position="0 0.812 0.176" width="0.007" height="0.045" depth="0.004" rotation="0 0 -15" material="color: #ef4444; shader: flat"></a-box>
+
+    <!-- flexible rubber discharge hose with chrome mounting bracket and horn -->
+    <a-cylinder id="ext-hose-joint" position="-0.13 0.82 0" radius="0.045" height="0.09" rotation="0 0 90" material="color: #d97706; metalness: 0.8"></a-cylinder>
+    <a-cylinder id="ext-hose" position="-0.32 0.35 0.18" radius="0.055" height="1.05" rotation="15 0 -25" material="color: #18181b; roughness: 0.9"></a-cylinder>
+    <a-cone id="ext-nozzle" position="-0.46 -0.22 0.26" radius-bottom="0.11" radius-top="0.045" height="0.28" rotation="40 0 -40" material="color: #09090b; roughness: 0.7"></a-cone>
+    <a-box id="ext-hose-bracket" position="-0.36 0.10 0.08" width="0.06" height="0.10" depth="0.08" material="color: #e2e8f0; metalness: 0.9; roughness: 0.2"></a-box>
   `;
 
   // 3d operating handle lever on top of extinguisher
@@ -155,6 +177,17 @@ function buildExtinguisherEntity() {
     pinRing.className = "clickable";
   }
 
+  // breakable yellow plastic tamper seal securing pin to valve neck
+  const tamperSeal = document.createElement("a-box");
+  tamperSeal.id = "tamper-seal";
+  if (typeof tamperSeal.setAttribute === "function") {
+    tamperSeal.setAttribute("position", "0.03 0 0");
+    tamperSeal.setAttribute("width", "0.05");
+    tamperSeal.setAttribute("height", "0.20");
+    tamperSeal.setAttribute("depth", "0.05");
+    tamperSeal.setAttribute("material", "color: #eab308; emissive: #ca8a04; emissiveIntensity: 0.5");
+  }
+
   // generous invisible touch hit target for pin (45cm radius sphere centered on ring)
   const pinHitArea = document.createElement("a-sphere");
   pinHitArea.id = "pin-hit-area";
@@ -170,7 +203,38 @@ function buildExtinguisherEntity() {
 
   pin.appendChild(pinShaft);
   pin.appendChild(pinRing);
+  pin.appendChild(tamperSeal);
   pin.appendChild(pinHitArea);
+
+  // looping holographic ghost pin demonstrating pull motion path (Scope AR benchmark)
+  const phantomPin = document.createElement("a-entity");
+  phantomPin.id = "phantom-ghost-pin";
+  if (typeof phantomPin.setAttribute === "function") {
+    phantomPin.setAttribute("position", "0.06 0.88 0.15");
+    phantomPin.setAttribute("animation", "property: position; to: 0.52 0.88 0.15; from: 0.06 0.88 0.15; dur: 1200; loop: true; easing: easeOutQuad");
+  }
+
+  const phantomShaft = document.createElement("a-cylinder");
+  phantomShaft.id = "phantom-shaft";
+  if (typeof phantomShaft.setAttribute === "function") {
+    phantomShaft.setAttribute("rotation", "90 0 0");
+    phantomShaft.setAttribute("radius", "0.08");
+    phantomShaft.setAttribute("height", "0.38");
+    phantomShaft.setAttribute("material", "color: #00e5ff; emissive: #00e5ff; emissiveIntensity: 0.9; opacity: 0.45; transparent: true");
+  }
+
+  const phantomRing = document.createElement("a-torus");
+  phantomRing.id = "phantom-ring";
+  if (typeof phantomRing.setAttribute === "function") {
+    phantomRing.setAttribute("position", "0.20 0 0");
+    phantomRing.setAttribute("rotation", "0 90 0");
+    phantomRing.setAttribute("radius", "0.16");
+    phantomRing.setAttribute("radius-tubular", "0.032");
+    phantomRing.setAttribute("material", "color: #00e5ff; emissive: #00e5ff; emissiveIntensity: 0.95; opacity: 0.55; transparent: true");
+  }
+
+  phantomPin.appendChild(phantomShaft);
+  phantomPin.appendChild(phantomRing);
 
   // 3d dynamic guide arrow pointing directly at interactive pin
   const guideArrow = document.createElement("a-entity");
@@ -254,10 +318,43 @@ function buildExtinguisherEntity() {
   progressContainer.appendChild(progressBg);
   progressContainer.appendChild(progressFill);
 
+  // world-anchored 3d spatial step billboard (Scope AR benchmark)
+  const spatialBillboard = document.createElement("a-entity");
+  spatialBillboard.id = "spatial-step-billboard";
+  if (typeof spatialBillboard.setAttribute === "function") {
+    spatialBillboard.setAttribute("position", "0.95 0.65 0.10");
+  }
+
+  spatialBillboard.innerHTML = `
+    <a-box id="billboard-bg" position="0 0 0" width="0.95" height="0.65" depth="0.03" material="color: #0f172a; opacity: 0.88; roughness: 0.5"></a-box>
+    <a-box id="billboard-border" position="0 0 0.018" width="0.97" height="0.67" depth="0.005" material="color: #00e5ff; opacity: 0.75; emissive: #00e5ff; emissiveIntensity: 0.4; wireframe: true"></a-box>
+    <a-text id="billboard-step-badge" value="🔥 STEP 2 / 3 — PASS" align="center" position="0 0.22 0.035" scale="0.42 0.42 0.42" color="#f59e0b"></a-text>
+    <a-text id="billboard-step-title" value="P — PULL PIN" align="center" position="0 0.10 0.035" scale="0.55 0.55 0.55" color="#ffffff"></a-text>
+    <a-text id="billboard-step-desc" value="Tap pin or arrow,\nthen drag right." align="center" position="0 -0.04 0.035" scale="0.34 0.34 0.34" color="#94a3b8"></a-text>
+    <a-box id="billboard-pill" position="0 -0.20 0.025" width="0.80" height="0.09" depth="0.01" material="color: #334155"></a-box>
+    <a-text id="billboard-pill-text" value="⚪ AWAITING PIN SELECTION" align="center" position="0 -0.20 0.035" scale="0.32 0.32 0.32" color="#94a3b8"></a-text>
+  `;
+
+  // volumetric powder discharge cone (activated during squeeze & sweep)
+  const powderSpray = document.createElement("a-cone");
+  powderSpray.id = "powder-spray-cone";
+  if (typeof powderSpray.setAttribute === "function") {
+    powderSpray.setAttribute("position", "-0.75 -0.65 0.55");
+    powderSpray.setAttribute("rotation", "45 -30 -35");
+    powderSpray.setAttribute("radius-bottom", "0.65");
+    powderSpray.setAttribute("radius-top", "0.05");
+    powderSpray.setAttribute("height", "1.35");
+    powderSpray.setAttribute("material", "color: #f8fafc; opacity: 0; transparent: true");
+    powderSpray.setAttribute("visible", "false");
+  }
+
   entity.appendChild(handle);
   entity.appendChild(pin);
+  entity.appendChild(phantomPin);
   entity.appendChild(guideArrow);
   entity.appendChild(progressContainer);
+  entity.appendChild(spatialBillboard);
+  entity.appendChild(powderSpray);
 
   return entity;
 }

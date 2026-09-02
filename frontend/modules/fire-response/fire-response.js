@@ -381,6 +381,20 @@ function evaluateGazeAimProgress(isIntersecting, elapsedMs = 0, holdDurationMs =
   return { progress, isComplete };
 }
 
+// compute 3d distance from camera to marker in meters
+function calcMarkerDistance(pos) {
+  if (!pos || typeof pos.x !== "number" || typeof pos.y !== "number" || typeof pos.z !== "number") {
+    return null;
+  }
+  return Math.sqrt(pos.x * pos.x + pos.y * pos.y + pos.z * pos.z);
+}
+
+// check if trainee is within safe industrial standoff distance (1.5m - 3.5m)
+function isSafeStandoffDistance(distanceMeters) {
+  if (typeof distanceMeters !== "number" || isNaN(distanceMeters)) return false;
+  return distanceMeters >= 1.5 && distanceMeters <= 3.5;
+}
+
 // step 2: aim — user performs sequential PASS physical gesture interactions
 function _setupStep2(container, tierInfo) {
   _currentStep = 2;
@@ -484,6 +498,10 @@ function _setupStep2(container, tierInfo) {
       if (arrowText && typeof arrowText.setAttribute === "function") {
         arrowText.setAttribute("value", selected ? "DRAG RIGHT 👉" : "TAP PIN");
       }
+      const bPill = document.getElementById("billboard-pill-text");
+      if (bPill) {
+        bPill.setAttribute("value", selected ? "🔵 PIN SELECTED — DRAG RIGHT" : "⚪ AWAITING PIN SELECTION");
+      }
     }
 
     function handleFinish(sync = false) {
@@ -518,6 +536,18 @@ function _setupStep2(container, tierInfo) {
       } else {
         setTimeout(_renderAim, 350);
       }
+      const tamperSeal = document.getElementById("tamper-seal");
+      if (tamperSeal && typeof tamperSeal.setAttribute === "function") {
+        tamperSeal.setAttribute("visible", "false");
+      }
+      const phantomPin = document.getElementById("phantom-ghost-pin");
+      if (phantomPin && typeof phantomPin.setAttribute === "function") {
+        phantomPin.setAttribute("visible", "false");
+      }
+      const bTitle = document.getElementById("billboard-step-title");
+      const bPill = document.getElementById("billboard-pill-text");
+      if (bTitle) bTitle.setAttribute("value", "✔ PIN REMOVED");
+      if (bPill) bPill.setAttribute("value", "✔ UNLOCKED");
     }
 
     if (pin) {
@@ -673,6 +703,13 @@ function _setupStep2(container, tierInfo) {
     const gazeDot = document.getElementById("gaze-dot");
     const kanjiMarker = document.getElementById("kanji-marker");
 
+    const bTitle = document.getElementById("billboard-step-title");
+    const bDesc = document.getElementById("billboard-step-desc");
+    const bPill = document.getElementById("billboard-pill-text");
+    if (bTitle) bTitle.setAttribute("value", "A — AIM AT BASE");
+    if (bDesc) bDesc.setAttribute("value", "Aim laser at fire\nbase on Kanji marker.");
+    if (bPill) bPill.setAttribute("value", "⚪ POINT AT FIRE BASE");
+
     let holdStart = null;
     let holdTimer = null;
     let completed = false;
@@ -720,6 +757,8 @@ function _setupStep2(container, tierInfo) {
         statusLabel.textContent = "AIMING AT BASE... HOLD STEADY";
         statusLabel.style.color = "#00e676";
       }
+      const bPill = document.getElementById("billboard-pill-text");
+      if (bPill) bPill.setAttribute("value", "🟢 HOLD STEADY (800ms)");
       if (gazeDot && typeof gazeDot.setAttribute === "function") {
         gazeDot.setAttribute("material", "color: #00e676; shader: flat; opacity: 1.0; side: double");
       }
@@ -857,6 +896,13 @@ function _setupStep2(container, tierInfo) {
       arrowShaft.setAttribute("material", "color: #ff9100; emissive: #ff9100; emissiveIntensity: 0.8");
     }
 
+    const bTitle = document.getElementById("billboard-step-title");
+    const bDesc = document.getElementById("billboard-step-desc");
+    const bPill = document.getElementById("billboard-pill-text");
+    if (bTitle) bTitle.setAttribute("value", "S — SQUEEZE HANDLE");
+    if (bDesc) bDesc.setAttribute("value", "Tap operating lever,\nhold 1.5s to discharge.");
+    if (bPill) bPill.setAttribute("value", "⚪ AWAITING LEVER TAP");
+
     let isSelected = false;
     let startTime = null;
     let timer = null;
@@ -965,6 +1011,13 @@ function _setupStep2(container, tierInfo) {
           statusLabel.textContent = "SQUEEZING LEVER... DISCHARGING";
           statusLabel.style.color = "#ff6a00";
         }
+        const powderSpray = document.getElementById("powder-spray-cone");
+        if (powderSpray && typeof powderSpray.setAttribute === "function") {
+          powderSpray.setAttribute("visible", "true");
+          powderSpray.setAttribute("material", "color: #f8fafc; opacity: 0.85; transparent: true");
+        }
+        const bPill = document.getElementById("billboard-pill-text");
+        if (bPill) bPill.setAttribute("value", "🟠 DISCHARGING AGENT");
         timer = setInterval(() => {
           const elapsed = Date.now() - startTime;
           const pct = Math.min(100, Math.round((elapsed / SQUEEZE_HOLD_DURATION_MS) * 100));
@@ -983,6 +1036,10 @@ function _setupStep2(container, tierInfo) {
         if (statusLabel && isSelected) {
           statusLabel.textContent = "PRESS & HOLD SELECTED 3D LEVER";
           statusLabel.style.color = "#ff9100";
+        }
+        const powderSpray = document.getElementById("powder-spray-cone");
+        if (powderSpray && typeof powderSpray.setAttribute === "function") {
+          powderSpray.setAttribute("visible", "false");
         }
       };
 
@@ -1043,6 +1100,13 @@ function _setupStep2(container, tierInfo) {
     const progressFill = document.getElementById("sweep-progress-fill");
     const statusText = document.getElementById("sweep-status-text");
 
+    const bTitle = document.getElementById("billboard-step-title");
+    const bDesc = document.getElementById("billboard-step-desc");
+    const bPill = document.getElementById("billboard-pill-text");
+    if (bTitle) bTitle.setAttribute("value", "S — SWEEP HAZARD");
+    if (bDesc) bDesc.setAttribute("value", "Move camera side-to-side\nacross fire base.");
+    if (bPill) bPill.setAttribute("value", "↔ SWEEPING 0%");
+
     const motionSamples = [];
     let completed = false;
     let markerLost = false;
@@ -1087,6 +1151,14 @@ function _setupStep2(container, tierInfo) {
       if (fireEl && typeof fireEl.setAttribute === "function") {
         fireEl.setAttribute("scale", "0.01 0.01 0.01");
       }
+      const powderSpray = document.getElementById("powder-spray-cone");
+      if (powderSpray && typeof powderSpray.setAttribute === "function") {
+        powderSpray.setAttribute("visible", "false");
+      }
+      const bTitle = document.getElementById("billboard-step-title");
+      const bPill = document.getElementById("billboard-pill-text");
+      if (bTitle) bTitle.setAttribute("value", "✔ EXTINGUISHED");
+      if (bPill) bPill.setAttribute("value", "✔ HAZARD SECURED");
 
       const accuracy = _recordedAccuracy !== null ? _recordedAccuracy : 0.85;
       const distance = _recordedDistance !== null ? _recordedDistance : 0.12;
@@ -1143,6 +1215,8 @@ function _setupStep2(container, tierInfo) {
           if (statusText && !markerLost) {
             statusText.textContent = `↔ SWEEPING FIRE BASE (${pct}% COVERED)`;
           }
+          const bPill = document.getElementById("billboard-pill-text");
+          if (bPill) bPill.setAttribute("value", `↔ SWEEPING (${pct}%)`);
           const fireEl = document.getElementById("fire-graphic");
           if (fireEl && typeof fireEl.setAttribute === "function") {
             const remaining = Math.max(0.01, 1 - (coverage / SWEEP_MIN_COVERAGE));
@@ -1250,6 +1324,10 @@ function cleanupFireModule() {
     "extinguisher-pin",
     "extinguisher-pin-progress",
     "extinguisher-guide-arrow",
+    "spatial-step-billboard",
+    "phantom-ghost-pin",
+    "powder-spray-cone",
+    "tamper-seal",
     "exit-graphic",
     "evacuation-options",
     "aim-accuracy-display",
@@ -1344,6 +1422,8 @@ export {
   evaluateGazeAimProgress,
   CP_EXIT_ID,
   CP_EXTINGUISHER_ID,
-  CP_EVACUATION_ID
+  CP_EVACUATION_ID,
+  calcMarkerDistance,
+  isSafeStandoffDistance
 };
 
