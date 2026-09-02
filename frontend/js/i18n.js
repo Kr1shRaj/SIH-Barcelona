@@ -62,6 +62,26 @@ async function loadLocale(locale, basePath = "./locales") {
         return data;
       }
     } catch (_err) {
+      // fallback to filesystem in node if fetch failed or relative url rejected
+    }
+  }
+
+  const gProcess = typeof globalThis !== "undefined" && globalThis.process ? globalThis.process : null;
+  if (gProcess && gProcess.versions && gProcess.versions.node) {
+    try {
+      const { readFileSync, existsSync } = await import("node:fs");
+      const { resolve } = await import("node:path");
+      const p1 = resolve(gProcess.cwd(), basePath, `${locale}.json`);
+      const cleanRel = basePath.replace(/^\.\//, "");
+      const p2 = resolve(gProcess.cwd(), "frontend", cleanRel, `${locale}.json`);
+      const filePath = existsSync(p1) ? p1 : (existsSync(p2) ? p2 : null);
+      if (filePath) {
+        const raw = readFileSync(filePath, "utf-8");
+        const data = JSON.parse(raw);
+        registerLocale(locale, data);
+        return data;
+      }
+    } catch (_err) {
       // fallback to pre-registered data
     }
   }

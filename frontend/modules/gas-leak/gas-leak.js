@@ -4,6 +4,13 @@ import { unloadModule } from "../../js/module-loader.js";
 import { buildHazardZoneEntity, buildPpeDisplayEntity } from "./graphics.js";
 import { t } from "../../js/i18n.js";
 import { playNarration, stopNarration } from "../../js/audio.js";
+import {
+  startAssessmentSession,
+  finishAssessmentSession,
+  abortAssessmentSession,
+  getActiveSession,
+  bindAssessmentSessionListeners
+} from "../../assessment/engine.js";
 
 const logger = createLogger("GasLeakModule");
 
@@ -109,11 +116,11 @@ function _renderPpeGraphic(container) {
 // render ppe selection toggle list
 function _renderPpeOptions(container, onConfirm) {
   const ppeItems = [
-    { id: "scba_respirator", label: "SCBA / Positive Pressure Respirator" },
-    { id: "multi_gas_detector", label: "Multi-Gas Atmospheric Detector" },
-    { id: "safety_harness", label: "Full Body Harness & Retrieval Line" },
-    { id: "dust_mask", label: "Cloth Dust Mask" },
-    { id: "welding_shield", label: "Welding Face Shield" }
+    { id: "scba_respirator", label: t("modules.gas_leak.ppe_scba_respirator", {}, "SCBA / Positive Pressure Respirator") },
+    { id: "multi_gas_detector", label: t("modules.gas_leak.ppe_multi_gas_detector", {}, "Multi-Gas Atmospheric Detector") },
+    { id: "safety_harness", label: t("modules.gas_leak.ppe_safety_harness", {}, "Full Body Harness & Retrieval Line") },
+    { id: "dust_mask", label: t("modules.gas_leak.ppe_dust_mask", {}, "Cloth Dust Mask") },
+    { id: "welding_shield", label: t("modules.gas_leak.ppe_welding_shield", {}, "Welding Face Shield") }
   ];
 
   const wrapper = document.createElement("div");
@@ -170,10 +177,10 @@ function _renderPpeOptions(container, onConfirm) {
 // render buddy procedure radio options
 function _renderBuddyOptions(container, onSelect) {
   const options = [
-    { id: "standby_outside_with_lifeline", label: "Standby outside opening with continuous communication & lifeline" },
-    { id: "both_enter_together", label: "Both workers enter confined space together to work faster" },
-    { id: "buddy_leaves_for_tools", label: "Buddy leaves area to fetch spare tools from workshop" },
-    { id: "enter_without_communication", label: "Enter alone first, buddy follows only if alarms sound" }
+    { id: "standby_outside_with_lifeline", label: t("modules.gas_leak.buddy_standby_lifeline", {}, "Standby outside opening with continuous communication & lifeline") },
+    { id: "both_enter_together", label: t("modules.gas_leak.buddy_both_enter", {}, "Both workers enter confined space together to work faster") },
+    { id: "buddy_leaves_for_tools", label: t("modules.gas_leak.buddy_leaves_tools", {}, "Buddy leaves area to fetch spare tools from workshop") },
+    { id: "enter_without_communication", label: t("modules.gas_leak.buddy_enter_alone", {}, "Enter alone first, buddy follows only if alarms sound") }
   ];
 
   const wrapper = document.createElement("div");
@@ -222,10 +229,11 @@ function _setupStep1(container, tierInfo) {
 
   const overlay = document.getElementById("gas-module-overlay");
   if (overlay) {
+    const stepLabel = t("app.step_indicator", { current: 1, total: 3 }, "STEP 1 / 3");
     const title = t("modules.gas_leak.step_hazard", {}, "HAZARD ZONE RECOGNITION");
     const desc = t("modules.gas_leak.step_hazard_desc", {}, "Identify marked toxic/confined gas perimeter in AR space.");
     overlay.innerHTML = `
-      <div style="font-size:1.1rem;font-weight:bold;color:#f59e0b">☣ STEP 1 / 3 — ${title}</div>
+      <div style="font-size:1.1rem;font-weight:bold;color:#f59e0b">☣ ${stepLabel} — ${title}</div>
       <div style="margin:0.5rem 0">${desc}</div>
     `;
   }
@@ -259,10 +267,11 @@ function _setupStep2(container, tierInfo) {
 
   const overlay = document.getElementById("gas-module-overlay");
   if (overlay) {
+    const stepLabel = t("app.step_indicator", { current: 2, total: 3 }, "STEP 2 / 3");
     const title = t("modules.gas_leak.step_ppe", {}, "PPE SELECTION");
     const desc = t("modules.gas_leak.step_ppe_desc", {}, "Select all required PPE for hazardous gas entry:");
     overlay.innerHTML = `
-      <div style="font-size:1.1rem;font-weight:bold;color:#f59e0b">☣ STEP 2 / 3 — ${title}</div>
+      <div style="font-size:1.1rem;font-weight:bold;color:#f59e0b">☣ ${stepLabel} — ${title}</div>
       <div style="margin:0.4rem 0;font-size:0.9rem">${desc}</div>
     `;
   }
@@ -295,10 +304,11 @@ function _setupStep3(_container) {
 
   const overlay = document.getElementById("gas-module-overlay");
   if (overlay) {
+    const stepLabel = t("app.step_indicator", { current: 3, total: 3 }, "STEP 3 / 3");
     const title = t("modules.gas_leak.step_buddy", {}, "BUDDY SYSTEM PROTOCOL");
     const desc = t("modules.gas_leak.step_buddy_desc", {}, "What is the safety attendant role outside the confined opening?");
     overlay.innerHTML = `
-      <div style="font-size:1.1rem;font-weight:bold;color:#f59e0b">☣ STEP 3 / 3 — ${title}</div>
+      <div style="font-size:1.1rem;font-weight:bold;color:#f59e0b">☣ ${stepLabel} — ${title}</div>
       <div style="margin:0.5rem 0;font-size:0.9rem">${desc}</div>
     `;
   }
@@ -316,6 +326,9 @@ function _setupStep3(_container) {
 function cleanupGasLeakModule() {
   _currentStep = 0;
   stopNarration();
+  if (getActiveSession()) {
+    abortAssessmentSession();
+  }
   ["gas-module-overlay", "gas-hazard-graphic", "gas-ppe-graphic", "gas-ppe-options", "gas-buddy-options"].forEach((id) => {
     if (typeof document !== "undefined") {
       document.getElementById(id)?.remove();
@@ -336,6 +349,16 @@ function cleanupGasLeakModule() {
 // show completion screen with exit button
 function _showComplete(lastPassed) {
   _currentStep = 0;
+
+  // finalize assessment attempt if session is active
+  if (getActiveSession()) {
+    try {
+      finishAssessmentSession();
+    } catch (err) {
+      logger.warn({ event: "assessment_finish_error", error: err.message }, "Assessment finalize failed");
+    }
+  }
+
   const overlay = document.getElementById("gas-module-overlay");
   if (overlay) {
     const titlePass = t("modules.gas_leak.complete_pass", {}, "✅ MODULE COMPLETE");
@@ -367,6 +390,13 @@ function startGasLeakModule(container, tierInfo) {
   logger.info({ event: "gas_module_start", tier: tierInfo && tierInfo.tier }, "Gas leak module starting");
 
   cleanupGasLeakModule();
+
+  // initialize assessment session if not already started by loader
+  if (!getActiveSession()) {
+    bindAssessmentSessionListeners();
+    startAssessmentSession({ moduleId: "gas-leak" });
+  }
+
   _createOverlay(container, `<div>${t("modules.gas_leak.title", {}, "Loading Gas Leak & Confined Space Protocol...")}</div>`);
   _setupStep1(container, tierInfo);
 }

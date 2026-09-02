@@ -4,6 +4,13 @@ import { unloadModule } from "../../js/module-loader.js";
 import { buildFireGraphic, buildExitGraphic } from "./graphics.js";
 import { t } from "../../js/i18n.js";
 import { playNarration, stopNarration } from "../../js/audio.js";
+import {
+  startAssessmentSession,
+  finishAssessmentSession,
+  abortAssessmentSession,
+  getActiveSession,
+  bindAssessmentSessionListeners
+} from "../../assessment/engine.js";
 
 const logger = createLogger("FireModule");
 
@@ -122,10 +129,10 @@ function _renderExitGraphic(container) {
 function _renderEvacuationOptions(container, onSelect) {
   const CORRECT = "sound_alarm_then_evacuate";
   const options = [
-    { id: "gather_belongings",       label: "Gather belongings first" },
-    { id: "sound_alarm_then_evacuate", label: "Sound alarm → evacuate" },
-    { id: "use_elevator",            label: "Use elevator to escape" },
-    { id: "wait_for_instructions",   label: "Wait at desk for instructions" }
+    { id: "gather_belongings", label: t("modules.fire_response.opt_gather_belongings", {}, "Gather belongings first") },
+    { id: "sound_alarm_then_evacuate", label: t("modules.fire_response.opt_sound_alarm_then_evacuate", {}, "Sound alarm → evacuate") },
+    { id: "use_elevator", label: t("modules.fire_response.opt_use_elevator", {}, "Use elevator to escape") },
+    { id: "wait_for_instructions", label: t("modules.fire_response.opt_wait_for_instructions", {}, "Wait at desk for instructions") }
   ];
 
   const wrapper = document.createElement("div");
@@ -170,10 +177,11 @@ function _setupStep1(container, tierInfo) {
 
   const overlay = document.getElementById("fire-module-overlay");
   if (overlay) {
+    const stepLabel = t("app.step_indicator", { current: 1, total: 3 }, "STEP 1 / 3");
     const title = t("modules.fire_response.step_exit", {}, "EXIT IDENTIFICATION");
     const desc = t("modules.fire_response.step_exit_desc", {}, "Locate emergency exit. Face the green arrow.");
     overlay.innerHTML = `
-      <div style="font-size:1.1rem;font-weight:bold;color:#ff6a00">🔥 STEP 1 / 3 — ${title}</div>
+      <div style="font-size:1.1rem;font-weight:bold;color:#ff6a00">🔥 ${stepLabel} — ${title}</div>
       <div style="margin:0.5rem 0">${desc}</div>
     `;
   }
@@ -207,10 +215,11 @@ function _setupStep2(container, tierInfo) {
 
   const overlay = document.getElementById("fire-module-overlay");
   if (overlay) {
+    const stepLabel = t("app.step_indicator", { current: 2, total: 3 }, "STEP 2 / 3");
     const title = t("modules.fire_response.step_extinguisher", {}, "EXTINGUISHER USE");
     const desc = t("modules.fire_response.step_extinguisher_desc", {}, "Aim at the <strong>base</strong> of the 3D fire. Tap to aim, then confirm.");
     overlay.innerHTML = `
-      <div style="font-size:1.1rem;font-weight:bold;color:#ff6a00">🔥 STEP 2 / 3 — ${title}</div>
+      <div style="font-size:1.1rem;font-weight:bold;color:#ff6a00">🔥 ${stepLabel} — ${title}</div>
       <div style="margin:0.5rem 0">${desc}</div>
     `;
   }
@@ -321,10 +330,11 @@ function _setupStep3(_container) {
 
   const overlay = document.getElementById("fire-module-overlay");
   if (overlay) {
+    const stepLabel = t("app.step_indicator", { current: 3, total: 3 }, "STEP 3 / 3");
     const title = t("modules.fire_response.step_evacuate", {}, "EVACUATION");
     const desc = t("modules.fire_response.step_evacuate_desc", {}, "What is the correct action after using extinguisher?");
     overlay.innerHTML = `
-      <div style="font-size:1.1rem;font-weight:bold;color:#ff6a00">🔥 STEP 3 / 3 — ${title}</div>
+      <div style="font-size:1.1rem;font-weight:bold;color:#ff6a00">🔥 ${stepLabel} — ${title}</div>
       <div style="margin:0.5rem 0">${desc}</div>
     `;
   }
@@ -342,6 +352,9 @@ function _setupStep3(_container) {
 function cleanupFireModule() {
   _currentStep = 0;
   stopNarration();
+  if (getActiveSession()) {
+    abortAssessmentSession();
+  }
   ["fire-module-overlay", "fire-graphic", "exit-graphic", "evacuation-options", "aim-accuracy-display"].forEach((id) => {
     if (typeof document !== "undefined") {
       document.getElementById(id)?.remove();
@@ -362,6 +375,16 @@ function cleanupFireModule() {
 // show completion panel after all three steps done
 function _showComplete(lastPassed) {
   _currentStep = 0;
+
+  // finalize assessment attempt if session is active
+  if (getActiveSession()) {
+    try {
+      finishAssessmentSession();
+    } catch (err) {
+      logger.warn({ event: "assessment_finish_error", error: err.message }, "Assessment finalize failed");
+    }
+  }
+
   const overlay = document.getElementById("fire-module-overlay");
   if (overlay) {
     const titlePass = t("modules.fire_response.complete_pass", {}, "✅ MODULE COMPLETE");
@@ -393,6 +416,13 @@ function startFireModule(container, tierInfo) {
   logger.info({ event: "fire_module_start", tier: tierInfo && tierInfo.tier }, "Fire module starting");
 
   cleanupFireModule();
+
+  // initialize assessment session if not already started by loader
+  if (!getActiveSession()) {
+    bindAssessmentSessionListeners();
+    startAssessmentSession({ moduleId: "fire-response" });
+  }
+
   _createOverlay(container, `<div>${t("modules.fire_response.title", {}, "Loading Fire & Explosion Response...")}</div>`);
   _setupStep1(container, tierInfo);
 }

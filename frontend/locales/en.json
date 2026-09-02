@@ -2,7 +2,8 @@
   "app": {
     "title": "SafeAR — Industrial Safety Training",
     "select_language": "Select Language",
-    "start_training": "Start Training"
+    "start_training": "Start Training",
+    "step_indicator": "STEP {current} / {total}"
   },
   "modules": {
     "fire_response": {
@@ -15,6 +16,10 @@
       "btn_aim_confirm": "✔ Confirm aim",
       "step_evacuate": "Evacuation Sequence",
       "step_evacuate_desc": "What is the correct action after using extinguisher?",
+      "opt_gather_belongings": "Gather belongings first",
+      "opt_sound_alarm_then_evacuate": "Sound alarm → evacuate",
+      "opt_use_elevator": "Use elevator to escape",
+      "opt_wait_for_instructions": "Wait at desk for instructions",
       "complete_pass": "✅ MODULE COMPLETE",
       "complete_review": "⚠ MODULE COMPLETE — Review step 3",
       "complete_desc": "All checkpoints fired. Assessment engine will score your attempt.",
@@ -27,9 +32,18 @@
       "btn_hazard": "✔ Hazard Zone Acknowledged",
       "step_ppe": "PPE Selection",
       "step_ppe_desc": "Select all required PPE for hazardous gas entry:",
+      "ppe_scba_respirator": "SCBA / Positive Pressure Respirator",
+      "ppe_multi_gas_detector": "Multi-Gas Atmospheric Detector",
+      "ppe_safety_harness": "Full Body Harness & Retrieval Line",
+      "ppe_dust_mask": "Cloth Dust Mask",
+      "ppe_welding_shield": "Welding Face Shield",
       "btn_ppe_confirm": "✔ Confirm PPE Selection",
       "step_buddy": "Buddy System Protocol",
       "step_buddy_desc": "What is the safety attendant role outside the confined opening?",
+      "buddy_standby_lifeline": "Standby outside opening with continuous communication & lifeline",
+      "buddy_both_enter": "Both workers enter confined space together to work faster",
+      "buddy_leaves_tools": "Buddy leaves area to fetch spare tools from workshop",
+      "buddy_enter_alone": "Enter alone first, buddy follows only if alarms sound",
       "complete_pass": "✅ MODULE COMPLETE",
       "complete_review": "⚠ MODULE COMPLETE — Review step 3",
       "complete_desc": "All gas protocol checkpoints fired. Assessment engine will score your attempt.",
