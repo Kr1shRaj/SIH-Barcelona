@@ -6,7 +6,7 @@ function buildFireEntity() {
     entity.setAttribute("class", "clickable");
     entity.setAttribute("data-raycast-target", "fire");
     entity.setAttribute("position", "0 0 0");
-    entity.setAttribute("rotation", "60 0 0");
+    entity.setAttribute("rotation", "-90 0 0");
   } else {
     entity.className = "clickable";
   }
@@ -67,18 +67,19 @@ function buildExtinguisherEntity() {
   if (typeof entity.setAttribute === "function") {
     entity.setAttribute("class", "clickable");
     entity.setAttribute("position", "0 0 0");
-    // tilt 60 deg on X so cylinder stands upright on vertical screen/table, turned -15 deg for 3D profile
-    entity.setAttribute("rotation", "60 -15 0");
+    // -90 deg on X aligns extinguisher upright on marker with valve at top and base at bottom
+    entity.setAttribute("rotation", "-90 0 0");
   } else {
     entity.className = "clickable";
   }
 
+  // extinguisher centered directly at (0, 0, 0) on Hiro marker
   entity.innerHTML = `
-    <a-cylinder id="ext-body" position="0 0.80 0" radius="0.40" height="1.60" material="color: #d32f2f; metalness: 0.3; roughness: 0.3"></a-cylinder>
-    <a-cylinder id="ext-base" position="0 -0.06 0" radius="0.42" height="0.12" material="color: #1e293b"></a-cylinder>
-    <a-cylinder id="ext-neck" position="0 1.68 0" radius="0.12" height="0.15" material="color: #0f172a"></a-cylinder>
-    <a-cylinder id="ext-hose" position="-0.32 1.05 0.22" radius="0.06" height="0.95" rotation="20 0 -35" material="color: #0f172a"></a-cylinder>
-    <a-cone id="ext-nozzle" position="-0.48 0.68 0.32" radius-bottom="0.10" radius-top="0.04" height="0.26" rotation="45 0 -45" material="color: #1e293b"></a-cone>
+    <a-cylinder id="ext-body" position="0 0 0" radius="0.38" height="1.40" material="color: #dc2626; metalness: 0.3; roughness: 0.3"></a-cylinder>
+    <a-cylinder id="ext-base" position="0 -0.72 0" radius="0.40" height="0.12" material="color: #0f172a"></a-cylinder>
+    <a-cylinder id="ext-neck" position="0 0.76 0" radius="0.12" height="0.14" material="color: #1e293b"></a-cylinder>
+    <a-cylinder id="ext-hose" position="-0.30 0.15 0.20" radius="0.06" height="0.95" rotation="20 0 -35" material="color: #0f172a"></a-cylinder>
+    <a-cone id="ext-nozzle" position="-0.45 -0.20 0.30" radius-bottom="0.10" radius-top="0.04" height="0.26" rotation="45 0 -45" material="color: #1e293b"></a-cone>
   `;
 
   // 3d operating handle lever on top of extinguisher
@@ -87,7 +88,7 @@ function buildExtinguisherEntity() {
   if (typeof handle.setAttribute === "function") {
     handle.setAttribute("class", "clickable");
     handle.setAttribute("data-raycast-target", "handle");
-    handle.setAttribute("position", "0.18 1.78 0");
+    handle.setAttribute("position", "0.15 0.88 0");
     handle.setAttribute("width", "0.45");
     handle.setAttribute("height", "0.08");
     handle.setAttribute("depth", "0.12");
@@ -103,7 +104,7 @@ function buildExtinguisherEntity() {
   if (typeof pin.setAttribute === "function") {
     pin.setAttribute("class", "clickable");
     pin.setAttribute("data-raycast-target", "pin");
-    pin.setAttribute("position", "0.08 1.78 0.15");
+    pin.setAttribute("position", "0.06 0.88 0.15");
   } else {
     pin.className = "clickable";
   }
@@ -145,28 +146,28 @@ function buildExtinguisherEntity() {
   const guideArrow = document.createElement("a-entity");
   guideArrow.id = "extinguisher-guide-arrow";
   if (typeof guideArrow.setAttribute === "function") {
-    guideArrow.setAttribute("position", "0.08 2.45 0.15");
-    guideArrow.setAttribute("animation", "property: position; to: 0.08 2.15 0.15; dir: alternate; dur: 600; loop: true; easing: easeInOutQuad");
+    guideArrow.setAttribute("position", "0.06 1.45 0.15");
+    guideArrow.setAttribute("animation", "property: position; to: 0.06 1.15 0.15; dir: alternate; dur: 500; loop: true; easing: easeInOutSine");
   }
 
   const arrowCone = document.createElement("a-cone");
   arrowCone.id = "guide-arrow-cone";
   if (typeof arrowCone.setAttribute === "function") {
     arrowCone.setAttribute("position", "0 -0.15 0");
-    arrowCone.setAttribute("radius-bottom", "0.14");
+    arrowCone.setAttribute("radius-bottom", "0.16");
     arrowCone.setAttribute("radius-top", "0.01");
-    arrowCone.setAttribute("height", "0.30");
+    arrowCone.setAttribute("height", "0.36");
     arrowCone.setAttribute("rotation", "180 0 0");
-    arrowCone.setAttribute("material", "color: #facc15; emissive: #eab308; emissiveIntensity: 0.9");
+    arrowCone.setAttribute("material", "color: #facc15; emissive: #facc15; emissiveIntensity: 1.0; side: double");
   }
 
   const arrowShaft = document.createElement("a-cylinder");
   arrowShaft.id = "guide-arrow-shaft";
   if (typeof arrowShaft.setAttribute === "function") {
-    arrowShaft.setAttribute("position", "0 0.12 0");
-    arrowShaft.setAttribute("radius", "0.05");
-    arrowShaft.setAttribute("height", "0.25");
-    arrowShaft.setAttribute("material", "color: #facc15; emissive: #eab308; emissiveIntensity: 0.8");
+    arrowShaft.setAttribute("position", "0 0.16 0");
+    arrowShaft.setAttribute("radius", "0.06");
+    arrowShaft.setAttribute("height", "0.32");
+    arrowShaft.setAttribute("material", "color: #facc15; emissive: #facc15; emissiveIntensity: 0.9; side: double");
   }
 
   const arrowText = document.createElement("a-text");
@@ -174,10 +175,10 @@ function buildExtinguisherEntity() {
   if (typeof arrowText.setAttribute === "function") {
     arrowText.setAttribute("value", "TAP PIN");
     arrowText.setAttribute("align", "center");
-    arrowText.setAttribute("position", "0 0.42 0");
-    arrowText.setAttribute("scale", "0.9 0.9 0.9");
-    arrowText.setAttribute("color", "#ffffff");
-    arrowText.setAttribute("material", "shader: flat");
+    arrowText.setAttribute("position", "0 0.48 0");
+    arrowText.setAttribute("scale", "1.0 1.0 1.0");
+    arrowText.setAttribute("color", "#facc15");
+    arrowText.setAttribute("material", "shader: flat; side: double");
   }
 
   guideArrow.appendChild(arrowCone);
@@ -188,7 +189,7 @@ function buildExtinguisherEntity() {
   const progressContainer = document.createElement("a-entity");
   progressContainer.id = "extinguisher-pin-progress";
   if (typeof progressContainer.setAttribute === "function") {
-    progressContainer.setAttribute("position", "0.50 2.10 0.18");
+    progressContainer.setAttribute("position", "0.50 1.05 0.18");
     progressContainer.setAttribute("rotation", "0 0 0");
   }
 

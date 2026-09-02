@@ -423,8 +423,8 @@ function _setupStep2(container, tierInfo) {
     const statusBadge = document.getElementById("pin-status-badge");
     const instructionText = document.getElementById("pin-instruction-text");
 
-    const BASE_PIN_X = 0.08;
-    const BASE_PIN_Y = 1.78;
+    const BASE_PIN_X = 0.06;
+    const BASE_PIN_Y = 0.88;
     const BASE_PIN_Z = 0.15;
 
     let isSelected = false;
@@ -472,13 +472,13 @@ function _setupStep2(container, tierInfo) {
       }
       if (guideArrow && typeof guideArrow.setAttribute === "function") {
         if (selected) {
-          guideArrow.setAttribute("position", "0.55 1.78 0.15");
+          guideArrow.setAttribute("position", "0.45 0.88 0.15");
           guideArrow.setAttribute("rotation", "0 0 -90");
-          guideArrow.setAttribute("animation", "property: position; to: 0.75 1.78 0.15; from: 0.45 1.78 0.15; dir: alternate; dur: 500; loop: true; easing: easeInOutQuad");
+          guideArrow.setAttribute("animation", "property: position; to: 0.65 0.88 0.15; from: 0.40 0.88 0.15; dir: alternate; dur: 500; loop: true; easing: easeInOutSine");
         } else {
-          guideArrow.setAttribute("position", "0.08 2.45 0.15");
+          guideArrow.setAttribute("position", "0.06 1.45 0.15");
           guideArrow.setAttribute("rotation", "0 0 0");
-          guideArrow.setAttribute("animation", "property: position; to: 0.08 2.15 0.15; dir: alternate; dur: 600; loop: true; easing: easeInOutQuad");
+          guideArrow.setAttribute("animation", "property: position; to: 0.06 1.15 0.15; dir: alternate; dur: 500; loop: true; easing: easeInOutSine");
         }
       }
       if (arrowText && typeof arrowText.setAttribute === "function") {
@@ -818,9 +818,9 @@ function _setupStep2(container, tierInfo) {
     // position 3d guide arrow pointing directly at lever
     if (guideArrow && typeof guideArrow.setAttribute === "function") {
       guideArrow.setAttribute("visible", "true");
-      guideArrow.setAttribute("position", "0.18 2.45 0");
+      guideArrow.setAttribute("position", "0.15 1.45 0");
       guideArrow.setAttribute("rotation", "0 0 0");
-      guideArrow.setAttribute("animation", "property: position; to: 0.18 2.15 0; from: 0.18 2.45 0; dir: alternate; dur: 600; loop: true; easing: easeInOutQuad");
+      guideArrow.setAttribute("animation", "property: position; to: 0.15 1.15 0; from: 0.15 1.45 0; dir: alternate; dur: 500; loop: true; easing: easeInOutSine");
     }
     if (arrowText && typeof arrowText.setAttribute === "function") {
       arrowText.setAttribute("value", "TAP LEVER");
