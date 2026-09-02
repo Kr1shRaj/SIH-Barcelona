@@ -58,7 +58,11 @@ function renderArShell(container, tierResult) {
     <div class="ui-overlay">
       <header class="header-bar">
         <div class="app-title">🛡️ SafeAR</div>
-        <span class="tier-badge ${tierClass}">${tierLabel}</span>
+        <div style="margin-left:auto;display:flex;align-items:center;gap:10px;">
+          <a href="/markers/kanji.html" target="_blank" style="font-size:0.75rem;color:#00e5ff;text-decoration:none;font-weight:bold;background:rgba(0,229,255,0.15);padding:3px 8px;border-radius:4px;border:1px solid rgba(0,229,255,0.4);">🔥 Kanji</a>
+          <a href="/markers/hiro.html" target="_blank" style="font-size:0.75rem;color:#3b82f6;text-decoration:none;font-weight:bold;background:rgba(59,130,246,0.15);padding:3px 8px;border-radius:4px;border:1px solid rgba(59,130,246,0.4);">🧯 Hiro</a>
+          <span class="tier-badge ${tierClass}">${tierLabel}</span>
+        </div>
       </header>
       <div id="status-card" class="status-card">
         <h3>AR Mode Initializing</h3>
