@@ -337,9 +337,14 @@ function _setupStep2(container, tierInfo) {
       <div style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Drag the safety pin on the 3D extinguisher to the right to unlock.</div>
     `;
 
-    // target 3d pin sub-entity and 3d progress bar
+    // target 3d pin sub-entity, hit proxy, and 3d progress bar
     const pin = document.getElementById("extinguisher-pin");
+    const pinHitbox = document.getElementById("pin-hitbox");
     const progressFill = document.getElementById("pin-progress-fill");
+
+    const BASE_PIN_X = 0.03;
+    const BASE_PIN_Y = 0.62;
+    const BASE_PIN_Z = 0.05;
 
     let startX = null;
     let currentDrag = 0;
@@ -349,8 +354,16 @@ function _setupStep2(container, tierInfo) {
       if (completed) return;
       completed = true;
       if (pin && typeof pin.setAttribute === "function") {
-        pin.setAttribute("material", "color: #10b981; metalness: 0.8; roughness: 0.2");
-        pin.setAttribute("position", "0.12 0.38 0.04");
+        pin.setAttribute("position", `${BASE_PIN_X + 0.14} ${BASE_PIN_Y} ${BASE_PIN_Z}`);
+      }
+      const pinShaft = document.getElementById("ext-pin-shaft");
+      const pinRing = document.getElementById("ext-pin-ring");
+      if (pinShaft && typeof pinShaft.setAttribute === "function") {
+        pinShaft.setAttribute("material", "color: #10b981; metalness: 0.8; roughness: 0.2");
+      }
+      if (pinRing && typeof pinRing.setAttribute === "function") {
+        pinRing.setAttribute("material", "color: #10b981; metalness: 0.8; roughness: 0.2");
+        if (typeof pinRing.removeAttribute === "function") pinRing.removeAttribute("animation");
       }
       if (progressFill && typeof progressFill.setAttribute === "function") {
         progressFill.setAttribute("scale", "1 1 1");
@@ -379,7 +392,7 @@ function _setupStep2(container, tierInfo) {
         currentDrag = Math.max(0, clientX - startX);
         const fraction = Math.min(1, currentDrag / PIN_PULL_THRESHOLD_PX);
         if (pin && typeof pin.setAttribute === "function") {
-          pin.setAttribute("position", `${0.02 + fraction * 0.08} 0.38 0.04`);
+          pin.setAttribute("position", `${BASE_PIN_X + fraction * 0.14} ${BASE_PIN_Y} ${BASE_PIN_Z}`);
         }
         if (progressFill && typeof progressFill.setAttribute === "function") {
           progressFill.setAttribute("scale", `${Math.max(0.01, fraction)} 1 1`);
@@ -393,7 +406,7 @@ function _setupStep2(container, tierInfo) {
         startX = null;
         if (!completed) {
           if (pin && typeof pin.setAttribute === "function") {
-            pin.setAttribute("position", "0.02 0.38 0.04");
+            pin.setAttribute("position", `${BASE_PIN_X} ${BASE_PIN_Y} ${BASE_PIN_Z}`);
           }
           if (progressFill && typeof progressFill.setAttribute === "function") {
             progressFill.setAttribute("scale", "0.01 1 1");
@@ -401,23 +414,26 @@ function _setupStep2(container, tierInfo) {
         }
       };
 
-      pin.addEventListener("pointerdown", (e) => {
-        onPointerStart(e.clientX);
-        pin.setPointerCapture?.(e.pointerId);
-      });
-      pin.addEventListener("pointermove", (e) => onPointerMove(e.clientX));
-      pin.addEventListener("pointerup", (e) => {
-        onPointerEnd();
-        pin.releasePointerCapture?.(e.pointerId);
-      });
+      const interactiveTargets = [pin, pinHitbox].filter(Boolean);
+      interactiveTargets.forEach((target) => {
+        target.addEventListener("pointerdown", (e) => {
+          onPointerStart(e.clientX);
+          target.setPointerCapture?.(e.pointerId);
+        });
+        target.addEventListener("pointermove", (e) => onPointerMove(e.clientX));
+        target.addEventListener("pointerup", (e) => {
+          onPointerEnd();
+          target.releasePointerCapture?.(e.pointerId);
+        });
 
-      pin.addEventListener("touchstart", (e) => {
-        if (e.touches && e.touches[0]) onPointerStart(e.touches[0].clientX);
-      }, { passive: true });
-      pin.addEventListener("touchmove", (e) => {
-        if (e.touches && e.touches[0]) onPointerMove(e.touches[0].clientX);
-      }, { passive: true });
-      pin.addEventListener("touchend", onPointerEnd);
+        target.addEventListener("touchstart", (e) => {
+          if (e.touches && e.touches[0]) onPointerStart(e.touches[0].clientX);
+        }, { passive: true });
+        target.addEventListener("touchmove", (e) => {
+          if (e.touches && e.touches[0]) onPointerMove(e.touches[0].clientX);
+        }, { passive: true });
+        target.addEventListener("touchend", onPointerEnd);
+      });
 
       // also wire drag on overlay for flexible mobile touch
       overlay.addEventListener("pointerdown", (e) => {
