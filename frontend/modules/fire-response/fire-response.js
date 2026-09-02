@@ -331,7 +331,7 @@ function _setupStep3(_container) {
   const overlay = document.getElementById("fire-module-overlay");
   if (overlay) {
     const stepLabel = t("app.step_indicator", { current: 3, total: 3 }, "STEP 3 / 3");
-    const title = t("modules.fire_response.step_evacuate", {}, "EVACUATION");
+    const title = t("modules.fire_response.step_evacuate", {}, "EVACUATE THE AREA");
     const desc = t("modules.fire_response.step_evacuate_desc", {}, "What is the correct action after using extinguisher?");
     overlay.innerHTML = `
       <div style="font-size:1.1rem;font-weight:bold;color:#ff6a00">🔥 ${stepLabel} — ${title}</div>

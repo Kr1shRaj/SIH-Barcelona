@@ -230,7 +230,7 @@ function _setupStep1(container, tierInfo) {
   const overlay = document.getElementById("gas-module-overlay");
   if (overlay) {
     const stepLabel = t("app.step_indicator", { current: 1, total: 3 }, "STEP 1 / 3");
-    const title = t("modules.gas_leak.step_hazard", {}, "HAZARD ZONE RECOGNITION");
+    const title = t("modules.gas_leak.step_hazard", {}, "RECOGNIZE THE HAZARD ZONE");
     const desc = t("modules.gas_leak.step_hazard_desc", {}, "Identify marked toxic/confined gas perimeter in AR space.");
     overlay.innerHTML = `
       <div style="font-size:1.1rem;font-weight:bold;color:#f59e0b">☣ ${stepLabel} — ${title}</div>
@@ -268,7 +268,7 @@ function _setupStep2(container, tierInfo) {
   const overlay = document.getElementById("gas-module-overlay");
   if (overlay) {
     const stepLabel = t("app.step_indicator", { current: 2, total: 3 }, "STEP 2 / 3");
-    const title = t("modules.gas_leak.step_ppe", {}, "PPE SELECTION");
+    const title = t("modules.gas_leak.step_ppe", {}, "SELECT REQUIRED PPE");
     const desc = t("modules.gas_leak.step_ppe_desc", {}, "Select all required PPE for hazardous gas entry:");
     overlay.innerHTML = `
       <div style="font-size:1.1rem;font-weight:bold;color:#f59e0b">☣ ${stepLabel} — ${title}</div>
@@ -305,7 +305,7 @@ function _setupStep3(_container) {
   const overlay = document.getElementById("gas-module-overlay");
   if (overlay) {
     const stepLabel = t("app.step_indicator", { current: 3, total: 3 }, "STEP 3 / 3");
-    const title = t("modules.gas_leak.step_buddy", {}, "BUDDY SYSTEM PROTOCOL");
+    const title = t("modules.gas_leak.step_buddy", {}, "FOLLOW BUDDY SYSTEM PROTOCOL");
     const desc = t("modules.gas_leak.step_buddy_desc", {}, "What is the safety attendant role outside the confined opening?");
     overlay.innerHTML = `
       <div style="font-size:1.1rem;font-weight:bold;color:#f59e0b">☣ ${stepLabel} — ${title}</div>
