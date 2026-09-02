@@ -88,11 +88,13 @@ import {
   isAimInTargetZone,
   isSqueezeComplete,
   calcSweepCoverage,
+  calcMotionSweepCoverage,
   isSweepComplete,
   PIN_PULL_THRESHOLD_PX,
   AIM_HOLD_DURATION_MS,
   SQUEEZE_HOLD_DURATION_MS,
   SWEEP_MIN_COVERAGE,
+  MOTION_SWEEP_TARGET_SPAN,
   AIM_PASS_THRESHOLD,
   CP_EXIT_ID,
   CP_EXTINGUISHER_ID,
@@ -335,6 +337,21 @@ describe("Fire & Explosion Response module", () => {
     assert.strictEqual(calcSweepCoverage([50, 110], 240), 0.25);
     assert.strictEqual(calcSweepCoverage([], 240), 0);
     assert.strictEqual(calcSweepCoverage(null, 240), 0);
+  });
+
+  it("calcMotionSweepCoverage: calculates coverage from physical motion samples", () => {
+    // full sweep across 0.4m span (-0.2m to +0.2m)
+    assert.strictEqual(calcMotionSweepCoverage([-0.2, 0, 0.2], MOTION_SWEEP_TARGET_SPAN), 1.0);
+    // 75% coverage (-0.15m to +0.15m)
+    assert.strictEqual(calcMotionSweepCoverage([-0.15, 0.15], MOTION_SWEEP_TARGET_SPAN), 0.75);
+    // 50% coverage (-0.1m to +0.1m)
+    assert.strictEqual(calcMotionSweepCoverage([-0.1, 0, 0.1], MOTION_SWEEP_TARGET_SPAN), 0.5);
+    // supports position objects { x: ... }
+    assert.strictEqual(calcMotionSweepCoverage([{ x: -0.2 }, { x: 0.2 }], 0.4), 1.0);
+    // empty / invalid inputs return 0
+    assert.strictEqual(calcMotionSweepCoverage([], 0.4), 0);
+    assert.strictEqual(calcMotionSweepCoverage(null, 0.4), 0);
+    assert.strictEqual(calcMotionSweepCoverage([-0.1], 0), 0);
   });
 
   it("isSweepComplete: checks 75% sweep coverage threshold", () => {

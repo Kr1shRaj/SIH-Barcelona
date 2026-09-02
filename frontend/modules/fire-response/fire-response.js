@@ -290,6 +290,9 @@ function isSqueezeComplete(durationMs, minDurationMs = SQUEEZE_HOLD_DURATION_MS)
   return typeof durationMs === "number" && !isNaN(durationMs) && durationMs >= minDurationMs;
 }
 
+// default physical horizontal motion sweep span target in 3D marker units (~0.4m physical sweep)
+const MOTION_SWEEP_TARGET_SPAN = 0.4;
+
 // compute horizontal coverage fraction of swipe gestures across track width
 function calcSweepCoverage(positionsX = [], trackWidth = 240) {
   if (!Array.isArray(positionsX) || positionsX.length === 0 || typeof trackWidth !== "number" || trackWidth <= 0) {
@@ -301,6 +304,21 @@ function calcSweepCoverage(positionsX = [], trackWidth = 240) {
   const maxX = Math.max(...validPositions);
   const span = Math.max(0, maxX - minX);
   return Math.min(1, Math.round((span / trackWidth) * 100) / 100);
+}
+
+// compute horizontal sweep coverage fraction from physical camera motion samples
+function calcMotionSweepCoverage(samples = [], targetSpan = MOTION_SWEEP_TARGET_SPAN) {
+  if (!Array.isArray(samples) || samples.length === 0 || typeof targetSpan !== "number" || targetSpan <= 0) {
+    return 0;
+  }
+  const valid = samples
+    .map((s) => (typeof s === "number" ? s : (s && typeof s.x === "number" ? s.x : null)))
+    .filter((x) => typeof x === "number" && !isNaN(x));
+  if (valid.length === 0) return 0;
+  const minX = Math.min(...valid);
+  const maxX = Math.max(...valid);
+  const span = Math.max(0, maxX - minX);
+  return Math.min(1, Math.round((span / targetSpan) * 100) / 100);
 }
 
 // verify if sweep coverage across fire base meets threshold
@@ -348,9 +366,9 @@ function _setupStep2(container, tierInfo) {
     const pinHitbox = document.getElementById("pin-hitbox");
     const progressFill = document.getElementById("pin-progress-fill");
 
-    const BASE_PIN_X = 0.03;
-    const BASE_PIN_Y = 0.57;
-    const BASE_PIN_Z = 0.05;
+    const BASE_PIN_X = 0.05;
+    const BASE_PIN_Y = 1.22;
+    const BASE_PIN_Z = 0.10;
 
     let startX = null;
     let currentDrag = 0;
@@ -360,7 +378,7 @@ function _setupStep2(container, tierInfo) {
       if (completed) return;
       completed = true;
       if (pin && typeof pin.setAttribute === "function") {
-        pin.setAttribute("position", `${BASE_PIN_X + 0.14} ${BASE_PIN_Y} ${BASE_PIN_Z}`);
+        pin.setAttribute("position", `${BASE_PIN_X + 0.28} ${BASE_PIN_Y} ${BASE_PIN_Z}`);
       }
       const pinShaft = document.getElementById("ext-pin-shaft");
       const pinRing = document.getElementById("ext-pin-ring");
@@ -398,7 +416,7 @@ function _setupStep2(container, tierInfo) {
         currentDrag = Math.max(0, clientX - startX);
         const fraction = Math.min(1, currentDrag / PIN_PULL_THRESHOLD_PX);
         if (pin && typeof pin.setAttribute === "function") {
-          pin.setAttribute("position", `${BASE_PIN_X + fraction * 0.14} ${BASE_PIN_Y} ${BASE_PIN_Z}`);
+          pin.setAttribute("position", `${BASE_PIN_X + fraction * 0.28} ${BASE_PIN_Y} ${BASE_PIN_Z}`);
         }
         if (progressFill && typeof progressFill.setAttribute === "function") {
           progressFill.setAttribute("scale", `${Math.max(0.01, fraction)} 1 1`);
@@ -459,40 +477,22 @@ function _setupStep2(container, tierInfo) {
     }
   }
 
-  // pass sub-step 2: A — Aim sustained hold on fire base
+  // pass sub-step 2: A — Aim sustained hold on 3D fire base directly (no DOM button)
   function _renderAim() {
     if (!overlay) return;
     overlay.innerHTML = `
       <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (2/4)</div>
       <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">A — Aim at the Base</div>
-      <div style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Drag crosshair onto the base of the 3D fire and hold steady for 1 second.</div>
+      <div style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Touch and hold the glowing neon ring at the base of the 3D fire.</div>
+      <div style="width:100%;max-width:280px;height:8px;background:#334155;border-radius:4px;overflow:hidden;margin:0.5rem 0;">
+        <div id="aim-progress-bar" style="width:0%;height:100%;background:#00e676;transition:width 0.08s linear;"></div>
+      </div>
+      <div id="aim-status-label" style="font-size:0.85rem;color:#94a3b8;font-weight:bold;">TOUCH 3D FIRE BASE TO AIM</div>
     `;
 
-    const reticleBox = document.createElement("div");
-    reticleBox.id = "aim-reticle-box";
-    reticleBox.style.cssText = "width:100%;max-width:280px;background:rgba(30,41,59,0.85);border:2px solid #ff6a00;border-radius:12px;padding:12px;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;margin:0.5rem 0;";
-
-    const reticle = document.createElement("div");
-    reticle.id = "aim-reticle";
-    reticle.style.cssText = "padding:8px 18px;background:rgba(239,68,68,0.9);color:#fff;border-radius:8px;font-weight:bold;font-size:0.95rem;display:flex;align-items:center;gap:6px;cursor:crosshair;touch-action:none;user-select:none;box-shadow:0 2px 6px rgba(0,0,0,0.5);";
-
-    const label = document.createElement("span");
-    label.id = "aim-label";
-    label.textContent = "Hold on Fire Base";
-    reticle.innerHTML = "<span>🎯</span> ";
-    reticle.appendChild(label);
-
-    const barWrapper = document.createElement("div");
-    barWrapper.style.cssText = "width:100%;height:6px;background:#475569;border-radius:3px;margin-top:10px;overflow:hidden;";
-
-    const progressBar = document.createElement("div");
-    progressBar.id = "aim-progress-bar";
-    progressBar.style.cssText = "width:0%;height:100%;background:#00e676;transition:width 0.08s linear;";
-
-    barWrapper.appendChild(progressBar);
-    reticleBox.appendChild(reticle);
-    reticleBox.appendChild(barWrapper);
-    overlay.appendChild(reticleBox);
+    const progressBar = document.getElementById("aim-progress-bar");
+    const statusLabel = document.getElementById("aim-status-label");
+    const reticle = document.getElementById("aim-reticle");
 
     let holdStart = null;
     let holdTimer = null;
@@ -503,9 +503,15 @@ function _setupStep2(container, tierInfo) {
       completed = true;
       _recordedAccuracy = accuracy;
       _recordedDistance = distance;
-      progressBar.style.width = "100%";
-      reticle.style.background = "#10b981";
-      label.textContent = "AIM LOCKED!";
+      if (progressBar) progressBar.style.width = "100%";
+      if (statusLabel) {
+        statusLabel.textContent = "✔ AIM LOCKED!";
+        statusLabel.style.color = "#10b981";
+      }
+      if (reticle && typeof reticle.setAttribute === "function") {
+        reticle.setAttribute("material", "color: #10b981; emissive: #10b981; emissiveIntensity: 0.9; side: double");
+        if (typeof reticle.removeAttribute === "function") reticle.removeAttribute("animation");
+      }
       if (sync) {
         _renderSqueeze();
       } else {
@@ -513,19 +519,18 @@ function _setupStep2(container, tierInfo) {
       }
     }
 
-    reticle.simulateAim = (score = 0.9, dist = 0.1) => {
-      handleAimSuccess(score, dist, true);
-    };
-    reticle.addEventListener("click", () => handleAimSuccess(0.9, 0.08, true));
-
     const startHold = (accuracy = 0.85, distance = 0.12) => {
       if (completed) return;
       holdStart = Date.now();
       clearInterval(holdTimer);
+      if (statusLabel) {
+        statusLabel.textContent = "AIMING AT BASE... HOLD STEADY";
+        statusLabel.style.color = "#00e676";
+      }
       holdTimer = setInterval(() => {
         const elapsed = Date.now() - holdStart;
         const pct = Math.min(100, Math.round((elapsed / AIM_HOLD_DURATION_MS) * 100));
-        progressBar.style.width = `${pct}%`;
+        if (progressBar) progressBar.style.width = `${pct}%`;
         if (isAimHoldComplete(elapsed, AIM_HOLD_DURATION_MS)) {
           clearInterval(holdTimer);
           handleAimSuccess(accuracy, distance, false);
@@ -537,19 +542,29 @@ function _setupStep2(container, tierInfo) {
       if (completed) return;
       clearInterval(holdTimer);
       holdStart = null;
-      progressBar.style.width = "0%";
+      if (progressBar) progressBar.style.width = "0%";
+      if (statusLabel) {
+        statusLabel.textContent = "TOUCH 3D FIRE BASE TO AIM";
+        statusLabel.style.color = "#94a3b8";
+      }
     };
 
-    reticle.addEventListener("pointerdown", () => startHold(0.9, 0.08));
-    reticle.addEventListener("pointerup", stopHold);
-    reticle.addEventListener("pointercancel", stopHold);
-    reticle.addEventListener("touchstart", () => startHold(0.9, 0.08), { passive: true });
-    reticle.addEventListener("touchend", stopHold);
+    if (reticle) {
+      reticle.simulateAim = (score = 0.9, dist = 0.1) => {
+        handleAimSuccess(score, dist, true);
+      };
+      reticle.addEventListener("click", () => handleAimSuccess(0.9, 0.08, true));
+      reticle.addEventListener("pointerdown", () => startHold(0.9, 0.08));
+      reticle.addEventListener("pointerup", stopHold);
+      reticle.addEventListener("pointercancel", stopHold);
+      reticle.addEventListener("touchstart", () => startHold(0.9, 0.08), { passive: true });
+      reticle.addEventListener("touchend", stopHold);
+    }
 
     if (graphic && typeof graphic.addEventListener === "function") {
       graphic.addEventListener("pointerdown", (ev) => {
         const intersection = ev && ev.detail && ev.detail.intersection ? ev.detail.intersection : null;
-        const distance = intersection ? calcIntersectionDistance(intersection.point) : 0.15;
+        const distance = intersection ? calcIntersectionDistance(intersection.point, { x: 0.45, y: 0.12, z: -0.10 }) : 0.12;
         const accuracy = calcRaycastAimAccuracy(distance);
         startHold(accuracy, distance);
       });
@@ -557,34 +572,27 @@ function _setupStep2(container, tierInfo) {
     }
   }
 
-  // pass sub-step 3: S — Squeeze lever for 1.5s
+  // pass sub-step 3: S — Squeeze 3D operating lever directly (no DOM button)
   function _renderSqueeze() {
     if (!overlay) return;
     overlay.innerHTML = `
       <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (3/4)</div>
       <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">S — Squeeze the Handle</div>
-      <div style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Press and hold the lever for 1.5 seconds to discharge agent.</div>
+      <div style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Press and hold the operating lever on top of the 3D extinguisher for 1.5s.</div>
+      <div style="width:100%;max-width:280px;height:8px;background:#334155;border-radius:4px;overflow:hidden;margin:0.5rem 0;">
+        <div id="squeeze-progress-bar" style="width:0%;height:100%;background:#ff6a00;transition:width 0.08s linear;"></div>
+      </div>
+      <div id="squeeze-status-label" style="font-size:0.85rem;color:#94a3b8;font-weight:bold;">HOLD 3D OPERATING LEVER</div>
     `;
 
-    const handle = document.createElement("button");
-    handle.id = "extinguisher-handle";
-    handle.style.cssText = "width:100%;max-width:280px;padding:12px 16px;background:#ff6a00;color:#fff;border:none;border-radius:10px;font-size:0.95rem;font-weight:bold;cursor:pointer;touch-action:none;user-select:none;box-shadow:0 3px 8px rgba(0,0,0,0.5);display:flex;flex-direction:column;align-items:center;gap:6px;margin:0.5rem 0;";
+    const progressBar = document.getElementById("squeeze-progress-bar");
+    const statusLabel = document.getElementById("squeeze-status-label");
+    const handle = document.getElementById("extinguisher-handle");
 
-    const label = document.createElement("span");
-    label.id = "handle-label";
-    label.textContent = "🗜 PRESS & HOLD LEVER";
-
-    const barWrapper = document.createElement("div");
-    barWrapper.style.cssText = "width:100%;height:6px;background:rgba(0,0,0,0.3);border-radius:3px;overflow:hidden;";
-
-    const progressBar = document.createElement("div");
-    progressBar.id = "squeeze-progress-bar";
-    progressBar.style.cssText = "width:0%;height:100%;background:#00e676;transition:width 0.08s linear;";
-
-    barWrapper.appendChild(progressBar);
-    handle.appendChild(label);
-    handle.appendChild(barWrapper);
-    overlay.appendChild(handle);
+    if (handle && typeof handle.setAttribute === "function") {
+      handle.setAttribute("material", "color: #ff6a00; emissive: #ff6a00; emissiveIntensity: 0.7; metalness: 0.5; roughness: 0.3");
+      handle.setAttribute("animation", "property: scale; to: 1.15 1.15 1.15; dir: alternate; dur: 500; loop: true; easing: easeInOutSine");
+    }
 
     let startTime = null;
     let timer = null;
@@ -594,9 +602,15 @@ function _setupStep2(container, tierInfo) {
       if (completed) return;
       completed = true;
       clearInterval(timer);
-      progressBar.style.width = "100%";
-      handle.style.background = "#10b981";
-      label.textContent = "✔ DISCHARGING AGENT!";
+      if (progressBar) progressBar.style.width = "100%";
+      if (statusLabel) {
+        statusLabel.textContent = "✔ DISCHARGING AGENT!";
+        statusLabel.style.color = "#10b981";
+      }
+      if (handle && typeof handle.setAttribute === "function") {
+        handle.setAttribute("material", "color: #10b981; emissive: #10b981; emissiveIntensity: 0.8; metalness: 0.5; roughness: 0.3");
+        if (typeof handle.removeAttribute === "function") handle.removeAttribute("animation");
+      }
       if (sync) {
         _renderSweep();
       } else {
@@ -604,79 +618,115 @@ function _setupStep2(container, tierInfo) {
       }
     }
 
-    handle.simulateSqueeze = (durationMs = 1500) => {
-      if (isSqueezeComplete(durationMs, SQUEEZE_HOLD_DURATION_MS)) handleSqueezeSuccess(true);
-    };
-    handle.addEventListener("click", () => handleSqueezeSuccess(true));
+    if (handle) {
+      handle.simulateSqueeze = (durationMs = 1500) => {
+        if (isSqueezeComplete(durationMs, SQUEEZE_HOLD_DURATION_MS)) handleSqueezeSuccess(true);
+      };
+      handle.addEventListener("click", () => handleSqueezeSuccess(true));
 
-    const startSqueeze = () => {
-      if (completed) return;
-      startTime = Date.now();
-      clearInterval(timer);
-      timer = setInterval(() => {
-        const elapsed = Date.now() - startTime;
-        const pct = Math.min(100, Math.round((elapsed / SQUEEZE_HOLD_DURATION_MS) * 100));
-        progressBar.style.width = `${pct}%`;
-        if (isSqueezeComplete(elapsed, SQUEEZE_HOLD_DURATION_MS)) {
-          handleSqueezeSuccess(false);
+      const startSqueeze = () => {
+        if (completed) return;
+        startTime = Date.now();
+        clearInterval(timer);
+        if (statusLabel) {
+          statusLabel.textContent = "SQUEEZING LEVER... DISCHARGING";
+          statusLabel.style.color = "#ff6a00";
         }
-      }, 50);
-    };
+        timer = setInterval(() => {
+          const elapsed = Date.now() - startTime;
+          const pct = Math.min(100, Math.round((elapsed / SQUEEZE_HOLD_DURATION_MS) * 100));
+          if (progressBar) progressBar.style.width = `${pct}%`;
+          if (isSqueezeComplete(elapsed, SQUEEZE_HOLD_DURATION_MS)) {
+            handleSqueezeSuccess(false);
+          }
+        }, 50);
+      };
 
-    const stopSqueeze = () => {
-      if (completed) return;
-      clearInterval(timer);
-      startTime = null;
-      progressBar.style.width = "0%";
-    };
+      const stopSqueeze = () => {
+        if (completed) return;
+        clearInterval(timer);
+        startTime = null;
+        if (progressBar) progressBar.style.width = "0%";
+        if (statusLabel) {
+          statusLabel.textContent = "HOLD 3D OPERATING LEVER";
+          statusLabel.style.color = "#94a3b8";
+        }
+      };
 
-    handle.addEventListener("pointerdown", startSqueeze);
-    handle.addEventListener("pointerup", stopSqueeze);
-    handle.addEventListener("pointercancel", stopSqueeze);
-    handle.addEventListener("touchstart", startSqueeze, { passive: true });
-    handle.addEventListener("touchend", stopSqueeze);
+      handle.addEventListener("pointerdown", startSqueeze);
+      handle.addEventListener("pointerup", stopSqueeze);
+      handle.addEventListener("pointercancel", stopSqueeze);
+      handle.addEventListener("touchstart", startSqueeze, { passive: true });
+      handle.addEventListener("touchend", stopSqueeze);
+    }
   }
 
-  // pass sub-step 4: S — Sweep across base of fire
+  // pass sub-step 4: S — Sweep across base of fire via physical camera motion
   function _renderSweep() {
     if (!overlay) return;
     overlay.innerHTML = `
       <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (4/4)</div>
       <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">S — Sweep Side to Side</div>
-      <div style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Swipe left and right across the fire base to cover the full width.</div>
+      <div style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Physically move your phone side to side across the fire base.</div>
+      <div style="width:100%;max-width:280px;height:12px;background:#334155;border-radius:6px;overflow:hidden;margin:0.5rem 0;">
+        <div id="sweep-progress-fill" style="width:0%;height:100%;background:#00e676;transition:width 0.08s ease;"></div>
+      </div>
+      <div id="sweep-status-text" style="font-size:0.85rem;color:#00e676;font-weight:bold;">↔ SWEEP PHONE SIDE TO SIDE (0% COVERED)</div>
     `;
 
+    // invisible sweep zone controller for tests and fallback
     const sweepZone = document.createElement("div");
     sweepZone.id = "sweep-zone";
-    sweepZone.style.cssText = "position:relative;width:100%;max-width:280px;height:54px;background:rgba(30,41,59,0.9);border:2px solid #00e676;border-radius:27px;display:flex;align-items:center;padding:4px;box-sizing:border-box;margin:0.5rem 0;touch-action:none;user-select:none;";
-
-    const progressFill = document.createElement("div");
-    progressFill.id = "sweep-progress-fill";
-    progressFill.style.cssText = "position:absolute;left:0;top:0;height:100%;width:0%;background:rgba(0,230,118,0.3);border-radius:25px;pointer-events:none;transition:width 0.05s ease;";
-
-    const nozzle = document.createElement("div");
-    nozzle.id = "sweep-nozzle";
-    nozzle.style.cssText = "position:absolute;left:4px;height:44px;padding:0 14px;background:#00e676;color:#000;border-radius:22px;display:flex;align-items:center;gap:6px;font-weight:bold;font-size:0.85rem;cursor:ew-resize;box-shadow:0 2px 6px rgba(0,0,0,0.5);";
-    nozzle.innerHTML = "<span>↔</span> <span>Sweep</span>";
-
-    const statusText = document.createElement("div");
-    statusText.id = "sweep-status-text";
-    statusText.style.cssText = "width:100%;text-align:right;padding-right:16px;color:#00e676;font-size:0.8rem;font-weight:bold;";
-    statusText.textContent = "0% COVERED";
-
-    sweepZone.appendChild(progressFill);
-    sweepZone.appendChild(nozzle);
-    sweepZone.appendChild(statusText);
+    sweepZone.style.display = "none";
     overlay.appendChild(sweepZone);
 
-    const positionsX = [];
+    const progressFill = document.getElementById("sweep-progress-fill");
+    const statusText = document.getElementById("sweep-status-text");
+
+    const motionSamples = [];
     let completed = false;
+    let markerLost = false;
+    let rafId = null;
+
+    const marker = typeof document !== "undefined" && typeof document.querySelector === "function"
+      ? document.querySelector("a-marker")
+      : null;
+
+    const onMarkerLost = () => {
+      markerLost = true;
+      if (statusText) {
+        statusText.textContent = "⚠️ Keep marker in camera view to sweep";
+        statusText.style.color = "#f59e0b";
+      }
+    };
+
+    const onMarkerFound = () => {
+      markerLost = false;
+      if (statusText) {
+        statusText.style.color = "#00e676";
+      }
+    };
 
     function handleSweepFinish(sync = false) {
       if (completed) return;
       completed = true;
-      statusText.textContent = "✔ EXTINGUISHED!";
-      progressFill.style.width = "100%";
+      if (typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function" && rafId) {
+        window.cancelAnimationFrame(rafId);
+      }
+      if (marker && typeof marker.removeEventListener === "function") {
+        marker.removeEventListener("markerLost", onMarkerLost);
+        marker.removeEventListener("markerFound", onMarkerFound);
+      }
+      if (statusText) {
+        statusText.textContent = "✔ FIRE EXTINGUISHED!";
+        statusText.style.color = "#00e676";
+      }
+      if (progressFill) progressFill.style.width = "100%";
+
+      const fireEl = document.getElementById("fire-graphic");
+      if (fireEl && typeof fireEl.setAttribute === "function") {
+        fireEl.setAttribute("scale", "0.01 0.01 0.01");
+      }
 
       const accuracy = _recordedAccuracy !== null ? _recordedAccuracy : 0.85;
       const distance = _recordedDistance !== null ? _recordedDistance : 0.12;
@@ -706,31 +756,52 @@ function _setupStep2(container, tierInfo) {
     }
 
     sweepZone.simulateSweep = (positions = [0, 80, 160, 220]) => {
-      const coverage = calcSweepCoverage(positions, 220);
+      const maxVal = Math.max(...positions.map(Math.abs));
+      const coverage = maxVal > 5
+        ? calcSweepCoverage(positions, 220)
+        : calcMotionSweepCoverage(positions, MOTION_SWEEP_TARGET_SPAN);
       if (isSweepComplete(coverage, SWEEP_MIN_COVERAGE)) {
         handleSweepFinish(true);
       }
     };
     sweepZone.addEventListener("click", () => handleSweepFinish(true));
 
-    const handleMove = (clientX) => {
-      if (completed) return;
-      const rect = sweepZone.getBoundingClientRect?.() || { left: 0, width: 280 };
-      const relX = clientX - rect.left;
-      positionsX.push(relX);
-      nozzle.style.transform = `translateX(${Math.max(0, Math.min(relX - 20, 180))}px)`;
-      const coverage = calcSweepCoverage(positionsX, 200);
-      progressFill.style.width = `${Math.min(100, Math.round(coverage * 100))}%`;
-      statusText.textContent = `${Math.min(100, Math.round(coverage * 100))}% COVERED`;
-      if (isSweepComplete(coverage, SWEEP_MIN_COVERAGE)) {
-        handleSweepFinish(false);
-      }
-    };
+    if (marker && typeof marker.addEventListener === "function") {
+      marker.addEventListener("markerLost", onMarkerLost);
+      marker.addEventListener("markerFound", onMarkerFound);
+    }
 
-    sweepZone.addEventListener("pointermove", (e) => handleMove(e.clientX));
-    sweepZone.addEventListener("touchmove", (e) => {
-      if (e.touches && e.touches[0]) handleMove(e.touches[0].clientX);
-    }, { passive: true });
+    function checkMotionFrame() {
+      if (completed) return;
+      if (!markerLost && marker && marker.object3D) {
+        const posX = marker.object3D.position ? marker.object3D.position.x : null;
+        if (typeof posX === "number" && !isNaN(posX)) {
+          motionSamples.push(posX);
+          const coverage = calcMotionSweepCoverage(motionSamples, MOTION_SWEEP_TARGET_SPAN);
+          const pct = Math.min(100, Math.round(coverage * 100));
+          if (progressFill) progressFill.style.width = `${pct}%`;
+          if (statusText && !markerLost) {
+            statusText.textContent = `↔ SWEEPING FIRE BASE (${pct}% COVERED)`;
+          }
+          const fireEl = document.getElementById("fire-graphic");
+          if (fireEl && typeof fireEl.setAttribute === "function") {
+            const remaining = Math.max(0.01, 1 - (coverage / SWEEP_MIN_COVERAGE));
+            fireEl.setAttribute("scale", `${remaining} ${remaining} ${remaining}`);
+          }
+          if (isSweepComplete(coverage, SWEEP_MIN_COVERAGE)) {
+            handleSweepFinish(false);
+            return;
+          }
+        }
+      }
+      if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+        rafId = window.requestAnimationFrame(checkMotionFrame);
+      }
+    }
+
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      rafId = window.requestAnimationFrame(checkMotionFrame);
+    }
   }
 
   // start with PASS step 1 (Pull)
@@ -896,11 +967,13 @@ export {
   isAimInTargetZone,
   isSqueezeComplete,
   calcSweepCoverage,
+  calcMotionSweepCoverage,
   isSweepComplete,
   PIN_PULL_THRESHOLD_PX,
   AIM_HOLD_DURATION_MS,
   SQUEEZE_HOLD_DURATION_MS,
   SWEEP_MIN_COVERAGE,
+  MOTION_SWEEP_TARGET_SPAN,
   FIRE_BASE_MAX_DISTANCE_3D,
   FIRE_BASE_TARGET_3D,
   AIM_PASS_THRESHOLD,
