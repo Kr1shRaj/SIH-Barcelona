@@ -5,7 +5,7 @@ function buildFireEntity() {
   if (typeof entity.setAttribute === "function") {
     entity.setAttribute("class", "clickable");
     entity.setAttribute("data-raycast-target", "fire");
-    entity.setAttribute("position", "0.65 0 -0.20");
+    entity.setAttribute("position", "0 0 0");
   } else {
     entity.className = "clickable";
   }
@@ -42,7 +42,7 @@ function buildExitEntity() {
   entity.id = "exit-graphic";
   if (typeof entity.setAttribute === "function") {
     entity.setAttribute("class", "clickable");
-    entity.setAttribute("position", "0.55 0.5 0");
+    entity.setAttribute("position", "0 0.5 0");
     entity.setAttribute("rotation", "0 -15 0");
     entity.setAttribute("animation", "property: scale; to: 1.08 1.08 1.08; dir: alternate; dur: 800; loop: true; easing: easeInOutSine");
   } else {
@@ -65,8 +65,8 @@ function buildExtinguisherEntity() {
   entity.id = "extinguisher-graphic";
   if (typeof entity.setAttribute === "function") {
     entity.setAttribute("class", "clickable");
-    entity.setAttribute("position", "-0.90 0 0.35");
-    entity.setAttribute("rotation", "0 25 0");
+    entity.setAttribute("position", "0 0 0");
+    entity.setAttribute("rotation", "0 0 0");
   } else {
     entity.className = "clickable";
   }

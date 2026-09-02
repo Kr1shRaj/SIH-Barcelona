@@ -51,6 +51,8 @@ describe("App UI Shell and Error States", () => {
 
     assert.ok(mockContainer.innerHTML.includes("Tier 2: Marker (Hiro)"));
     assert.ok(mockContainer.innerHTML.includes("ar-viewport"));
+    assert.ok(mockContainer.innerHTML.includes('preset="hiro"'));
+    assert.ok(mockContainer.innerHTML.includes('preset="kanji"'));
   });
 
   it("bindModuleLifecycleUI toggles statusCard display on module_loaded and module_unloaded events", () => {

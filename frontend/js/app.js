@@ -42,6 +42,7 @@ function renderArShell(container, tierResult) {
     ? '<canvas id="xr-canvas" class="ar-canvas"></canvas>'
     : `<a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3;" vr-mode-ui="enabled: false" renderer="logarithmicDepthBuffer: true;">
         <a-marker preset="hiro" id="hiro-marker"></a-marker>
+        <a-marker preset="kanji" id="kanji-marker"></a-marker>
         <a-entity camera cursor="rayOrigin: mouse" raycaster="objects: .clickable, [data-raycast-target]"></a-entity>
       </a-scene>`;
 

@@ -82,11 +82,15 @@ function _calcAimAccuracy(input, arg2, arg3) {
   return null;
 }
 
-// render 3D fire entity inside a-marker or fallback container
+// render 3D fire entity inside kanji marker or fallback container
 function _renderFireGraphic(container) {
-  const marker = typeof document !== "undefined" && typeof document.querySelector === "function"
-    ? document.querySelector("a-marker")
+  const kanjiMarker = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? (document.querySelector("#kanji-marker") || document.querySelector("a-marker[preset='kanji']"))
     : null;
+  const marker = kanjiMarker || ((typeof document !== "undefined" && typeof document.querySelector === "function")
+    ? document.querySelector("a-marker")
+    : null);
+
   if (marker && typeof marker.querySelector === "function") {
     const testBox = marker.querySelector("#test-box");
     if (testBox) {
@@ -100,14 +104,39 @@ function _renderFireGraphic(container) {
   if (parent && parent.appendChild) {
     parent.appendChild(graphic);
   }
+
+  // fire renders when kanji marker is detected and hides when lost
+  if (kanjiMarker && typeof kanjiMarker.addEventListener === "function") {
+    if (typeof graphic.setAttribute === "function") {
+      graphic.setAttribute("visible", "false");
+    }
+
+    kanjiMarker.addEventListener("markerFound", () => {
+      if (typeof graphic.setAttribute === "function") {
+        graphic.setAttribute("visible", "true");
+      }
+      logger.info({ event: "kanji_marker_found" }, "Kanji marker detected — fire visible");
+    });
+
+    kanjiMarker.addEventListener("markerLost", () => {
+      if (typeof graphic.setAttribute === "function") {
+        graphic.setAttribute("visible", "false");
+      }
+      logger.info({ event: "kanji_marker_lost" }, "Kanji marker lost — fire hidden");
+    });
+  }
+
   return graphic;
 }
 
-// render 3D exit sign entity inside a-marker or fallback container
+// render 3D exit sign entity inside hiro marker or fallback container
 function _renderExitGraphic(container) {
-  const marker = typeof document !== "undefined" && typeof document.querySelector === "function"
-    ? document.querySelector("a-marker")
+  const hiroMarker = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? (document.querySelector("#hiro-marker") || document.querySelector("a-marker[preset='hiro']"))
     : null;
+  const marker = hiroMarker || ((typeof document !== "undefined" && typeof document.querySelector === "function")
+    ? document.querySelector("a-marker")
+    : null);
   const el = buildExitGraphic();
   const parent = marker || container;
   if (parent && parent.appendChild) {
@@ -116,11 +145,14 @@ function _renderExitGraphic(container) {
   return el;
 }
 
-// render 3D fire extinguisher entity inside a-marker or fallback container
+// render 3D fire extinguisher entity inside hiro marker or fallback container
 function _renderExtinguisherGraphic(container) {
-  const marker = typeof document !== "undefined" && typeof document.querySelector === "function"
-    ? document.querySelector("a-marker")
+  const hiroMarker = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? (document.querySelector("#hiro-marker") || document.querySelector("a-marker[preset='hiro']"))
     : null;
+  const marker = hiroMarker || ((typeof document !== "undefined" && typeof document.querySelector === "function")
+    ? document.querySelector("a-marker")
+    : null);
   const el = buildExtinguisherGraphic();
   const parent = marker || container;
   if (parent && parent.appendChild) {
@@ -568,13 +600,13 @@ function _setupStep2(container, tierInfo) {
     if (graphic && typeof graphic.addEventListener === "function") {
       graphic.addEventListener("pointerdown", (ev) => {
         const intersection = ev && ev.detail && ev.detail.intersection ? ev.detail.intersection : null;
-        const distance = intersection ? calcIntersectionDistance(intersection.point, { x: 0.65, y: 0.16, z: -0.20 }) : 0.12;
+        const distance = intersection ? calcIntersectionDistance(intersection.point, { x: 0, y: 0.16, z: 0 }) : 0.12;
         const accuracy = calcRaycastAimAccuracy(distance);
         startHold(accuracy, distance);
       });
       graphic.addEventListener("mousedown", (ev) => {
         const intersection = ev && ev.detail && ev.detail.intersection ? ev.detail.intersection : null;
-        const distance = intersection ? calcIntersectionDistance(intersection.point, { x: 0.65, y: 0.16, z: -0.20 }) : 0.12;
+        const distance = intersection ? calcIntersectionDistance(intersection.point, { x: 0, y: 0.16, z: 0 }) : 0.12;
         const accuracy = calcRaycastAimAccuracy(distance);
         startHold(accuracy, distance);
       });
@@ -702,7 +734,7 @@ function _setupStep2(container, tierInfo) {
     let rafId = null;
 
     const marker = typeof document !== "undefined" && typeof document.querySelector === "function"
-      ? document.querySelector("a-marker")
+      ? (document.querySelector("#kanji-marker") || document.querySelector("a-marker[preset='kanji']") || document.querySelector("a-marker"))
       : null;
 
     const onMarkerLost = () => {
