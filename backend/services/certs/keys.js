@@ -66,8 +66,14 @@ function loadSigningKeys(config) {
   // can verify, so catch it here rather than at the first failed scan
   const derivedPublic = publicKeyFromPrivate(privateKey);
   if (deriveKeyId(derivedPublic) !== deriveKeyId(publicKey)) {
+    // the old wording here told whoever hit this to run keygen, which is the one
+    // thing they must not do: a fresh pair orphans every certificate already issued
+    // and leaves the team verifying against two different issuers.
     throw new Error(
-      "CERT_PRIVATE_KEY and the public key file are not a pair — re-run npm run keygen and update both"
+      "CERT_PRIVATE_KEY and the public key file are not a pair. " +
+        "The shared public key is committed in this repository, so the matching " +
+        "CERT_PRIVATE_KEY has to come from the team out of band and go in your .env. " +
+        "Generate a new pair only to rotate the issuer key on purpose."
     );
   }
 
