@@ -19,7 +19,12 @@ const TEMPLATE_VALUES = [
 const DEFAULTS = {
   NODE_ENV: "development",
   PORT: "3000",
-  LOG_LEVEL: "info"
+  LOG_LEVEL: "info",
+  // dev server, dashboard, and the two origins a capacitor webview actually uses.
+  // miss the capacitor ones and the apk cannot reach the api at all.
+  ALLOWED_ORIGINS: "http://localhost:5173,http://localhost:5174,http://localhost,https://localhost,capacitor://localhost",
+  // 50 attempts x 3 checkpoints x 4kb context tops out near 600kb
+  BODY_LIMIT: "1mb"
 };
 
 let _config = null;
@@ -75,6 +80,13 @@ function loadConfig(env) {
     certSigningSecret: raw.CERT_SIGNING_SECRET,
     certIssuer: raw.CERT_ISSUER,
     adminApiKey: raw.ADMIN_API_KEY,
+    allowedOrigins: Object.freeze(
+      (raw.ALLOWED_ORIGINS || DEFAULTS.ALLOWED_ORIGINS)
+        .split(",")
+        .map((origin) => origin.trim())
+        .filter((origin) => origin.length > 0)
+    ),
+    bodyLimit: raw.BODY_LIMIT || DEFAULTS.BODY_LIMIT,
     warnings: Object.freeze(warnings)
   });
 }
