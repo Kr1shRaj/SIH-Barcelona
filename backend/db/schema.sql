@@ -1,4 +1,4 @@
--- SafeAR SQLite schema. Version 2.
+-- SafeAR SQLite schema. Version 3.
 -- Runs on every boot, IF NOT EXISTS keeps it safe to re-run.
 -- Version bump is guarded in db/index.js — an older db on disk is rejected loud, never patched silently.
 --
@@ -137,6 +137,8 @@ CREATE TABLE IF NOT EXISTS certificate (
   issued_at    TEXT NOT NULL,
   expires_at   TEXT,
   algo         TEXT NOT NULL,
+  -- which signing key made this, so a rotation can find what the old key signed
+  key_id       TEXT NOT NULL,
   signature    TEXT NOT NULL,
   payload_json TEXT NOT NULL,
   revoked      INTEGER NOT NULL DEFAULT 0 CHECK (revoked IN (0, 1)),
@@ -156,3 +158,4 @@ CREATE INDEX IF NOT EXISTS idx_cert_worker_mod     ON certificate (worker_id, mo
 CREATE INDEX IF NOT EXISTS idx_cert_attempt        ON certificate (attempt_id);
 CREATE INDEX IF NOT EXISTS idx_cert_expires        ON certificate (expires_at);
 CREATE INDEX IF NOT EXISTS idx_cert_revoked        ON certificate (revoked);
+CREATE INDEX IF NOT EXISTS idx_cert_key_id         ON certificate (key_id);

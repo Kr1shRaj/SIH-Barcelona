@@ -267,9 +267,9 @@ describe("Attempt Contract schema shape", () => {
 
     db.prepare(
       `INSERT INTO certificate
-         (cert_id, worker_id, module_id, attempt_id, score, issued_at, algo, signature, payload_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run("CERT-1", "WRK-0001", "fire-response", ATTEMPT_ID, 91.67, "2026-09-01T12:45:00.000Z", "test", "sig", "{}");
+         (cert_id, worker_id, module_id, attempt_id, score, issued_at, algo, key_id, signature, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run("CERT-1", "WRK-0001", "fire-response", ATTEMPT_ID, 91.67, "2026-09-01T12:45:00.000Z", "test", "testkey", "sig", "{}");
 
     const joined = db
       .prepare(
@@ -288,10 +288,10 @@ describe("Attempt Contract schema shape", () => {
         db
           .prepare(
             `INSERT INTO certificate
-               (cert_id, worker_id, module_id, attempt_id, score, issued_at, algo, signature, payload_json)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+               (cert_id, worker_id, module_id, attempt_id, score, issued_at, algo, key_id, signature, payload_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
-          .run("CERT-2", "WRK-0001", "fire-response", "ATT-GHOST", 90, "t", "test", "sig", "{}"),
+          .run("CERT-2", "WRK-0001", "fire-response", "ATT-GHOST", 90, "t", "test", "testkey", "sig", "{}"),
       /FOREIGN KEY constraint failed/
     );
   });

@@ -129,7 +129,7 @@ describe("Database initialization", () => {
 
     assert.throws(
       () => initDatabase(legacyPath),
-      /schema v1, this build needs v2/,
+      /schema v1, this build needs v3/,
       "an unversioned db must be rejected, never half upgraded"
     );
   });

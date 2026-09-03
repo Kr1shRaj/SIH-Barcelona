@@ -7,8 +7,9 @@ const { createChildLogger } = require("../logger");
 const SCHEMA_FILE = path.join(__dirname, "schema.sql");
 
 // bump this whenever schema.sql changes shape. v2 renamed attempt/module_result
-// to match the SafeAR Attempt Contract v1.0.
-const SCHEMA_VERSION = 2;
+// to match the SafeAR Attempt Contract v1.0. v3 added certificate.key_id for
+// ed25519 signing key rotation.
+const SCHEMA_VERSION = 3;
 
 let _db = null;
 
