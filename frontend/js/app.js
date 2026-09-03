@@ -4,6 +4,7 @@ import { initWebXRSession, loadModule3DScene } from "../ar/webxr.js";
 import { initMarkerTracking, loadMarkerModuleScene } from "../ar/marker.js";
 import { setTierLoaders, loadModule, unloadModule } from "./module-loader.js";
 import { loadLocale } from "./i18n.js";
+import { queueEligibleCertificates, flushPendingCertificates } from "./certificates.js";
 import {
   bindAssessmentSessionListeners,
   getEffectiveWorkerId,
@@ -107,13 +108,15 @@ async function initApp() {
     logger.warn({ event: "manifest_prefetch_error", error: err.message }, "Manifest prefetch warning");
   });
 
-  // initial sync attempt for offline records
-  syncQueuedAttempts().catch(() => {});
+  // initial sync attempt for offline records, then certificates.
+  // order matters: a certificate can only be minted from an attempt the server
+  // already holds, so the sync has to land first.
+  syncAttemptsThenCertificates();
 
   if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
     window.addEventListener("online", () => {
       logger.info({ event: "network_online" }, "Device online, syncing queued attempts");
-      syncQueuedAttempts().catch(() => {});
+      syncAttemptsThenCertificates();
     });
   }
 
@@ -237,6 +240,20 @@ function _bindScaffoldButton(container) {
 }
 
 
+// push queued attempts, then mint certificates for whatever the server accepted.
+// never allowed to break boot or the online handler, so every failure is swallowed.
+function syncAttemptsThenCertificates(options = {}) {
+  return syncQueuedAttempts(options)
+    .then((syncResult) => {
+      queueEligibleCertificates(syncResult);
+      return flushPendingCertificates(options);
+    })
+    .catch((err) => {
+      logger.warn({ event: "sync_certificate_cycle_error", error: err.message }, "Sync or certificate flush failed");
+      return null;
+    });
+}
+
 // register service worker for offline use in mines
 async function registerServiceWorker(nav = (typeof navigator !== "undefined" ? navigator : null)) {
   if (nav && "serviceWorker" in nav && typeof nav.serviceWorker.register === "function") {
@@ -265,5 +282,6 @@ export {
   renderUnsupportedView,
   renderArShell,
   bindModuleLifecycleUI,
-  registerServiceWorker
+  registerServiceWorker,
+  syncAttemptsThenCertificates
 };
