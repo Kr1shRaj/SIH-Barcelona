@@ -100,7 +100,14 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // 3. Cache-first strategy for local assets and external libraries
+  // 3. config.js carries the backend address for this install. cached, it would pin
+  // a stale one and the app would keep calling a machine that has gone home. it is
+  // deliberately absent from STATIC_ASSETS for the same reason.
+  if (url.pathname.endsWith("/config.js")) {
+    return;
+  }
+
+  // 4. Cache-first strategy for local assets and external libraries
   event.respondWith(
     caches.match(req).then((cachedResponse) => {
       if (cachedResponse) {

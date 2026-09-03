@@ -1,3 +1,6 @@
+// api base comes from api.js so this file never decides where the backend lives
+import { resolveApiBase } from "../js/api.js";
+
 // safe constants for assessment contract v1.0 and offline sync
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const IDENTIFIER = /^[a-z][a-z0-9_-]{1,63}$/;
@@ -404,7 +407,7 @@ function getCachedOrLocalManifest(moduleId) {
 }
 
 // fetch manifests from backend, update cache, fall back gracefully offline
-async function fetchModuleManifests({ baseUrl = "", timeoutMs = 5000 } = {}) {
+async function fetchModuleManifests({ baseUrl = resolveApiBase(), timeoutMs = 5000 } = {}) {
   const storage = _getStorage();
 
   const fetchHandle = (typeof window !== "undefined" && window.fetch)
@@ -544,7 +547,7 @@ function removeSyncedAttempts(syncedAttemptIds) {
 }
 
 // push queued attempts to backend /api/sync
-async function syncQueuedAttempts({ baseUrl = "", deviceId, workerId, batchSize = MAX_BATCH_ATTEMPTS } = {}) {
+async function syncQueuedAttempts({ baseUrl = resolveApiBase(), deviceId, workerId, batchSize = MAX_BATCH_ATTEMPTS } = {}) {
   const queue = getQueuedAttempts();
   if (queue.length === 0) {
     return { success: true, synced: 0, remaining: 0 };

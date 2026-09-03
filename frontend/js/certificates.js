@@ -267,13 +267,14 @@ async function flushPendingCertificates(options = {}) {
     return { issued: 0, dropped: 0, stillPending: 0, results: [] };
   }
 
-  const baseUrl = options.baseUrl || "";
+  // no default of our own. "" is falsy, so defaulting here would shadow the resolver
+  // in api.js and pin every issue request back onto the page origin.
   const results = [];
   let issued = 0;
   let dropped = 0;
 
   for (const entry of pending) {
-    const response = await apiPost("/api/certs/issue", { attemptId: entry.attemptId }, { baseUrl });
+    const response = await apiPost("/api/certs/issue", { attemptId: entry.attemptId }, { baseUrl: options.baseUrl });
 
     // 201 issued and 200 already_issued both mean the certificate exists now
     if (response.ok && response.data && response.data.certId
