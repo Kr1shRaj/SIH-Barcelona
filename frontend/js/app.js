@@ -1,6 +1,6 @@
 import { createLogger } from "./logger.js";
 import { detectDeviceCaps, selectArTier } from "../ar/tier.js";
-import { initWebXRSession, loadModule3DScene } from "../ar/webxr.js";
+import { initWebXRSession, loadModule3DScene, WebXRPlacementController } from "../ar/webxr.js";
 import { initMarkerTracking, loadMarkerModuleScene } from "../ar/marker.js";
 import { setTierLoaders, loadModule, unloadModule } from "./module-loader.js";
 
@@ -158,12 +158,20 @@ async function initApp() {
       const { canvas, statusCard } = renderArShell(appContainer, decision);
       bindModuleLifecycleUI(statusCard);
       const sessionData = await initWebXRSession(canvas);
-      setTierLoaders(1, loadModule3DScene, sessionData.session);
+      const controller = new WebXRPlacementController(sessionData);
+      controller.start();
+      setTierLoaders(1, loadModule3DScene, controller);
+
+      // mid-session fallback: if webxr session dies, degrade to tier 2
+      window.addEventListener("safear:webxr_session_lost", async () => {
+        logger.warn({ event: "webxr_mid_session_loss" }, "WebXR session lost mid-training");
+        await handleWebXRFallback(appContainer, caps, new Error("WebXR session lost mid-training"), logger);
+      }, { once: true });
 
       if (statusCard) {
         statusCard.innerHTML = `
           <h3>AR Tier 1 Active (WebXR)</h3>
-          <p>Plane tracking ready. Pick a module to begin.</p>
+          <p>Point at a flat surface and tap to place the extinguisher.</p>
           ${_scaffoldModuleButton()}
         `;
         _bindScaffoldButton(statusCard);

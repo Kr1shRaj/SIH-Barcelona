@@ -751,7 +751,7 @@ function _setupStep2(container, tierInfo) {
       // tap anywhere on viewport or canvas selects pin if not selected, or pulls if selected
       const viewport = typeof document !== "undefined" ? (document.getElementById("ar-viewport") || document.body) : null;
       if (viewport && typeof viewport.addEventListener === "function") {
-        viewport.addEventListener("click", (e) => {
+        viewport.addEventListener("click", () => {
           if (completed) return;
           if (!isSelected) {
             applySelectedVisuals(true);
