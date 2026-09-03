@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { renderUnsupportedView, renderArShell, bindModuleLifecycleUI, handleWebXRFallback, bootTier2 } from "../js/app.js";
+import { renderUnsupportedView, renderArShell, bindModuleLifecycleUI, handleWebXRFallback, bootTier2, buildWebXRDiagnosticMessage } from "../js/app.js";
 
 // mock minimal dom element
 function createMockElement() {
@@ -131,5 +131,108 @@ describe("App UI Shell and Error States", () => {
     assert.ok(mockContainer.innerHTML.includes("unsupported-screen"));
     assert.ok(mockContainer.innerHTML.includes("Camera access unavailable on device"));
     assert.ok(!mockContainer.innerHTML.includes("WebXR Failed"));
+  });
+
+  it("buildWebXRDiagnosticMessage correctly details pre-check capability failures", () => {
+    // case: insecure context
+    const insecureDecision = {
+      tier: 2,
+      caps: {
+        isSecureContext: false,
+        hasWebXR: true,
+        supportsImmersiveAr: false,
+        hasGetUserMedia: true
+      }
+    };
+    const msgInsecure = buildWebXRDiagnosticMessage(insecureDecision);
+    assert.ok(msgInsecure.includes("isSecureContext=false"));
+    assert.ok(msgInsecure.includes("requires HTTPS"));
+
+    // case: missing navigator.xr
+    const missingXrDecision = {
+      tier: 2,
+      caps: {
+        isSecureContext: true,
+        hasWebXR: false,
+        supportsImmersiveAr: false,
+        hasGetUserMedia: true
+      }
+    };
+    const msgMissingXr = buildWebXRDiagnosticMessage(missingXrDecision);
+    assert.ok(msgMissingXr.includes("navigator.xr missing"));
+
+    // case: immersive-ar not supported
+    const unsupportedArDecision = {
+      tier: 2,
+      caps: {
+        isSecureContext: true,
+        hasWebXR: true,
+        supportsImmersiveAr: false,
+        hasGetUserMedia: true
+      }
+    };
+    const msgUnsupportedAr = buildWebXRDiagnosticMessage(unsupportedArDecision);
+    assert.ok(msgUnsupportedAr.includes("isSessionSupported('immersive-ar')=false"));
+
+    // case: forced tier 2
+    const forcedDecision = {
+      tier: 2,
+      caps: {
+        forcedTier: 2,
+        hasGetUserMedia: true
+      }
+    };
+    const msgForced = buildWebXRDiagnosticMessage(forcedDecision);
+    assert.ok(msgForced.includes("Tier 2 forced by URL override"));
+  });
+
+  it("buildWebXRDiagnosticMessage correctly formats runtime requestSession rejection", () => {
+    const runtimeFailureDecision = {
+      tier: 2,
+      reason: "webxr_failed_fallback_to_marker",
+      errorName: "NotSupportedError",
+      errorMessage: "The specified session configuration is not supported."
+    };
+    const msg = buildWebXRDiagnosticMessage(runtimeFailureDecision);
+    assert.strictEqual(msg, "WebXR session rejected: NotSupportedError - The specified session configuration is not supported.");
+  });
+
+  it("handleWebXRFallback surfaces visible on-screen diagnostic banner with error details", async () => {
+    const mockContainer = createMockElement();
+    const caps = {
+      isSecureContext: true,
+      hasWebXR: true,
+      supportsImmersiveAr: true,
+      hasGetUserMedia: true
+    };
+    const webxrError = new Error("Hit-test feature not supported");
+    webxrError.name = "NotSupportedError";
+
+    const testLogger = { warn: () => {}, info: () => {}, error: () => {} };
+    await handleWebXRFallback(mockContainer, caps, webxrError, testLogger);
+
+    // must render diagnostic banner in shell
+    assert.ok(mockContainer.innerHTML.includes("webxr-diag-banner"), "must contain webxr-diag-banner element");
+    assert.ok(mockContainer.innerHTML.includes("WebXR session rejected: NotSupportedError - Hit-test feature not supported"));
+    assert.ok(mockContainer.innerHTML.includes("TEMPORARY DIAGNOSTIC"));
+  });
+
+  it("renderArShell renders diagnostic banner when pre-check fails on device caps", () => {
+    const mockContainer = createMockElement();
+    const preCheckDecision = {
+      tier: 2,
+      mode: "marker",
+      reason: "device_lacks_webxr_fallback_to_marker",
+      caps: {
+        isSecureContext: true,
+        hasWebXR: true,
+        supportsImmersiveAr: false,
+        hasGetUserMedia: true
+      }
+    };
+
+    renderArShell(mockContainer, preCheckDecision);
+    assert.ok(mockContainer.innerHTML.includes("webxr-diag-banner"));
+    assert.ok(mockContainer.innerHTML.includes("isSessionSupported('immersive-ar')=false"));
   });
 });

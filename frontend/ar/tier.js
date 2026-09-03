@@ -11,11 +11,13 @@ async function detectDeviceCaps(win = window) {
   const hasWebXR = Boolean(win.navigator && win.navigator.xr);
 
   let supportsImmersiveAr = false;
+  let sessionSupportedError = null;
   if (hasWebXR && typeof win.navigator.xr.isSessionSupported === "function") {
     try {
       supportsImmersiveAr = await win.navigator.xr.isSessionSupported("immersive-ar");
-    } catch {
+    } catch (err) {
       supportsImmersiveAr = false;
+      sessionSupportedError = (err && err.message) || String(err);
     }
   }
 
@@ -38,6 +40,7 @@ async function detectDeviceCaps(win = window) {
     hasGetUserMedia,
     hasWebXR,
     supportsImmersiveAr,
+    sessionSupportedError,
     forcedTier,
     userAgent: win.navigator ? win.navigator.userAgent : ""
   };
