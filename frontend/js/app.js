@@ -218,6 +218,65 @@ async function handleWebXRFallback(container, caps, err, loggerInstance = logger
   return await bootTier2(container, fallbackDecision);
 }
 
+// boot tier 1 webxr flow with user activation button
+async function bootTier1(container, decision, caps) {
+  const { canvas, statusCard } = renderArShell(container, decision);
+  bindModuleLifecycleUI(statusCard);
+
+  let controller = null;
+
+  // start webxr inside user gesture
+  async function activateWebXR() {
+    if (controller) return controller;
+    try {
+      const sessionData = await initWebXRSession(canvas);
+      controller = new WebXRPlacementController(sessionData);
+      controller.start();
+      setTierLoaders(1, loadModule3DScene, controller);
+
+      // mid-session fallback: if webxr session dies, degrade to tier 2
+      window.addEventListener("safear:webxr_session_lost", async () => {
+        logger.warn({ event: "webxr_mid_session_loss" }, "WebXR session lost mid-training");
+        await handleWebXRFallback(container, caps, new Error("WebXR session lost mid-training"), logger);
+      }, { once: true });
+
+      if (statusCard) {
+        statusCard.innerHTML = `
+          <h3>AR Tier 1 Active (WebXR)</h3>
+          <p>Point at a flat surface and tap to place the extinguisher.</p>
+          ${_scaffoldModuleButton()}
+        `;
+        _bindScaffoldButton(statusCard);
+      }
+      return controller;
+    } catch (err) {
+      await handleWebXRFallback(container, caps, err, logger);
+      return null;
+    }
+  }
+
+  if (statusCard) {
+    statusCard.innerHTML = `
+      <h3>AR Tier 1 Ready (WebXR)</h3>
+      <p>Real-world surface tracking supported on your tablet. Tap below to start AR:</p>
+      <button id="btn-start-webxr" style="display:block;width:100%;max-width:340px;padding:14px 20px;border-radius:10px;border:2px solid #38bdf8;background:linear-gradient(135deg,#0284c7,#0369a1);color:#ffffff;font-size:1.05rem;font-weight:bold;cursor:pointer;margin:10px 0;box-shadow:0 4px 16px rgba(56,189,248,0.4);pointer-events:auto !important;text-align:center;">🚀 START AR SESSION (WEBXR)</button>
+      <p style="font-size:0.8rem;color:#94a3b8;margin-top:4px;">Or tap a module to launch directly:</p>
+      ${_scaffoldModuleButton()}
+    `;
+
+    const startBtn = statusCard.querySelector("#btn-start-webxr");
+    if (startBtn) {
+      startBtn.addEventListener("click", () => activateWebXR());
+    }
+
+    _bindScaffoldButton(statusCard, async () => {
+      await activateWebXR();
+    });
+  }
+
+  return { canvas, statusCard, activateWebXR };
+}
+
 // start mobile app and init audio and ar
 async function initApp() {
   const appContainer = document.getElementById("app");
@@ -235,31 +294,7 @@ async function initApp() {
   }
 
   if (decision.tier === 1) {
-    try {
-      const { canvas, statusCard } = renderArShell(appContainer, decision);
-      bindModuleLifecycleUI(statusCard);
-      const sessionData = await initWebXRSession(canvas);
-      const controller = new WebXRPlacementController(sessionData);
-      controller.start();
-      setTierLoaders(1, loadModule3DScene, controller);
-
-      // mid-session fallback: if webxr session dies, degrade to tier 2
-      window.addEventListener("safear:webxr_session_lost", async () => {
-        logger.warn({ event: "webxr_mid_session_loss" }, "WebXR session lost mid-training");
-        await handleWebXRFallback(appContainer, caps, new Error("WebXR session lost mid-training"), logger);
-      }, { once: true });
-
-      if (statusCard) {
-        statusCard.innerHTML = `
-          <h3>AR Tier 1 Active (WebXR)</h3>
-          <p>Point at a flat surface and tap to place the extinguisher.</p>
-          ${_scaffoldModuleButton()}
-        `;
-        _bindScaffoldButton(statusCard);
-      }
-    } catch (err) {
-      await handleWebXRFallback(appContainer, caps, err, logger);
-    }
+    await bootTier1(appContainer, decision, caps);
   } else if (decision.tier === 2) {
     await bootTier2(appContainer, decision);
   }
@@ -330,6 +365,7 @@ export {
   renderUnsupportedView,
   renderArShell,
   bindModuleLifecycleUI,
+  bootTier1,
   bootTier2,
   handleWebXRFallback,
   buildWebXRDiagnosticMessage

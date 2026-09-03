@@ -163,9 +163,9 @@ function _renderExtinguisherGraphic(container) {
 
   // anchor extinguisher to first-person view (SENAR trainee hands look)
   if (camera) {
-    el.setAttribute("position", "0.25 -0.35 -0.90");
+    el.setAttribute("position", "0.28 -0.22 -0.80");
     el.setAttribute("rotation", "0 -15 0");
-    el.setAttribute("scale", "0.22 0.22 0.22");
+    el.setAttribute("scale", "0.24 0.24 0.24");
     camera.appendChild(el);
   } else if (scene) {
     el.setAttribute("position", "0 0.05 -1.5");

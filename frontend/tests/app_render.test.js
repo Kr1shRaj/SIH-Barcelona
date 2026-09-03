@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { renderUnsupportedView, renderArShell, bindModuleLifecycleUI, handleWebXRFallback, bootTier2, buildWebXRDiagnosticMessage } from "../js/app.js";
+import { renderUnsupportedView, renderArShell, bindModuleLifecycleUI, bootTier1, handleWebXRFallback, bootTier2, buildWebXRDiagnosticMessage } from "../js/app.js";
 
 // mock minimal dom element
 function createMockElement() {
@@ -234,5 +234,40 @@ describe("App UI Shell and Error States", () => {
     renderArShell(mockContainer, preCheckDecision);
     assert.ok(mockContainer.innerHTML.includes("webxr-diag-banner"));
     assert.ok(mockContainer.innerHTML.includes("isSessionSupported('immersive-ar')=false"));
+  });
+
+  it("bootTier1 renders Tier 1 shell with user-activation button and module buttons", async () => {
+    const mockContainer = {
+      innerHTML: "",
+      children: [],
+      querySelector: (sel) => {
+        if (sel === "#status-card") {
+          return {
+            innerHTML: "",
+            querySelector: () => ({ addEventListener: () => {} })
+          };
+        }
+        if (sel === "#xr-canvas") {
+          return {
+            getContext: () => ({})
+          };
+        }
+        return null;
+      }
+    };
+    const decision = {
+      tier: 1,
+      mode: "webxr",
+      reason: "webxr_supported",
+      caps: {
+        isSecureContext: true,
+        hasWebXR: true,
+        supportsImmersiveAr: true,
+        hasGetUserMedia: true
+      }
+    };
+    const res = await bootTier1(mockContainer, decision, decision.caps);
+    assert.ok(mockContainer.innerHTML.includes("Tier 1: WebXR"));
+    assert.ok(typeof res.activateWebXR === "function");
   });
 });
