@@ -5,14 +5,29 @@ import {
   queueAttemptForSync,
   getQueuedAttempts,
   clearAttemptQueue,
+  removeSyncedAttempts,
+  syncQueuedAttempts,
   startAssessmentSession,
   getActiveSession,
   recordCheckpointResult,
   finishAssessmentSession,
   abortAssessmentSession,
   bindAssessmentSessionListeners,
-  unbindAssessmentSessionListeners
+  unbindAssessmentSessionListeners,
+  getEffectiveWorkerId,
+  setWorkerId,
+  getDeviceId,
+  fetchModuleManifests,
+  getModuleManifest,
+  validateModuleManifests,
+  getCachedOrLocalManifest,
+  CANONICAL_DEMO_WORKER_ID,
+  DEFAULT_LOCAL_MANIFESTS,
+  QUEUE_STORAGE_KEY,
+  WORKER_STORAGE_KEY,
+  MANIFEST_STORAGE_KEY
 } from "../assessment/engine.js";
+import { validateSyncPayload } from "../../backend/models/sync.js";
 
 // mock local storage for node test runner
 if (typeof globalThis.localStorage === "undefined") {
@@ -405,6 +420,14 @@ describe("Offline Queue — queueAttemptForSync", () => {
     assert.strictEqual(getQueuedAttempts().length, 0);
   });
 
+  it("uses QUEUE_STORAGE_KEY in localStorage to persist attempts", () => {
+    const evaluated = evaluateAssessment(createValidFireAttempt(), 0.7);
+    queueAttemptForSync(evaluated);
+    const raw = globalThis.localStorage.getItem(QUEUE_STORAGE_KEY);
+    assert.ok(raw !== null);
+    assert.strictEqual(JSON.parse(raw).length, 1);
+  });
+
   it("throws when trying to queue null or malformed attempt", () => {
     assert.throws(() => queueAttemptForSync(null), /attemptRecord must be an object/);
     assert.throws(() => queueAttemptForSync({}), /attemptRecord must have a valid UUID v4 attemptId/);
@@ -554,3 +577,260 @@ describe("Assessment Session Lifecycle", () => {
     assert.strictEqual(getQueuedAttempts().length, 0);
   });
 });
+
+describe("Worker Identification & Resolution", () => {
+  beforeEach(() => {
+    globalThis.localStorage.clear();
+    delete globalThis.window.location;
+  });
+
+  it("returns canonical provisioned demo worker WRK-0001 by default", () => {
+    const workerId = getEffectiveWorkerId();
+    assert.strictEqual(workerId, CANONICAL_DEMO_WORKER_ID);
+    assert.strictEqual(workerId, "WRK-0001");
+  });
+
+  it("resolves worker id from localStorage when configured", () => {
+    globalThis.localStorage.setItem(WORKER_STORAGE_KEY, "WRK-0003");
+    const workerId = getEffectiveWorkerId();
+    assert.strictEqual(workerId, "WRK-0003");
+  });
+
+  it("resolves worker id from URL query parameter ?workerId= and persists it", () => {
+    globalThis.window.location = { search: "?workerId=WRK-0004" };
+    const workerId = getEffectiveWorkerId();
+    assert.strictEqual(workerId, "WRK-0004");
+    assert.strictEqual(globalThis.localStorage.getItem(WORKER_STORAGE_KEY), "WRK-0004");
+  });
+
+  it("resolves worker id from URL query parameter ?worker= as alias", () => {
+    globalThis.window.location = { search: "?worker=WRK-0005" };
+    const workerId = getEffectiveWorkerId();
+    assert.strictEqual(workerId, "WRK-0005");
+    assert.strictEqual(globalThis.localStorage.getItem(WORKER_STORAGE_KEY), "WRK-0005");
+  });
+
+  it("setWorkerId stores valid worker id in localStorage", () => {
+    setWorkerId("WRK-0006");
+    assert.strictEqual(globalThis.localStorage.getItem(WORKER_STORAGE_KEY), "WRK-0006");
+    assert.strictEqual(getEffectiveWorkerId(), "WRK-0006");
+  });
+
+  it("setWorkerId rejects empty or oversized worker ids", () => {
+    assert.throws(() => setWorkerId(""), /workerId must be a string between 1 and 64 characters/);
+    assert.throws(() => setWorkerId("a".repeat(65)), /workerId must be a string between 1 and 64 characters/);
+  });
+
+  it("startAssessmentSession defaults to canonical worker WRK-0001, never WRK-DEFAULT", () => {
+    const session = startAssessmentSession({ moduleId: "fire-response" });
+    assert.strictEqual(session.workerId, "WRK-0001");
+    assert.notStrictEqual(session.workerId, "WRK-DEFAULT");
+    abortAssessmentSession();
+  });
+
+  it("getDeviceId creates and persists stable device identifier", () => {
+    const devId1 = getDeviceId();
+    assert.ok(typeof devId1 === "string" && devId1.length > 0);
+    const devId2 = getDeviceId();
+    assert.strictEqual(devId1, devId2);
+  });
+});
+
+describe("Module Manifest Integration — /api/modules", () => {
+  beforeEach(() => {
+    globalThis.localStorage.clear();
+  });
+
+  it("validateModuleManifests validates correct manifest list and rejects malformed", () => {
+    assert.strictEqual(validateModuleManifests(DEFAULT_LOCAL_MANIFESTS), true);
+    assert.strictEqual(validateModuleManifests([]), false);
+    assert.strictEqual(validateModuleManifests(null), false);
+    assert.strictEqual(validateModuleManifests([{ moduleId: "bad" }]), false);
+  });
+
+  it("getCachedOrLocalManifest returns deterministic offline manifest for fire and gas", () => {
+    const fire = getCachedOrLocalManifest("fire-response");
+    assert.ok(fire !== null);
+    assert.strictEqual(fire.moduleId, "fire-response");
+    assert.strictEqual(fire.requiredCheckpoints.length, 3);
+    assert.strictEqual(fire.passThreshold, 0.7);
+
+    const gas = getCachedOrLocalManifest("gas-leak");
+    assert.ok(gas !== null);
+    assert.strictEqual(gas.moduleId, "gas-leak");
+    assert.strictEqual(gas.requiredCheckpoints.length, 3);
+  });
+
+  it("getCachedOrLocalManifest prioritizes cached manifest when present", () => {
+    const custom = [
+      {
+        ...DEFAULT_LOCAL_MANIFESTS[0],
+        passThreshold: 0.85
+      }
+    ];
+    globalThis.localStorage.setItem(MANIFEST_STORAGE_KEY, JSON.stringify(custom));
+
+    const fire = getCachedOrLocalManifest("fire-response");
+    assert.strictEqual(fire.passThreshold, 0.85);
+  });
+
+  it("fetchModuleManifests falls back safely to default manifests when offline", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => { throw new Error("Network unreachable"); };
+
+    try {
+      const manifests = await fetchModuleManifests();
+      assert.strictEqual(manifests.length, 2);
+      assert.strictEqual(manifests[0].moduleId, "fire-response");
+      assert.strictEqual(manifests[1].moduleId, "gas-leak");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("fetchModuleManifests caches online response in localStorage", async () => {
+    const onlineData = [
+      {
+        moduleId: "fire-response",
+        title: "Fire Response Online",
+        version: 2,
+        passThreshold: 0.75,
+        recertMonths: null,
+        requiredCheckpoints: [
+          { checkpointId: "fire_exit_identification", type: "proximity", weight: 1, required: true, critical: false }
+        ]
+      }
+    ];
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({
+      ok: true,
+      json: async () => onlineData
+    });
+
+    try {
+      const manifests = await fetchModuleManifests();
+      assert.strictEqual(manifests.length, 1);
+      assert.strictEqual(manifests[0].title, "Fire Response Online");
+
+      const cached = JSON.parse(globalThis.localStorage.getItem(MANIFEST_STORAGE_KEY));
+      assert.strictEqual(cached[0].version, 2);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("getModuleManifest retrieves single module manifest", async () => {
+    const fire = await getModuleManifest("fire-response");
+    assert.strictEqual(fire.moduleId, "fire-response");
+    const gas = await getModuleManifest("gas-leak");
+    assert.strictEqual(gas.moduleId, "gas-leak");
+  });
+});
+
+describe("Attempt Synchronization — /api/sync", () => {
+  beforeEach(() => {
+    clearAttemptQueue();
+    globalThis.localStorage.clear();
+  });
+
+  it("removeSyncedAttempts removes only confirmed attempt ids and preserves others", () => {
+    const att1 = { ...createValidFireAttempt(), attemptId: "a3f1c9e2-5b47-4d18-9e6a-2c8b7f0d4e51" };
+    const att2 = { ...createValidGasAttempt(), attemptId: "7c04b118-2ea9-4f36-b8d2-91a7e3c05d64" };
+
+    queueAttemptForSync(att1);
+    queueAttemptForSync(att2);
+    assert.strictEqual(getQueuedAttempts().length, 2);
+
+    const remaining = removeSyncedAttempts(["a3f1c9e2-5b47-4d18-9e6a-2c8b7f0d4e51"]);
+    assert.strictEqual(remaining.length, 1);
+    assert.strictEqual(remaining[0].attemptId, "7c04b118-2ea9-4f36-b8d2-91a7e3c05d64");
+    assert.strictEqual(getQueuedAttempts().length, 1);
+  });
+
+  it("syncQueuedAttempts returns immediately when queue is empty", async () => {
+    const result = await syncQueuedAttempts();
+    assert.strictEqual(result.success, true);
+    assert.strictEqual(result.synced, 0);
+    assert.strictEqual(result.remaining, 0);
+  });
+
+  it("syncQueuedAttempts constructs payload validated by backend validateSyncPayload", async () => {
+    const fire = evaluateAssessment(createValidFireAttempt(), 0.7);
+    queueAttemptForSync(fire);
+
+    let sentBody = null;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (_url, options) => {
+      sentBody = JSON.parse(options.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ batchId: sentBody.batchId, status: "accepted", processed: 1 })
+      };
+    };
+
+    try {
+      const result = await syncQueuedAttempts({ workerId: "WRK-0001" });
+      assert.strictEqual(result.success, true);
+      assert.strictEqual(result.synced, 1);
+      assert.strictEqual(result.remaining, 0);
+
+      // validate envelope using Krishna's backend validator directly
+      const validatedEnvelope = validateSyncPayload(sentBody, { now: Date.now() });
+      assert.strictEqual(validatedEnvelope.batchId, sentBody.batchId);
+      assert.strictEqual(validatedEnvelope.workerId, "WRK-0001");
+      assert.strictEqual(validatedEnvelope.attempts.length, 1);
+      assert.strictEqual(validatedEnvelope.attempts[0].workerId, "WRK-0001");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("syncQueuedAttempts retains attempts in queue on network offline failure", async () => {
+    const fire = evaluateAssessment(createValidFireAttempt(), 0.7);
+    queueAttemptForSync(fire);
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => { throw new Error("Failed to fetch (offline)"); };
+
+    try {
+      const result = await syncQueuedAttempts();
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.reason, "network_offline");
+      assert.strictEqual(result.remaining, 1);
+
+      // attempt remains in localStorage queue
+      assert.strictEqual(getQueuedAttempts().length, 1);
+      assert.strictEqual(getQueuedAttempts()[0].attemptId, fire.attemptId);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("syncQueuedAttempts retains attempts in queue on backend 4xx or 5xx rejection", async () => {
+    const fire = evaluateAssessment(createValidFireAttempt(), 0.7);
+    queueAttemptForSync(fire);
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => ({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: "validation_error", issues: ["worker not found"] })
+    });
+
+    try {
+      const result = await syncQueuedAttempts();
+      assert.strictEqual(result.success, false);
+      assert.strictEqual(result.status, 400);
+      assert.strictEqual(result.reason, "validation_error");
+      assert.strictEqual(result.remaining, 1);
+
+      // attempt MUST NOT be dropped on rejection
+      assert.strictEqual(getQueuedAttempts().length, 1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+

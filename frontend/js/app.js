@@ -4,7 +4,12 @@ import { initWebXRSession, loadModule3DScene } from "../ar/webxr.js";
 import { initMarkerTracking, loadMarkerModuleScene } from "../ar/marker.js";
 import { setTierLoaders, loadModule, unloadModule } from "./module-loader.js";
 import { loadLocale } from "./i18n.js";
-import { bindAssessmentSessionListeners } from "../assessment/engine.js";
+import {
+  bindAssessmentSessionListeners,
+  getEffectiveWorkerId,
+  fetchModuleManifests,
+  syncQueuedAttempts
+} from "../assessment/engine.js";
 
 const logger = createLogger("AppBoot");
 
@@ -94,6 +99,23 @@ async function initApp() {
   }
 
   bindAssessmentSessionListeners();
+  const workerId = getEffectiveWorkerId();
+  logger.info({ event: "worker_identified", workerId }, "Worker identity active");
+
+  // prefetch and cache module manifests
+  fetchModuleManifests().catch((err) => {
+    logger.warn({ event: "manifest_prefetch_error", error: err.message }, "Manifest prefetch warning");
+  });
+
+  // initial sync attempt for offline records
+  syncQueuedAttempts().catch(() => {});
+
+  if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+    window.addEventListener("online", () => {
+      logger.info({ event: "network_online" }, "Device online, syncing queued attempts");
+      syncQueuedAttempts().catch(() => {});
+    });
+  }
 
   // probe device hardware caps
   const caps = await detectDeviceCaps(window);
