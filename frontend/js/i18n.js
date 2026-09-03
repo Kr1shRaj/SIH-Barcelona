@@ -44,9 +44,10 @@ function registerLocale(locale, dictionary) {
 }
 
 // load locale json file from filesystem or network
-async function loadLocale(locale, basePath = "./locales") {
-  if (!locale || !SUPPORTED_LOCALES.includes(locale)) {
-    throw new Error(`unsupported locale "${locale}"`);
+async function loadLocale(locale = _activeLocale, basePath = "./locales") {
+  const targetLocale = locale || _activeLocale || DEFAULT_LOCALE;
+  if (!targetLocale || !SUPPORTED_LOCALES.includes(targetLocale)) {
+    throw new Error(`unsupported locale "${targetLocale}"`);
   }
 
   const fetchFn = (typeof window !== "undefined" && typeof window.fetch === "function")
@@ -55,10 +56,10 @@ async function loadLocale(locale, basePath = "./locales") {
 
   if (fetchFn) {
     try {
-      const res = await fetchFn(`${basePath}/${locale}.json`);
+      const res = await fetchFn(`${basePath}/${targetLocale}.json`);
       if (res && res.ok) {
         const data = await res.json();
-        registerLocale(locale, data);
+        registerLocale(targetLocale, data);
         return data;
       }
     } catch (_err) {
@@ -71,14 +72,14 @@ async function loadLocale(locale, basePath = "./locales") {
     try {
       const { readFileSync, existsSync } = await import("node:fs");
       const { resolve } = await import("node:path");
-      const p1 = resolve(gProcess.cwd(), basePath, `${locale}.json`);
+      const p1 = resolve(gProcess.cwd(), basePath, `${targetLocale}.json`);
       const cleanRel = basePath.replace(/^\.\//, "");
-      const p2 = resolve(gProcess.cwd(), "frontend", cleanRel, `${locale}.json`);
+      const p2 = resolve(gProcess.cwd(), "frontend", cleanRel, `${targetLocale}.json`);
       const filePath = existsSync(p1) ? p1 : (existsSync(p2) ? p2 : null);
       if (filePath) {
         const raw = readFileSync(filePath, "utf-8");
         const data = JSON.parse(raw);
-        registerLocale(locale, data);
+        registerLocale(targetLocale, data);
         return data;
       }
     } catch (_err) {
@@ -86,7 +87,7 @@ async function loadLocale(locale, basePath = "./locales") {
     }
   }
 
-  return _translations[locale] || {};
+  return _translations[targetLocale] || {};
 }
 
 // resolve dot separated path inside nested object
@@ -114,6 +115,13 @@ function _interpolate(text, params) {
 function t(key, params = {}, defaultFallback = "") {
   if (!key || typeof key !== "string") return "";
 
+  let fallback = defaultFallback;
+  let interpolations = params;
+  if (typeof params === "string") {
+    fallback = params;
+    interpolations = {};
+  }
+
   // 1. search in active locale
   let translated = _resolveNestedKey(_translations[_activeLocale], key);
 
@@ -128,11 +136,11 @@ function t(key, params = {}, defaultFallback = "") {
   }
 
   if (translated !== undefined) {
-    return _interpolate(translated, params);
+    return _interpolate(translated, interpolations);
   }
 
-  if (defaultFallback && typeof defaultFallback === "string") {
-    return _interpolate(defaultFallback, params);
+  if (fallback && typeof fallback === "string") {
+    return _interpolate(fallback, interpolations);
   }
 
   return key;

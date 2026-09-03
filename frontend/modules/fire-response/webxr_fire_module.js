@@ -559,11 +559,13 @@ function _onSqueezeComplete(overlay, container, aimAccuracy) {
 function _showSweepPhase(overlay, container, aimAccuracy) {
   if (!overlay) return;
   overlay.innerHTML = `
-    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${t("fire.pass_sweep_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (4/4)")}</div>
-    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("fire.pass_sweep_title", "S — Sweep Side to Side")}</div>
-    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("fire.pass_sweep_desc", "Move your device left and right to sweep the fire base. Cover at least 75% of the fire width.")}</div>
-    <div id="sweep-progress-bar" style="width:100%;max-width:320px;height:8px;background:#1e293b;border-radius:4px;overflow:hidden;margin-top:0.5rem;">
-      <div id="sweep-progress-fill" style="width:0%;height:100%;background:#06b6d4;transition:width 0.1s;"></div>
+    <div class="fire-hud-card">
+      <div class="hud-badge">${t("fire.pass_sweep_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (4/4)")}</div>
+      <div class="hud-title">${t("fire.pass_sweep_title", "S — Sweep Side to Side")}</div>
+      <div class="hud-desc">${t("fire.pass_sweep_desc", "Move your device left and right to sweep the fire base. Cover at least 75% of the fire width.")}</div>
+      <div id="sweep-progress-bar" style="width:100%;height:8px;background:#1e293b;border-radius:4px;overflow:hidden;margin-top:0.5rem;">
+        <div id="sweep-progress-fill" style="width:0%;height:100%;background:#06b6d4;transition:width 0.1s;"></div>
+      </div>
     </div>
   `;
 
@@ -576,6 +578,9 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
     sweepSamples.push(cameraX);
 
     const coverage = calcMotionSweepCoverage(sweepSamples);
+    if (_fireMesh && _fireMesh.userData) {
+      _fireMesh.userData.extinguishProgress = coverage;
+    }
     const fill = document.getElementById("sweep-progress-fill");
     if (fill) fill.style.width = `${Math.round(coverage * 100)}%`;
 
@@ -652,13 +657,15 @@ function _setupStep3WebXR(container, _step2Passed) {
   ];
 
   overlay.innerHTML = `
-    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${t("fire.evac_badge_3", "🔥 STEP 3 / 3 — EVACUATION ROUTE")}</div>
-    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("fire.evac_title_3", "Choose Safest Evacuation Path")}</div>
-    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("fire.evac_desc_3", "After using the extinguisher, you must evacuate. Select the safest option:")}</div>
+    <div class="fire-hud-card">
+      <div class="hud-badge">${t("fire.evac_badge_3", "🔥 STEP 3 / 3 — EVACUATION ROUTE")}</div>
+      <div class="hud-title">${t("fire.evac_title_3", "Choose Safest Evacuation Path")}</div>
+      <div class="hud-desc">${t("fire.evac_desc_3", "After using the extinguisher, you must evacuate. Select the safest option:")}</div>
+      <div id="webxr-evac-options" style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.4rem;width:100%;"></div>
+    </div>
   `;
 
-  const wrapper = document.createElement("div");
-  wrapper.style.cssText = "display:flex;flex-direction:column;gap:0.5rem;margin-top:0.5rem;";
+  const wrapper = overlay.querySelector("#webxr-evac-options") || overlay;
 
   const onSelect = (id, correct) => {
     fireCheckpointResult(CP_EVACUATION_ID, correct, {
@@ -675,9 +682,10 @@ function _setupStep3WebXR(container, _step2Passed) {
     btn.id = `evacuation-opt-${id}`;
     btn.dataset.optionId = id;
     btn.style.cssText = [
-      "padding:0.7rem 0.5rem", "border-radius:8px",
-      "border:2px solid #ff6a00", "background:#1a0a00",
-      "color:#fff", "cursor:pointer", "font-size:0.9rem"
+      "padding:0.75rem 0.6rem", "border-radius:10px",
+      "border:2px solid #ff6a00", "background:#1e293b",
+      "color:#fff", "cursor:pointer", "font-size:0.88rem",
+      "font-weight:600", "line-height:1.3", "box-shadow:0 2px 8px rgba(0,0,0,0.4)"
     ].join(";");
     btn.textContent = label;
     btn.addEventListener("click", () => onSelect(id, id === CORRECT));

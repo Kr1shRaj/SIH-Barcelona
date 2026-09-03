@@ -108,15 +108,15 @@ function _renderFireGraphic(container) {
 
   const graphic = buildFireGraphic();
 
-  // anchor to camera so fire is always visible (SENAR markerless benchmark)
+  // anchor to camera on the ground floor (SENAR markerless benchmark)
   if (camera) {
-    graphic.setAttribute("position", "0 -0.55 -2.4");
+    graphic.setAttribute("position", "0 -1.15 -2.2");
     graphic.setAttribute("rotation", "0 0 0");
-    graphic.setAttribute("scale", "0.55 0.55 0.55");
+    graphic.setAttribute("scale", "0.60 0.60 0.60");
     graphic.setAttribute("visible", "true");
     camera.appendChild(graphic);
   } else if (scene) {
-    graphic.setAttribute("position", "0 0.10 -2.4");
+    graphic.setAttribute("position", "0 -1.15 -2.2");
     graphic.setAttribute("rotation", "0 0 0");
     graphic.setAttribute("scale", "0.90 0.90 0.90");
     graphic.setAttribute("visible", "true");
@@ -206,16 +206,17 @@ function _renderEvacuationOptions(container, onSelect) {
 
   const wrapper = document.createElement("div");
   wrapper.id = "evacuation-options";
-  wrapper.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-top:0.8rem;";
+  wrapper.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-top:0.6rem;width:100%;";
 
   options.forEach(({ id, label }) => {
     const btn = document.createElement("button");
     btn.id = `evacuation-opt-${id}`;
     btn.dataset.optionId = id;
     btn.style.cssText = [
-      "padding:0.7rem 0.5rem", "border-radius:8px",
-      "border:2px solid #ff6a00", "background:#1a0a00",
-      "color:#fff", "cursor:pointer", "font-size:0.9rem"
+      "padding:0.75rem 0.5rem", "border-radius:10px",
+      "border:2px solid #ff6a00", "background:#1e293b",
+      "color:#fff", "cursor:pointer", "font-size:0.86rem",
+      "font-weight:600", "line-height:1.3", "box-shadow:0 2px 8px rgba(0,0,0,0.4)"
     ].join(";");
     btn.textContent = label;
     btn.addEventListener("click", () => onSelect(id, id === CORRECT));
@@ -232,15 +233,21 @@ function _renderEvacuationOptions(container, onSelect) {
 function _renderSubscreen(overlay, { badge, title, desc, buttonText, onNext }) {
   if (!overlay) return;
   overlay.innerHTML = `
-    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${badge}</div>
-    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${title}</div>
-    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${desc}</div>
+    <div class="fire-hud-card">
+      <div class="hud-badge">${badge}</div>
+      <div class="hud-title">${title}</div>
+      <div class="hud-desc">${desc}</div>
+    </div>
   `;
   const btnNext = document.createElement("button");
   btnNext.id = "btn-step-next";
-  btnNext.style.cssText = "margin-top:0.4rem;padding:0.75rem 1.4rem;background:#ff6a00;color:#fff;border:none;border-radius:8px;font-size:0.95rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
+  btnNext.style.cssText = "margin-top:0.4rem;padding:0.75rem 1.4rem;background:#ff6a00;color:#fff;border:none;border-radius:8px;font-size:0.95rem;cursor:pointer;font-weight:bold;display:block;width:100%;";
   btnNext.textContent = buttonText || "Next ➜";
   btnNext.addEventListener("click", onNext);
+  const card = overlay.querySelector(".fire-hud-card");
+  if (card && card.appendChild) {
+    card.appendChild(btnNext);
+  }
   overlay.appendChild(btnNext);
 }
 
@@ -287,18 +294,24 @@ function _setupStep1(container, tierInfo) {
   function showActionScreen() {
     if (overlay) {
       overlay.innerHTML = `
-        <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 1 / 3 — EXIT IDENTIFICATION (4/4)</div>
-        <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">Locate Emergency Exit</div>
-        <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Look for the illuminated green emergency sign anchored in AR space. Align your view with the evacuation path.</div>
+        <div class="fire-hud-card">
+          <div class="hud-badge">🔥 STEP 1 / 3 — EXIT IDENTIFICATION (4/4)</div>
+          <div class="hud-title">Locate Emergency Exit</div>
+          <div class="hud-desc">Look for the illuminated green emergency sign anchored in AR space. Align your view with the evacuation path.</div>
+        </div>
       `;
       const btn = document.createElement("button");
       btn.id = "btn-exit-found";
-      btn.style.cssText = "margin-top:0.4rem;padding:0.8rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
+      btn.style.cssText = "margin-top:0.4rem;padding:0.8rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;";
       btn.textContent = t("modules.fire_response.btn_exit", {}, "✔ I see the exit");
       btn.addEventListener("click", () => {
         fireCheckpointResult(CP_EXIT_ID, true, { method: "button_confirm" });
         _setupStep2(container, tierInfo);
       });
+      const card = overlay.querySelector(".fire-hud-card");
+      if (card && card.appendChild) {
+        card.appendChild(btn);
+      }
       overlay.appendChild(btn);
     }
   }
@@ -490,10 +503,12 @@ function _setupStep2(container, tierInfo) {
   function _renderPullPin() {
     if (!overlay) return;
     overlay.innerHTML = `
-      <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (1/4)</div>
-      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">P — Pull the Pin</div>
-      <div id="pin-instruction-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Tap the golden safety pin (or button below) to select, then drag right to unlock.</div>
-      <button id="pin-status-badge" style="display:block;width:100%;max-width:340px;padding:12px 18px;border-radius:10px;border:2px solid #00e5ff;background:#0f172a;color:#00e5ff;font-size:0.95rem;font-weight:bold;cursor:pointer;margin:0.5rem 0;box-shadow:0 0 15px rgba(0,229,255,0.3);pointer-events:auto !important;text-align:center;">👉 TAP HERE TO SELECT PIN</button>
+      <div class="fire-hud-card">
+        <div class="hud-badge">${t("fire.pass_pull_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (1/4)")}</div>
+        <div class="hud-title">${t("fire.pass_pull_title", "P — Pull the Pin")}</div>
+        <div id="pin-instruction-text" class="hud-desc">${t("fire.pass_pull_desc", "Tap the golden safety pin (or button below) to select, then drag right to unlock.")}</div>
+        <button id="pin-status-badge" style="display:block;width:100%;padding:12px 18px;border-radius:10px;border:2px solid #00e5ff;background:#0f172a;color:#00e5ff;font-size:0.95rem;font-weight:bold;cursor:pointer;margin:0.3rem 0;box-shadow:0 0 15px rgba(0,229,255,0.3);pointer-events:auto !important;text-align:center;">👉 TAP HERE TO SELECT PIN</button>
+      </div>
     `;
 
     // target 3d pin sub-entities and 3d progress bar
@@ -787,14 +802,16 @@ function _setupStep2(container, tierInfo) {
   function _renderAim() {
     if (!overlay) return;
     overlay.innerHTML = `
-      <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (2/4)</div>
-      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">A — Aim at the Base</div>
-      <div id="aim-instruction-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Aim at the glowing green ring at the bottom of the fire. Tap the button below or point your phone camera at it.</div>
-      <button id="aim-status-badge" style="display:block;width:100%;max-width:340px;padding:12px 18px;border-radius:10px;border:2px solid #00e676;background:#0f172a;color:#00e676;font-size:0.95rem;font-weight:bold;cursor:pointer;margin:0.5rem 0;box-shadow:0 0 15px rgba(0,230,118,0.35);pointer-events:auto !important;text-align:center;">🎯 TAP TO LOCK AIM AT FIRE BASE</button>
-      <div style="width:100%;max-width:280px;height:8px;background:#334155;border-radius:4px;overflow:hidden;margin:0.5rem 0;">
-        <div id="aim-progress-bar" style="width:0%;height:100%;background:#00e676;transition:width 0.08s linear;"></div>
+      <div class="fire-hud-card">
+        <div class="hud-badge">${t("fire.pass_aim_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (2/4)")}</div>
+        <div class="hud-title">${t("fire.pass_aim_title", "A — Aim at the Base")}</div>
+        <div id="aim-instruction-text" class="hud-desc">${t("fire.pass_aim_desc", "Aim at the glowing green ring at the bottom of the fire. Tap the button below or point your phone camera at it.")}</div>
+        <button id="aim-status-badge" style="display:block;width:100%;padding:12px 18px;border-radius:10px;border:2px solid #00e676;background:#0f172a;color:#00e676;font-size:0.95rem;font-weight:bold;cursor:pointer;margin:0.3rem 0;box-shadow:0 0 15px rgba(0,230,118,0.35);pointer-events:auto !important;text-align:center;">🎯 TAP TO LOCK AIM AT FIRE BASE</button>
+        <div style="width:100%;height:8px;background:#334155;border-radius:4px;overflow:hidden;margin:0.3rem 0;">
+          <div id="aim-progress-bar" style="width:0%;height:100%;background:#00e676;transition:width 0.08s linear;"></div>
+        </div>
+        <div id="aim-status-label" style="font-size:0.85rem;color:#94a3b8;font-weight:bold;">READY — TAP BUTTON OR POINT AT BASE</div>
       </div>
-      <div id="aim-status-label" style="font-size:0.85rem;color:#94a3b8;font-weight:bold;">READY — TAP BUTTON OR POINT AT BASE</div>
     `;
 
     const progressBar = document.getElementById("aim-progress-bar");
@@ -807,8 +824,8 @@ function _setupStep2(container, tierInfo) {
     const fireGraphic = document.getElementById("fire-graphic");
     if (fireGraphic && typeof fireGraphic.setAttribute === "function") {
       fireGraphic.setAttribute("visible", "true");
-      fireGraphic.setAttribute("position", "0 -0.55 -2.4");
-      fireGraphic.setAttribute("scale", "0.55 0.55 0.55");
+      fireGraphic.setAttribute("position", "0 -1.15 -2.2");
+      fireGraphic.setAttribute("scale", "0.60 0.60 0.60");
     }
 
     const bTitle = document.getElementById("billboard-step-title");
@@ -977,14 +994,16 @@ function _setupStep2(container, tierInfo) {
   function _renderSqueeze() {
     if (!overlay) return;
     overlay.innerHTML = `
-      <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (3/4)</div>
-      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">S — Squeeze the Handle</div>
-      <div id="squeeze-instruction-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Tap the 3D operating lever (or button below) to select, then press &amp; hold 1.5s.</div>
-      <button id="squeeze-status-badge" style="display:block;width:100%;max-width:340px;padding:12px 18px;border-radius:10px;border:2px solid #ff9100;background:#0f172a;color:#ff9100;font-size:0.95rem;font-weight:bold;cursor:pointer;margin:0.5rem 0;box-shadow:0 0 15px rgba(255,145,0,0.3);pointer-events:auto !important;text-align:center;">👉 TAP HERE TO SELECT LEVER</button>
-      <div style="width:100%;max-width:280px;height:8px;background:#334155;border-radius:4px;overflow:hidden;margin:0.5rem 0;">
-        <div id="squeeze-progress-bar" style="width:0%;height:100%;background:#ff6a00;transition:width 0.08s linear;"></div>
+      <div class="fire-hud-card">
+        <div class="hud-badge">${t("fire.pass_squeeze_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (3/4)")}</div>
+        <div class="hud-title">${t("fire.pass_squeeze_title", "S — Squeeze the Handle")}</div>
+        <div id="squeeze-instruction-text" class="hud-desc">${t("fire.pass_squeeze_desc", "Tap the 3D operating lever (or button below) to select, then press &amp; hold 1.5s.")}</div>
+        <button id="squeeze-status-badge" style="display:block;width:100%;padding:12px 18px;border-radius:10px;border:2px solid #ff9100;background:#0f172a;color:#ff9100;font-size:0.95rem;font-weight:bold;cursor:pointer;margin:0.3rem 0;box-shadow:0 0 15px rgba(255,145,0,0.3);pointer-events:auto !important;text-align:center;">👉 TAP HERE TO SELECT LEVER</button>
+        <div style="width:100%;height:8px;background:#334155;border-radius:4px;overflow:hidden;margin:0.3rem 0;">
+          <div id="squeeze-progress-bar" style="width:0%;height:100%;background:#ff6a00;transition:width 0.08s linear;"></div>
+        </div>
+        <div id="squeeze-status-label" style="font-size:0.85rem;color:#94a3b8;font-weight:bold;">AWAITING LEVER SELECTION</div>
       </div>
-      <div id="squeeze-status-label" style="font-size:0.85rem;color:#94a3b8;font-weight:bold;">AWAITING LEVER SELECTION</div>
     `;
 
     const progressBar = document.getElementById("squeeze-progress-bar");
@@ -1217,19 +1236,27 @@ function _setupStep2(container, tierInfo) {
     }
   }
 
-  // pass sub-step 4: S — Sweep across base of fire via physical camera motion
+  // pass sub-step 4: S — Sweep across base of fire via physical camera motion or on-screen drag
   function _renderSweep() {
     if (!overlay) return;
     overlay.innerHTML = `
-      <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (4/4)</div>
-      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">S — Sweep Side to Side</div>
-      <div style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Physically move your phone side to side across the fire base.</div>
-      <div style="width:100%;max-width:280px;height:12px;background:#334155;border-radius:6px;overflow:hidden;margin:0.5rem 0;">
-        <div id="sweep-progress-fill" style="width:0%;height:100%;background:#00e676;transition:width 0.08s ease;"></div>
+      <div class="fire-hud-card">
+        <div class="hud-badge">${t("fire.pass_sweep_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (4/4)")}</div>
+        <div class="hud-title">${t("fire.pass_sweep_title", "S — Sweep Side to Side")}</div>
+        <div id="sweep-desc-text" class="hud-desc">${t("fire.pass_sweep_desc", "Move your phone side to side (or drag across screen) to spray powder across the burning dustbin.")}</div>
+        <div style="width:100%;height:10px;background:#334155;border-radius:6px;overflow:hidden;margin:0.3rem 0;">
+          <div id="sweep-progress-fill" style="width:0%;height:100%;background:#00e676;transition:width 0.08s ease;"></div>
+        </div>
+        <div id="sweep-status-text" style="font-size:0.85rem;color:#00e676;font-weight:bold;margin:0.2rem 0;">↔ SWEEP SIDE TO SIDE (0% EXTINGUISHED)</div>
+        <button id="btn-sweep-complete-fallback" style="margin-top:0.4rem;padding:0.55rem 0.9rem;background:#334155;color:#94a3b8;border:1px solid #475569;border-radius:8px;font-size:0.82rem;cursor:pointer;display:block;width:100%;">Tap here if motion not detected ➜</button>
       </div>
-      <div id="sweep-status-text" style="font-size:0.85rem;color:#00e676;font-weight:bold;">↔ SWEEP PHONE SIDE TO SIDE (0% COVERED)</div>
-      <button id="btn-sweep-complete-fallback" style="margin-top:0.6rem;padding:0.6rem 1rem;background:#334155;color:#94a3b8;border:1px solid #475569;border-radius:8px;font-size:0.85rem;cursor:pointer;display:block;width:100%;max-width:280px;">Tap here if motion not detected ➜</button>
     `;
+
+    // activate powder spray cone and particle stream on extinguisher nozzle
+    const powderSpray = document.getElementById("powder-spray-cone");
+    if (powderSpray && typeof powderSpray.setAttribute === "function") {
+      powderSpray.setAttribute("visible", "true");
+    }
 
     // invisible sweep zone controller for tests and fallback
     const sweepZone = document.createElement("div");
@@ -1250,6 +1277,34 @@ function _setupStep2(container, tierInfo) {
     let completed = false;
     let rafId = null;
 
+    // progressive extinguishing feedback on burning dustbin
+    function updateExtinguishProgress(coverage) {
+      const clamped = Math.max(0, Math.min(1, coverage));
+      if (progressFill) {
+        progressFill.style.width = `${Math.min(100, Math.round(clamped * 100))}%`;
+      }
+      if (statusText) {
+        statusText.textContent = `↔ SWEEPING... (${Math.round(clamped * 100)}% EXTINGUISHED)`;
+      }
+      // dynamically shrink flames
+      const flameGroup = document.getElementById("fire-flames-group");
+      if (flameGroup && typeof flameGroup.setAttribute === "function") {
+        const scaleY = Math.max(0.02, 1.0 - clamped * 0.96);
+        const scaleXZ = Math.max(0.05, 1.0 - clamped * 0.92);
+        flameGroup.setAttribute("scale", `${scaleXZ} ${scaleY} ${scaleXZ}`);
+      }
+      // dim fire point light
+      const fireLight = document.getElementById("fire-light");
+      if (fireLight && typeof fireLight.setAttribute === "function") {
+        fireLight.setAttribute("intensity", `${Math.max(0, 2.2 * (1.0 - clamped))}`);
+      }
+      // show steam cloud as extinguishing progresses
+      const steam = document.getElementById("fire-extinguish-steam");
+      if (steam && typeof steam.setAttribute === "function" && clamped > 0.3) {
+        steam.setAttribute("material", `color: #f1f5f9; opacity: ${Math.min(0.55, clamped * 0.55)}; transparent: true`);
+      }
+    }
+
     addCleanup(() => {
       if (typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function" && rafId) {
         window.cancelAnimationFrame(rafId);
@@ -1263,6 +1318,8 @@ function _setupStep2(container, tierInfo) {
         window.cancelAnimationFrame(rafId);
       }
 
+      updateExtinguishProgress(1.0);
+
       if (statusText) {
         statusText.textContent = "✔ FIRE EXTINGUISHED!";
         statusText.style.color = "#00e676";
@@ -1273,9 +1330,18 @@ function _setupStep2(container, tierInfo) {
       if (fireEl && typeof fireEl.setAttribute === "function") {
         fireEl.setAttribute("scale", "0.01 0.01 0.01");
       }
-      const powderSpray = document.getElementById("powder-spray-cone");
-      if (powderSpray && typeof powderSpray.setAttribute === "function") {
-        powderSpray.setAttribute("visible", "false");
+      const flameGroup = document.getElementById("fire-flames-group");
+      if (flameGroup && typeof flameGroup.setAttribute === "function") {
+        flameGroup.setAttribute("scale", "0.01 0.01 0.01");
+      }
+      const embers = document.getElementById("fire-embers");
+      if (embers && typeof embers.setAttribute === "function") {
+        embers.setAttribute("material", "color: #1e293b; shader: flat; opacity: 0.7");
+        if (typeof embers.removeAttribute === "function") embers.removeAttribute("animation");
+      }
+      const powder = document.getElementById("powder-spray-cone");
+      if (powder && typeof powder.setAttribute === "function") {
+        powder.setAttribute("visible", "false");
       }
       const bTitle = document.getElementById("billboard-step-title");
       const bPill = document.getElementById("billboard-pill-text");
@@ -1322,6 +1388,7 @@ function _setupStep2(container, tierInfo) {
       const coverage = maxVal > 5
         ? calcSweepCoverage(positions, 220)
         : calcMotionSweepCoverage(positions);
+      updateExtinguishProgress(coverage);
       if (isSweepComplete(coverage)) {
         handleSweepFinish(true);
       }
@@ -1331,20 +1398,108 @@ function _setupStep2(container, tierInfo) {
     const cameraEl = document.getElementById("main-camera");
     const sweepSamples = [];
 
+    // 1. Device orientation sweep listener (handles phone/tablet tilting & turning)
+    let lastOrientationAngle = null;
+    const onOrientationSweep = (event) => {
+      if (completed) return;
+      const angle = (typeof event.gamma === "number" && !isNaN(event.gamma))
+        ? event.gamma
+        : (typeof event.alpha === "number" && !isNaN(event.alpha) ? event.alpha : null);
+      if (angle !== null) {
+        if (lastOrientationAngle !== null) {
+          const delta = angle - lastOrientationAngle;
+          if (Math.abs(delta) > 0.3) {
+            sweepSamples.push(delta * 14);
+            const coverage = calcSweepCoverage(sweepSamples, 220);
+            updateExtinguishProgress(coverage);
+            if (isSweepComplete(coverage, SWEEP_MIN_COVERAGE)) {
+              handleSweepFinish(false);
+            }
+          }
+        }
+        lastOrientationAngle = angle;
+      }
+    };
+
+    if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+      window.addEventListener("deviceorientation", onOrientationSweep, { passive: true });
+      addCleanup(() => {
+        window.removeEventListener("deviceorientation", onOrientationSweep);
+      });
+    }
+
+    // 2. Touch / pointer drag sweep listener (allows user to drag finger across fire)
+    let isDragging = false;
+    let lastTouchX = null;
+    const onDragStart = (e) => {
+      isDragging = true;
+      lastTouchX = e.clientX || (e.touches && e.touches[0] && e.touches[0].clientX) || null;
+    };
+    const onDragMove = (e) => {
+      if (!isDragging || completed) return;
+      const curX = e.clientX || (e.touches && e.touches[0] && e.touches[0].clientX);
+      if (typeof curX === "number" && lastTouchX !== null) {
+        const dx = curX - lastTouchX;
+        if (Math.abs(dx) > 1) {
+          sweepSamples.push(dx * 2.5);
+          lastTouchX = curX;
+          const coverage = calcSweepCoverage(sweepSamples, 220);
+          updateExtinguishProgress(coverage);
+          if (isSweepComplete(coverage, SWEEP_MIN_COVERAGE)) {
+            handleSweepFinish(false);
+          }
+        }
+      }
+    };
+    const onDragEnd = () => {
+      isDragging = false;
+      lastTouchX = null;
+    };
+
+    const dragTarget = typeof window !== "undefined" ? window : null;
+    if (dragTarget && typeof dragTarget.addEventListener === "function") {
+      dragTarget.addEventListener("pointerdown", onDragStart, { passive: true });
+      dragTarget.addEventListener("pointermove", onDragMove, { passive: true });
+      dragTarget.addEventListener("pointerup", onDragEnd, { passive: true });
+      dragTarget.addEventListener("touchstart", onDragStart, { passive: true });
+      dragTarget.addEventListener("touchmove", onDragMove, { passive: true });
+      dragTarget.addEventListener("touchend", onDragEnd, { passive: true });
+      addCleanup(() => {
+        dragTarget.removeEventListener("pointerdown", onDragStart);
+        dragTarget.removeEventListener("pointermove", onDragMove);
+        dragTarget.removeEventListener("pointerup", onDragEnd);
+        dragTarget.removeEventListener("touchstart", onDragStart);
+        dragTarget.removeEventListener("touchmove", onDragMove);
+        dragTarget.removeEventListener("touchend", onDragEnd);
+      });
+    }
+
+    // 3. Camera rotation yaw loop in A-Frame
+    let lastRotY = null;
     function checkMotionFrame() {
       if (completed) return;
       if (cameraEl && cameraEl.object3D) {
-        const posX = cameraEl.object3D.position.x;
-        sweepSamples.push(posX);
+        const rotY = cameraEl.object3D.rotation ? cameraEl.object3D.rotation.y : null;
+        const posX = cameraEl.object3D.position ? cameraEl.object3D.position.x : 0;
+        if (typeof rotY === "number") {
+          if (lastRotY !== null) {
+            const deltaRot = rotY - lastRotY;
+            if (Math.abs(deltaRot) > 0.002) {
+              sweepSamples.push(deltaRot * 280);
+            }
+          }
+          lastRotY = rotY;
+        }
+        if (Math.abs(posX) > 0.01) {
+          sweepSamples.push(posX * 120);
+        }
 
-        if (sweepSamples.length >= 5) {
-          const coverage = calcMotionSweepCoverage(sweepSamples);
-          if (progressFill) {
-            progressFill.style.width = `${Math.min(100, Math.round(coverage * 100))}%`;
-          }
-          if (statusText) {
-            statusText.textContent = `↔ SWEEPING... (${Math.round(coverage * 100)}% COVERED)`;
-          }
+        if (sweepSamples.length >= 3) {
+          const maxVal = Math.max(...sweepSamples.map(Math.abs));
+          const coverage = maxVal > 5
+            ? calcSweepCoverage(sweepSamples, 220)
+            : calcMotionSweepCoverage(sweepSamples);
+          updateExtinguishProgress(coverage);
 
           if (isSweepComplete(coverage, SWEEP_MIN_COVERAGE)) {
             handleSweepFinish(false);
@@ -1408,12 +1563,15 @@ function _setupStep3(_container) {
   function showActionScreen() {
     if (overlay) {
       overlay.innerHTML = `
-        <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${t("fire.evac_badge_3", "🔥 STEP 3 / 3 — EVACUATION (3/3)")}</div>
-        <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("fire.evac_title_3", "Evacuation Protocol Choice")}</div>
-        <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("fire.evac_desc_3", "What is the correct immediate action after attempting extinguisher use?")}</div>
+        <div class="fire-hud-card">
+          <div class="hud-badge">${t("fire.evac_badge_3", "🔥 STEP 3 / 3 — EVACUATION ROUTE")}</div>
+          <div class="hud-title">${t("fire.evac_title_3", "Choose Safest Evacuation Path")}</div>
+          <div class="hud-desc">${t("fire.evac_desc_3", "After using the extinguisher, you must evacuate. Select the safest option:")}</div>
+          <div id="evacuation-options-container"></div>
+        </div>
       `;
-
-      _renderEvacuationOptions(overlay, (selectedId, passed) => {
+      const optionsContainer = overlay.querySelector("#evacuation-options-container") || overlay;
+      _renderEvacuationOptions(optionsContainer, (selectedId, passed) => {
         fireCheckpointResult(CP_EVACUATION_ID, passed, {
           selected: selectedId,
           correct: "sound_alarm_then_evacuate"
@@ -1509,20 +1667,26 @@ function _showComplete(lastPassed) {
     const titleReview = t("modules.fire_response.complete_review", {}, "⚠ MODULE COMPLETE — Review step 3");
     const desc = t("modules.fire_response.complete_desc", {}, "All checkpoints fired. Assessment engine will score your attempt.");
     overlay.innerHTML = `
-      <div style="font-size:1.2rem;font-weight:bold;color:${lastPassed ? "#00e676" : "#ff6a00"}">
-        ${lastPassed ? titlePass : titleReview}
+      <div class="fire-hud-card">
+        <div class="hud-title" style="color:${lastPassed ? "#00e676" : "#ff6a00"};">
+          ${lastPassed ? titlePass : titleReview}
+        </div>
+        <div class="hud-desc">${desc}</div>
       </div>
-      <div style="margin:0.5rem 0;font-size:0.95rem">${desc}</div>
     `;
 
     const btnExit = document.createElement("button");
     btnExit.id = "btn-module-exit";
-    btnExit.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.5rem;background:#ff6a00;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;";
+    btnExit.style.cssText = "margin-top:0.6rem;padding:0.8rem 1.5rem;background:#ff6a00;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;width:100%;";
     btnExit.textContent = t("modules.fire_response.btn_exit_module", {}, "✖ Exit Module");
     btnExit.addEventListener("click", () => {
       cleanupFireModule();
       unloadModule();
     });
+    const card = overlay.querySelector(".fire-hud-card");
+    if (card && card.appendChild) {
+      card.appendChild(btnExit);
+    }
     overlay.appendChild(btnExit);
   }
   logger.info({ event: "fire_module_complete" }, "Fire module all steps done");

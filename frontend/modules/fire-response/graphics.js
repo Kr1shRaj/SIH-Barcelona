@@ -1,6 +1,6 @@
 import { t } from "../../js/i18n.js";
 
-// build 3d realistic industrial fire entity matching SENAR benchmark
+// build 3d realistic industrial burning dustbin entity on the floor matching SENAR benchmark
 function buildFireEntity() {
   const entity = document.createElement("a-entity");
   entity.id = "fire-graphic";
@@ -14,24 +14,45 @@ function buildFireEntity() {
   }
 
   entity.innerHTML = `
-    <!-- industrial metal waste bin fuel source with charred steel rim -->
-    <a-cylinder id="fire-barrel" position="0 -0.40 0" radius="0.52" height="0.80" material="color: #1e293b; metalness: 0.7; roughness: 0.4"></a-cylinder>
-    <a-torus id="fire-barrel-rim" position="0 0 0" rotation="90 0 0" radius="0.52" radius-tubular="0.025" material="color: #0f172a; metalness: 0.85"></a-torus>
-    <a-cylinder id="fire-embers" position="0 -0.02 0" radius="0.48" height="0.06" material="color: #ff4400; shader: flat; opacity: 0.95" animation="property: material.color; type: color; to: #ff6600; from: #ff2200; dir: alternate; dur: 200; loop: true"></a-cylinder>
+    <!-- Circular floor scorch mark and shadow grounding the dustbin on the floor -->
+    <a-circle id="floor-scorch-decal" rotation="-90 0 0" position="0 -0.80 0" radius="0.85" material="color: #050505; opacity: 0.55; transparent: true"></a-circle>
 
-    <!-- dynamic flickering flame tongues (SENAR realistic fire look with radiant layered glow) -->
-    <a-cone id="fire-outer-cone" position="0 0.85 0" radius-bottom="0.56" radius-top="0.04" height="1.80" material="color: #ff3d00; shader: flat; opacity: 0.90; transparent: true" animation="property: scale; to: 1.08 1.18 1.08; from: 0.92 0.85 0.92; dir: alternate; dur: 220; loop: true; easing: easeInOutSine"></a-cone>
-    <a-cone id="fire-inner-cone" position="0 0.60 0" radius-bottom="0.40" radius-top="0.02" height="1.30" material="color: #ffea00; shader: flat; opacity: 0.95; transparent: true" animation="property: scale; to: 1.15 1.25 1.15; from: 0.85 0.80 0.85; dir: alternate; dur: 170; loop: true; easing: easeInOutQuad"></a-cone>
-    <a-cone id="fire-tongue-left" position="0.08 0.70 -0.04" rotation="8 40 -12" radius-bottom="0.36" radius-top="0.02" height="1.45" material="color: #ff6d00; shader: flat; opacity: 0.88; transparent: true" animation="property: rotation; to: 6 40 -16; from: 12 40 -8; dir: alternate; dur: 250; loop: true"></a-cone>
-    <a-cone id="fire-tongue-right" position="-0.08 0.72 0.04" rotation="-10 -40 10" radius-bottom="0.34" radius-top="0.02" height="1.38" material="color: #ff9100; shader: flat; opacity: 0.88; transparent: true" animation="property: rotation; to: -14 -40 6; from: -6 -40 14; dir: alternate; dur: 190; loop: true"></a-cone>
-    <a-cone id="fire-core-flame" position="0 0.45 0" radius-bottom="0.25" radius-top="0.01" height="0.95" material="color: #ffffff; shader: flat; opacity: 0.92; transparent: true" animation="property: scale; to: 1.2 1.3 1.2; from: 0.8 0.8 0.8; dir: alternate; dur: 130; loop: true"></a-cone>
+    <!-- Industrial corrugated metal waste dustbin resting on the floor -->
+    <a-cylinder id="fire-barrel" position="0 -0.38 0" radius-bottom="0.44" radius-top="0.52" height="0.84" material="color: #475569; metalness: 0.8; roughness: 0.35"></a-cylinder>
+    <!-- Corrugated reinforcement hoop ribs around dustbin body -->
+    <a-torus id="dustbin-rib-1" position="0 -0.55 0" rotation="90 0 0" radius="0.46" radius-tubular="0.018" material="color: #334155; metalness: 0.85"></a-torus>
+    <a-torus id="dustbin-rib-2" position="0 -0.35 0" rotation="90 0 0" radius="0.485" radius-tubular="0.018" material="color: #334155; metalness: 0.85"></a-torus>
+    <a-torus id="dustbin-rib-3" position="0 -0.15 0" rotation="90 0 0" radius="0.51" radius-tubular="0.018" material="color: #334155; metalness: 0.85"></a-torus>
+    <!-- Reinforced rolled steel top rim lip -->
+    <a-torus id="fire-barrel-rim" position="0 0.04 0" rotation="90 0 0" radius="0.53" radius-tubular="0.026" material="color: #1e293b; metalness: 0.9"></a-torus>
+    <!-- Base foot ring -->
+    <a-cylinder id="dustbin-base-foot" position="0 -0.79 0" radius="0.46" height="0.04" material="color: #1e293b; metalness: 0.85"></a-cylinder>
+    <!-- Side metal drop handles -->
+    <a-torus id="dustbin-handle-l" position="-0.53 -0.15 0" rotation="0 0 90" radius="0.09" radius-tubular="0.016" material="color: #334155; metalness: 0.8"></a-torus>
+    <a-torus id="dustbin-handle-r" position="0.53 -0.15 0" rotation="0 0 90" radius="0.09" radius-tubular="0.016" material="color: #334155; metalness: 0.8"></a-torus>
 
-    <!-- dynamic real-time fire point light casting flickering orange illumination -->
-    <a-light id="fire-light" type="point" color="#ff7700" intensity="2.0" distance="5" position="0 0.8 0" animation="property: intensity; to: 2.6; from: 1.5; dir: alternate; dur: 140; loop: true"></a-light>
+    <!-- Burning debris/trash heap inside the dustbin -->
+    <a-dodecahedron id="fire-trash-heap" position="0 -0.02 0" radius="0.46" material="color: #1c1917; roughness: 0.9"></a-dodecahedron>
+    <a-cylinder id="fire-embers" position="0 0.01 0" radius="0.47" height="0.05" material="color: #ff4400; shader: flat; opacity: 0.95" animation="property: material.color; type: color; to: #ff6600; from: #ff2200; dir: alternate; dur: 200; loop: true"></a-cylinder>
+
+    <!-- Dynamic layered flame tongues (can be scaled down progressively during sweep) -->
+    <a-entity id="fire-flames-group" position="0 0 0">
+      <a-cone id="fire-outer-cone" position="0 0.85 0" radius-bottom="0.54" radius-top="0.04" height="1.70" material="color: #ff3d00; shader: flat; opacity: 0.90; transparent: true" animation="property: scale; to: 1.08 1.18 1.08; from: 0.92 0.85 0.92; dir: alternate; dur: 220; loop: true; easing: easeInOutSine"></a-cone>
+      <a-cone id="fire-inner-cone" position="0 0.60 0" radius-bottom="0.38" radius-top="0.02" height="1.25" material="color: #ffea00; shader: flat; opacity: 0.95; transparent: true" animation="property: scale; to: 1.15 1.25 1.15; from: 0.85 0.80 0.85; dir: alternate; dur: 170; loop: true; easing: easeInOutQuad"></a-cone>
+      <a-cone id="fire-tongue-left" position="0.08 0.70 -0.04" rotation="8 40 -12" radius-bottom="0.34" radius-top="0.02" height="1.40" material="color: #ff6d00; shader: flat; opacity: 0.88; transparent: true" animation="property: rotation; to: 6 40 -16; from: 12 40 -8; dir: alternate; dur: 250; loop: true"></a-cone>
+      <a-cone id="fire-tongue-right" position="-0.08 0.72 0.04" rotation="-10 -40 10" radius-bottom="0.32" radius-top="0.02" height="1.35" material="color: #ff9100; shader: flat; opacity: 0.88; transparent: true" animation="property: rotation; to: -14 -40 6; from: -6 -40 14; dir: alternate; dur: 190; loop: true"></a-cone>
+      <a-cone id="fire-core-flame" position="0 0.45 0" radius-bottom="0.24" radius-top="0.01" height="0.90" material="color: #ffffff; shader: flat; opacity: 0.92; transparent: true" animation="property: scale; to: 1.2 1.3 1.2; from: 0.8 0.8 0.8; dir: alternate; dur: 130; loop: true"></a-cone>
+
+      <!-- dynamic real-time fire point light casting flickering orange illumination -->
+      <a-light id="fire-light" type="point" color="#ff7700" intensity="2.2" distance="5" position="0 0.8 0" animation="property: intensity; to: 2.8; from: 1.6; dir: alternate; dur: 140; loop: true"></a-light>
+    </a-entity>
 
     <!-- rising smoke plume puffs drifting upward -->
     <a-sphere id="fire-smoke-1" position="0 1.6 0" radius="0.32" material="color: #334155; opacity: 0.35; transparent: true" animation="property: position; to: 0.08 2.4 0.04; dur: 1600; loop: true; easing: linear" animation__fade="property: material.opacity; to: 0; from: 0.35; dur: 1600; loop: true; easing: linear"></a-sphere>
     <a-sphere id="fire-smoke-2" position="-0.06 1.8 0" radius="0.38" material="color: #1e293b; opacity: 0.30; transparent: true" animation="property: position; to: -0.12 2.7 -0.04; dur: 2000; loop: true; easing: linear" animation__fade="property: material.opacity; to: 0; from: 0.30; dur: 2000; loop: true; easing: linear"></a-sphere>
+
+    <!-- white extinguishing powder steam cloud (activated during sweep finish) -->
+    <a-sphere id="fire-extinguish-steam" position="0 0.5 0" radius="0.55" material="color: #f1f5f9; opacity: 0; transparent: true"></a-sphere>
 
     <!-- generous aim target collision cylinder covering entire base -->
     <a-cylinder id="fire-target-base" class="clickable aim-target" data-raycast-target="aim" position="0 -0.20 0" radius="0.95" height="0.75" material="color: #00e676; opacity: 0.01; transparent: true"></a-cylinder>
@@ -359,18 +380,23 @@ function buildExtinguisherEntity() {
     <a-text id="billboard-pill-text" value="⚪ AWAITING PIN SELECTION" align="center" position="0 -0.20 0.035" scale="0.32 0.32 0.32" color="#94a3b8"></a-text>
   `;
 
-  // volumetric powder discharge cone (activated during squeeze & sweep)
-  const powderSpray = document.createElement("a-cone");
+  // volumetric powder discharge cone & particle clouds (activated during squeeze & sweep)
+  const powderSpray = document.createElement("a-entity");
   powderSpray.id = "powder-spray-cone";
   if (typeof powderSpray.setAttribute === "function") {
     powderSpray.setAttribute("position", "-0.75 -0.65 0.55");
     powderSpray.setAttribute("rotation", "45 -30 -35");
-    powderSpray.setAttribute("radius-bottom", "0.65");
-    powderSpray.setAttribute("radius-top", "0.05");
-    powderSpray.setAttribute("height", "1.35");
-    powderSpray.setAttribute("material", "color: #f8fafc; opacity: 0; transparent: true");
     powderSpray.setAttribute("visible", "false");
   }
+  powderSpray.innerHTML = `
+    <!-- main high-velocity chemical powder discharge cone -->
+    <a-cone id="powder-core-cone" position="0 0 0" radius-bottom="0.65" radius-top="0.06" height="1.45" material="color: #ffffff; opacity: 0.78; transparent: true; shader: flat"></a-cone>
+    <!-- outer expanding powder billowing clouds -->
+    <a-sphere id="powder-puff-1" position="0 0.35 0.05" radius="0.16" material="color: #f8fafc; opacity: 0.70; transparent: true; shader: flat" animation="property: scale; to: 1.4 1.4 1.4; dir: alternate; dur: 180; loop: true"></a-sphere>
+    <a-sphere id="powder-puff-2" position="-0.12 -0.25 -0.05" radius="0.22" material="color: #f1f5f9; opacity: 0.65; transparent: true; shader: flat" animation="property: scale; to: 1.3 1.3 1.3; dir: alternate; dur: 220; loop: true"></a-sphere>
+    <a-sphere id="powder-puff-3" position="0.14 -0.55 0.08" radius="0.30" material="color: #e2e8f0; opacity: 0.60; transparent: true; shader: flat" animation="property: scale; to: 1.35 1.35 1.35; dir: alternate; dur: 200; loop: true"></a-sphere>
+    <a-sphere id="powder-puff-4" position="-0.08 -0.85 -0.02" radius="0.38" material="color: #cbd5e1; opacity: 0.55; transparent: true; shader: flat" animation="property: scale; to: 1.4 1.4 1.4; dir: alternate; dur: 240; loop: true"></a-sphere>
+  `;
 
   entity.appendChild(handle);
   entity.appendChild(pin);

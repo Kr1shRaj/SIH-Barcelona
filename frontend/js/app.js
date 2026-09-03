@@ -298,7 +298,10 @@ async function initApp() {
 
     // load active locale and bind assessment engine
     try {
-      await loadLocale();
+      await Promise.allSettled([
+        loadLocale("hi"),
+        loadLocale("en")
+      ]);
     } catch (_) {}
 
     bindAssessmentSessionListeners();

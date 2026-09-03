@@ -35,27 +35,56 @@ function createFireMesh() {
   const group = new THREE.Group();
   group.name = "fire-graphic";
 
-  // barrel
-  const barrelGeo = new THREE.CylinderGeometry(0.52, 0.52, 0.80, 24);
+  // floor scorch mark decal
+  const scorchGeo = new THREE.CircleGeometry(0.85, 32);
+  const scorchMat = new THREE.MeshBasicMaterial({
+    color: 0x050505, transparent: true, opacity: 0.55
+  });
+  const scorch = new THREE.Mesh(scorchGeo, scorchMat);
+  scorch.rotation.x = -Math.PI / 2;
+  scorch.position.set(0, 0.01, 0);
+  scorch.name = "floor-scorch-decal";
+  group.add(scorch);
+
+  // corrugated industrial trash bin
+  const barrelGeo = new THREE.CylinderGeometry(0.52, 0.44, 0.84, 24);
   const barrelMat = new THREE.MeshStandardMaterial({
-    color: 0x1e293b, metalness: 0.7, roughness: 0.4
+    color: 0x475569, metalness: 0.8, roughness: 0.35
   });
   const barrel = new THREE.Mesh(barrelGeo, barrelMat);
-  barrel.position.set(0, 0.40, 0);
+  barrel.position.set(0, 0.42, 0);
   barrel.name = "fire-barrel";
   group.add(barrel);
 
+  // corrugation reinforcement ribs
+  [-0.15, 0.05, 0.25].forEach((offsetY, idx) => {
+    const ribGeo = new THREE.TorusGeometry(0.46 + idx * 0.025, 0.018, 8, 32);
+    const ribMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.85 });
+    const rib = new THREE.Mesh(ribGeo, ribMat);
+    rib.rotation.x = Math.PI / 2;
+    rib.position.set(0, 0.42 + offsetY, 0);
+    group.add(rib);
+  });
+
   // barrel rim
-  const rimGeo = new THREE.TorusGeometry(0.52, 0.025, 8, 32);
-  const rimMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.85 });
+  const rimGeo = new THREE.TorusGeometry(0.53, 0.026, 8, 32);
+  const rimMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.9 });
   const rim = new THREE.Mesh(rimGeo, rimMat);
   rim.rotation.x = Math.PI / 2;
-  rim.position.set(0, 0.80, 0);
+  rim.position.set(0, 0.84, 0);
   rim.name = "fire-barrel-rim";
   group.add(rim);
 
+  // charred trash heap
+  const trashGeo = new THREE.DodecahedronGeometry(0.46);
+  const trashMat = new THREE.MeshStandardMaterial({ color: 0x1c1917, roughness: 0.9 });
+  const trash = new THREE.Mesh(trashGeo, trashMat);
+  trash.position.set(0, 0.78, 0);
+  trash.name = "fire-trash-heap";
+  group.add(trash);
+
   // ember bed
-  const emberGeo = new THREE.CylinderGeometry(0.48, 0.48, 0.06, 24);
+  const emberGeo = new THREE.CylinderGeometry(0.47, 0.47, 0.05, 24);
   const emberMat = new THREE.MeshBasicMaterial({ color: 0xff4400 });
   const ember = new THREE.Mesh(emberGeo, emberMat);
   ember.position.set(0, 0.82, 0);
@@ -133,6 +162,11 @@ function animateFireMesh(fireGroup, deltaMs) {
   fireGroup.userData._animTime = (fireGroup.userData._animTime || 0) + deltaMs;
   const t = fireGroup.userData._animTime;
 
+  const extProgress = typeof fireGroup.userData.extinguishProgress === "number"
+    ? fireGroup.userData.extinguishProgress
+    : 0;
+  const flameFactor = Math.max(0.01, 1.0 - extProgress * 0.96);
+
   const outer = fireGroup.getObjectByName("fire-outer-cone");
   const inner = fireGroup.getObjectByName("fire-inner-cone");
   const tongueL = fireGroup.getObjectByName("fire-tongue-left");
@@ -141,27 +175,33 @@ function animateFireMesh(fireGroup, deltaMs) {
   const ember = fireGroup.getObjectByName("fire-embers");
 
   if (outer) {
-    const s = 0.92 + 0.16 * Math.sin(t * 0.0285);
-    const sy = 0.85 + 0.33 * Math.sin(t * 0.0285);
+    const s = (0.92 + 0.16 * Math.sin(t * 0.0285)) * flameFactor;
+    const sy = (0.85 + 0.33 * Math.sin(t * 0.0285)) * flameFactor;
     outer.scale.set(s, sy, s);
   }
   if (inner) {
-    const s = 0.85 + 0.30 * Math.sin(t * 0.037);
-    const sy = 0.80 + 0.45 * Math.sin(t * 0.037);
+    const s = (0.85 + 0.30 * Math.sin(t * 0.037)) * flameFactor;
+    const sy = (0.80 + 0.45 * Math.sin(t * 0.037)) * flameFactor;
     inner.scale.set(s, sy, s);
   }
   if (tongueL) {
     tongueL.rotation.z = -0.21 + 0.14 * Math.sin(t * 0.025);
+    tongueL.scale.set(flameFactor, flameFactor, flameFactor);
   }
   if (tongueR) {
     tongueR.rotation.z = 0.17 - 0.14 * Math.sin(t * 0.033);
+    tongueR.scale.set(flameFactor, flameFactor, flameFactor);
   }
   if (light) {
-    light.intensity = 1.5 + 1.1 * Math.sin(t * 0.045);
+    light.intensity = (1.5 + 1.1 * Math.sin(t * 0.045)) * flameFactor;
   }
   if (ember && ember.material) {
-    const r = 0.27 + 0.13 * Math.sin(t * 0.031);
-    ember.material.color.setRGB(1.0, r, 0.0);
+    if (extProgress >= 0.95) {
+      ember.material.color.setRGB(0.12, 0.16, 0.23);
+    } else {
+      const r = 0.27 + 0.13 * Math.sin(t * 0.031);
+      ember.material.color.setRGB(1.0, r, 0.0);
+    }
   }
 }
 
