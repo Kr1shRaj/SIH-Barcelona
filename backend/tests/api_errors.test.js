@@ -19,12 +19,16 @@ describe("Error handling", () => {
     assert.ok(res.body.error.requestId);
   });
 
-  it("answers 404 for the routers that are deliberately not mounted yet", async () => {
-    const certs = await request(ctx.app).post("/api/certs/issue").send({});
+  it("answers 404 for the dashboard router, still deliberately not mounted", async () => {
     const dashboard = await request(ctx.app).get("/api/dashboard/summary");
-
-    assert.strictEqual(certs.status, 404);
     assert.strictEqual(dashboard.status, 404);
+  });
+
+  it("no longer 404s the cert routes now that they are mounted", async () => {
+    // an empty body is a validation failure, not a missing route. seeing 400 here
+    // rather than 404 is what proves the router is actually wired in.
+    const certs = await request(ctx.app).post("/api/certs/issue").send({});
+    assert.strictEqual(certs.status, 400);
   });
 
   it("answers 400 on malformed JSON", async () => {

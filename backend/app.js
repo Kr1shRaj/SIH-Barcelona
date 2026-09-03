@@ -6,6 +6,7 @@ const { getLogger } = require("./logger");
 const { notFoundHandler, errorHandler } = require("./middleware/error");
 const { createModulesRouter } = require("./routes/modules");
 const { createSyncRouter } = require("./routes/sync");
+const { createCertRouter } = require("./routes/certs");
 
 // only echo an origin we were told about, no wildcard anywhere
 function _buildCorsOptions(allowedOrigins) {
@@ -25,9 +26,15 @@ function _buildCorsOptions(allowedOrigins) {
 }
 
 // build the express app without binding a port, so supertest can drive it
-function createApp({ db, config, logger }) {
+function createApp({ db, config, logger, keys }) {
   const app = express();
   const rootLogger = logger || getLogger();
+
+  // certificates cannot be signed or verified without a key pair, so refuse to
+  // build a half working app rather than fail at the first scan
+  if (!keys) {
+    throw new Error("createApp needs signing keys — load them with loadSigningKeys(config)");
+  }
 
   app.disable("x-powered-by");
 
@@ -76,9 +83,10 @@ function createApp({ db, config, logger }) {
 
   app.use("/api/modules", createModulesRouter({ db }));
   app.use("/api/sync", createSyncRouter({ db }));
+  app.use("/api/certs", createCertRouter({ db, keys }));
 
-  // certs and dashboard routers stay unmounted on purpose. their factories still
-  // throw not implemented, and mounting one would kill the server at boot.
+  // dashboard router stays unmounted on purpose. its factory still throws
+  // not implemented, and mounting it would kill the server at boot.
 
   app.use(notFoundHandler);
   app.use(errorHandler);

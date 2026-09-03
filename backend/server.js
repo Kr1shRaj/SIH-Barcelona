@@ -1,6 +1,7 @@
 const { getConfig } = require("./config");
 const { getLogger, logConfigWarnings, createChildLogger } = require("./logger");
 const { initDatabase, closeDatabase } = require("./db/index");
+const { loadSigningKeys } = require("./services/certs/keys");
 const { createApp } = require("./app");
 
 // start express server and hook routes
@@ -12,7 +13,13 @@ function startServer(options = {}) {
   logConfigWarnings(config, log);
 
   const db = options.db || initDatabase(config.dbPath);
-  const app = createApp({ db, config, logger });
+
+  // fail at boot if the key pair is missing or mismatched, not at the first
+  // certificate somebody tries to issue down a mine
+  const keys = options.keys || loadSigningKeys(config);
+  log.info({ event: "signing_keys_loaded", algo: keys.algo, keyId: keys.keyId }, "Certificate signing keys ready");
+
+  const app = createApp({ db, config, logger, keys });
 
   const server = app.listen(config.port, () => {
     log.info(

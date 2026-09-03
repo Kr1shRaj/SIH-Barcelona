@@ -5,9 +5,10 @@
   "description": "SafeAR backend API, SQLite sync, and cert signing service",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
     "dev": "node --watch server.js",
+    "keygen": "node scripts/keygen.js",
     "seed": "node db/seed.js",
+    "start": "node server.js",
     "test": "node --test tests/**/*.test.js"
   },
   "dependencies": {

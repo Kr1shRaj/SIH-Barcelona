@@ -11,7 +11,8 @@ function baseEnv(overrides) {
       PORT: "3000",
       LOG_LEVEL: "silent",
       DB_PATH: "./data/test.db",
-      CERT_SIGNING_SECRET: "unit_test_secret_value",
+      CERT_PRIVATE_KEY: "unit_test_base64_private_key_value",
+      CERT_PUBLIC_KEY_PATH: "./keys/cert-signing.public.pem",
       CERT_ISSUER: "SafeAR-Test-Authority",
       ADMIN_API_KEY: "unit_test_admin_key"
     },
@@ -63,8 +64,8 @@ describe("Backend config loader", () => {
 
   it("throws when a required env var is only whitespace", () => {
     assert.throws(
-      () => loadConfig(baseEnv({ CERT_SIGNING_SECRET: "   " })),
-      /missing required env vars.*CERT_SIGNING_SECRET/
+      () => loadConfig(baseEnv({ CERT_PRIVATE_KEY: "   " })),
+      /missing required env vars.*CERT_PRIVATE_KEY/
     );
   });
 
@@ -92,10 +93,10 @@ describe("Backend config loader", () => {
         loadConfig(
           baseEnv({
             NODE_ENV: "production",
-            CERT_SIGNING_SECRET: "change_me_to_a_secure_random_secret_in_production"
+            CERT_PRIVATE_KEY: "change_me_run_npm_run_keygen_and_paste_the_private_key"
           })
         ),
-      /CERT_SIGNING_SECRET still holds the .env.example placeholder/
+      /CERT_PRIVATE_KEY still holds the .env.example placeholder/
     );
   });
 
@@ -103,13 +104,13 @@ describe("Backend config loader", () => {
     const config = loadConfig(
       baseEnv({
         NODE_ENV: "development",
-        CERT_SIGNING_SECRET: "change_me_to_a_secure_random_secret_in_production",
+        CERT_PRIVATE_KEY: "change_me_run_npm_run_keygen_and_paste_the_private_key",
         ADMIN_API_KEY: "change_me_admin_api_key"
       })
     );
 
     assert.strictEqual(config.warnings.length, 2);
-    assert.ok(config.warnings.some((w) => w.indexOf("CERT_SIGNING_SECRET") === 0));
+    assert.ok(config.warnings.some((w) => w.indexOf("CERT_PRIVATE_KEY") === 0));
     assert.ok(config.warnings.some((w) => w.indexOf("ADMIN_API_KEY") === 0));
   });
 

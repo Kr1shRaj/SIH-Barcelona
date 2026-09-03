@@ -2,9 +2,11 @@ const pino = require("pino");
 
 // secrets that must never land in a log line
 const REDACT_PATHS = [
+  "certPrivateKey",
   "certSigningSecret",
   "adminApiKey",
   "secret",
+  "*.certPrivateKey",
   "*.certSigningSecret",
   "*.adminApiKey",
   "*.secret",

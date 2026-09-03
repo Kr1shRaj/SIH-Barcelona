@@ -4,14 +4,15 @@ const dotenv = require("dotenv");
 // env keys backend refuse to boot without
 const REQUIRED_VARS = [
   "DB_PATH",
-  "CERT_SIGNING_SECRET",
+  "CERT_PRIVATE_KEY",
+  "CERT_PUBLIC_KEY_PATH",
   "CERT_ISSUER",
   "ADMIN_API_KEY"
 ];
 
 // placeholder values shipped in .env.example — ok in dev, fatal in production
 const TEMPLATE_VALUES = [
-  "change_me_to_a_secure_random_secret_in_production",
+  "change_me_run_npm_run_keygen_and_paste_the_private_key",
   "change_me_admin_api_key"
 ];
 
@@ -77,7 +78,10 @@ function loadConfig(env) {
     logLevel: raw.LOG_LEVEL || DEFAULTS.LOG_LEVEL,
     // relative DB_PATH resolves against backend/, so ./data/safear.db lands in backend/data
     dbPath: path.resolve(__dirname, raw.DB_PATH),
-    certSigningSecret: raw.CERT_SIGNING_SECRET,
+    // base64 pkcs8 ed25519 private key. lives in .env and nowhere else.
+    certPrivateKey: raw.CERT_PRIVATE_KEY,
+    // public key is committed, so a relative path resolves against backend/
+    certPublicKeyPath: path.resolve(__dirname, raw.CERT_PUBLIC_KEY_PATH),
     certIssuer: raw.CERT_ISSUER,
     adminApiKey: raw.ADMIN_API_KEY,
     allowedOrigins: Object.freeze(
