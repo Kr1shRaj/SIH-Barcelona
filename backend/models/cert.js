@@ -1,10 +1,10 @@
 // validate cert issue payload shape
-function validateCertIssueRequest(data) {
+function validateCertIssueRequest(_data) {
   throw new Error("not implemented");
 }
 
 // validate cert verify payload shape
-function validateCertVerifyRequest(data) {
+function validateCertVerifyRequest(_data) {
   throw new Error("not implemented");
 }
 
