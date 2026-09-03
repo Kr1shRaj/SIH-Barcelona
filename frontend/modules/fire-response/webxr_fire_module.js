@@ -124,35 +124,54 @@ function _setupStep1WebXR(container) {
 
   function showPlacementScreen() {
     if (!overlay) return;
-    overlay.innerHTML = `
-      <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 1 / 3 — EXIT IDENTIFICATION (4/4)</div>
-      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">Place Extinguisher on Surface</div>
-      <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Point your device at a flat surface (floor or table). A cyan reticle will appear. Tap to place the fire extinguisher.</div>
-    `;
 
-    // wait for placement confirmation
-    const placementHandler = (e) => {
-      const { position, viewerQuaternion } = e.detail;
-      logger.info({ event: "extinguisher_placed", position }, "Extinguisher placed on surface");
-
-      // spawn extinguisher at placed position
+    // spawn 3D extinguisher immediately so trainee sees it right away
+    if (!_extMesh && _controller) {
       _extMesh = createExtinguisherMesh();
-      if (_extMesh && _controller) {
-        _extMesh.position.set(position.x, position.y, position.z);
+      if (_extMesh) {
+        _extMesh.position.set(0, -0.42, -1.05);
         _extMesh.scale.set(0.35, 0.35, 0.35);
         _controller.addToScene(_extMesh);
       }
+    }
 
-      // spawn fire 2m in front
+    overlay.innerHTML = `
+      <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 1 / 3 — EXIT IDENTIFICATION (4/4)</div>
+      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">Place Extinguisher on Ground</div>
+      <div id="placement-status-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Point your tablet at the floor or table. Tap the green button below (or tap anywhere on screen) to place the extinguisher.</div>
+      <button id="btn-place-extinguisher" style="display:block;width:100%;max-width:340px;padding:14px 20px;border-radius:10px;border:2px solid #00e676;background:#0f172a;color:#00e676;font-size:1rem;font-weight:bold;cursor:pointer;margin:0.5rem 0;box-shadow:0 0 15px rgba(0,230,118,0.35);pointer-events:auto !important;text-align:center;">🎯 TAP TO PLACE EXTINGUISHER ON FLOOR</button>
+    `;
+
+    let placed = false;
+
+    // placement execution function
+    const doPlace = (pos, viewerQuat) => {
+      if (placed) return;
+      placed = true;
+
+      const finalPos = pos || { x: 0, y: -0.45, z: -1.20 };
+      logger.info({ event: "extinguisher_placed", position: finalPos }, "Extinguisher placed on surface");
+
+      // position extinguisher at placed spot
+      if (!_extMesh && _controller) {
+        _extMesh = createExtinguisherMesh();
+        if (_extMesh) _controller.addToScene(_extMesh);
+      }
+      if (_extMesh) {
+        _extMesh.position.set(finalPos.x, finalPos.y, finalPos.z);
+        _extMesh.scale.set(0.35, 0.35, 0.35);
+      }
+
+      // spawn fire 1.8m in front
       const THREE = typeof window !== "undefined" && window.THREE;
       let firePos;
-      if (THREE && viewerQuaternion) {
-        const q = new THREE.Quaternion(viewerQuaternion.x, viewerQuaternion.y, viewerQuaternion.z, viewerQuaternion.w);
-        const p = new THREE.Vector3(position.x, position.y, position.z);
+      if (THREE && viewerQuat) {
+        const q = new THREE.Quaternion(viewerQuat.x, viewerQuat.y, viewerQuat.z, viewerQuat.w);
+        const p = new THREE.Vector3(finalPos.x, finalPos.y, finalPos.z);
         firePos = calcFireOffsetPosition(p, q);
       }
       if (!firePos) {
-        firePos = { x: position.x, y: position.y, z: position.z - 2.0 };
+        firePos = { x: finalPos.x, y: finalPos.y, z: finalPos.z - 1.8 };
       }
 
       _fireMesh = createFireMesh();
@@ -167,27 +186,55 @@ function _setupStep1WebXR(container) {
         if (_fireMesh) animateFireMesh(_fireMesh, deltaMs);
         if (_extMesh) animateExtinguisherMesh(_extMesh, deltaMs);
       };
-      _controller.onFrame(_frameHandler);
+      if (_controller) _controller.onFrame(_frameHandler);
 
       // fire checkpoint and advance
       fireCheckpointResult(CP_EXIT_ID, true, { method: "webxr_surface_placement" });
 
       if (overlay) {
         overlay.innerHTML = `
-          <div style="font-size:0.95rem;font-weight:bold;color:#00e676;">✔ Extinguisher and fire placed!</div>
-          <div style="margin:0.4rem 0 0.6rem 0;font-size:0.92rem;color:#f1f5f9;">Walk around to verify they stay locked in place, then proceed.</div>
+          <div style="font-size:1.05rem;font-weight:bold;color:#00e676;">✔ Extinguisher Placed on Ground!</div>
+          <div style="margin:0.4rem 0 0.6rem 0;font-size:0.92rem;color:#f1f5f9;">The 3D fire extinguisher is anchored to the surface. Tap below to begin PASS training.</div>
+          <button id="btn-proceed-step2" style="margin-top:0.4rem;padding:0.85rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;">✔ Begin PASS Training ➜</button>
         `;
-        const btnProceed = document.createElement("button");
-        btnProceed.id = "btn-proceed-step2";
-        btnProceed.style.cssText = "margin-top:0.4rem;padding:0.8rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
-        btnProceed.textContent = "✔ Confirmed — Begin PASS Training";
-        btnProceed.addEventListener("click", () => {
-          _setupStep2WebXR(container);
-        });
-        overlay.appendChild(btnProceed);
+        const btnProceed = overlay.querySelector("#btn-proceed-step2");
+        if (btnProceed) {
+          btnProceed.addEventListener("click", () => {
+            _setupStep2WebXR(container);
+          });
+        }
       }
     };
 
+    // 1. Hook up action button
+    const btnPlace = overlay.querySelector("#btn-place-extinguisher");
+    if (btnPlace) {
+      btnPlace.addEventListener("click", () => {
+        if (_controller && typeof _controller.confirmPlacement === "function") {
+          _controller.confirmPlacement();
+        } else {
+          doPlace({ x: 0, y: -0.45, z: -1.20 });
+        }
+      });
+    }
+
+    // 2. Hook up screen tap fallback
+    const onScreenTap = () => {
+      if (!placed) {
+        if (_controller && typeof _controller.confirmPlacement === "function") {
+          _controller.confirmPlacement();
+        } else {
+          doPlace({ x: 0, y: -0.45, z: -1.20 });
+        }
+      }
+    };
+    window.addEventListener("click", onScreenTap, { once: true });
+
+    // 3. Listen for placement confirmation from controller
+    const placementHandler = (e) => {
+      const { position, viewerQuaternion } = e.detail;
+      doPlace(position, viewerQuaternion);
+    };
     window.addEventListener("safear:placement_confirmed", placementHandler, { once: true });
   }
 

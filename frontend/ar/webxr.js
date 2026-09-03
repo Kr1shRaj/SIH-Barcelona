@@ -152,49 +152,68 @@ class WebXRPlacementController {
     }
   }
 
-  // listen for screen tap to place object
-  _bindSelectEvent() {
-    if (!this.session) return;
-    this._onSelect = () => {
-      if (this.state === PLACEMENT_STATES.SURFACE_FOUND && this._lastHitPose) {
-        this._placedTransform = {
+  // confirm placement either from hit-test or custom/fallback position
+  confirmPlacement(customPos = null, customQuat = null) {
+    if (this.state === PLACEMENT_STATES.PLACED) return;
+
+    let pos = customPos;
+    let quat = customQuat;
+
+    if (!pos) {
+      if (this._lastHitPose) {
+        pos = {
           x: this._lastHitPose.transform.position.x,
           y: this._lastHitPose.transform.position.y,
           z: this._lastHitPose.transform.position.z
         };
-        this._placedQuaternion = {
+        quat = {
           x: this._lastHitPose.transform.orientation.x,
           y: this._lastHitPose.transform.orientation.y,
           z: this._lastHitPose.transform.orientation.z,
           w: this._lastHitPose.transform.orientation.w
         };
-        // capture viewer facing direction at placement time for fire offset
-        if (this._lastViewerPose) {
-          this._viewerQuaternionAtPlacement = {
-            x: this._lastViewerPose.transform.orientation.x,
-            y: this._lastViewerPose.transform.orientation.y,
-            z: this._lastViewerPose.transform.orientation.z,
-            w: this._lastViewerPose.transform.orientation.w
-          };
-        }
-        this.state = PLACEMENT_STATES.PLACED;
-        if (this._reticle) this._reticle.visible = false;
-        logger.info({
-          event: "webxr_object_placed",
-          position: this._placedTransform
-        }, "Object placed on surface");
-
-        // emit event for modules
-        if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
-          window.dispatchEvent(new CustomEvent("safear:placement_confirmed", {
-            detail: {
-              position: this._placedTransform,
-              quaternion: this._placedQuaternion,
-              viewerQuaternion: this._viewerQuaternionAtPlacement
-            }
-          }));
-        }
+      } else {
+        // robust fallback: 1.2m forward, 0.45m down
+        pos = { x: 0, y: -0.45, z: -1.20 };
+        quat = { x: 0, y: 0, z: 0, w: 1 };
       }
+    }
+
+    this._placedTransform = pos;
+    this._placedQuaternion = quat || { x: 0, y: 0, z: 0, w: 1 };
+
+    if (this._lastViewerPose) {
+      this._viewerQuaternionAtPlacement = {
+        x: this._lastViewerPose.transform.orientation.x,
+        y: this._lastViewerPose.transform.orientation.y,
+        z: this._lastViewerPose.transform.orientation.z,
+        w: this._lastViewerPose.transform.orientation.w
+      };
+    }
+
+    this.state = PLACEMENT_STATES.PLACED;
+    if (this._reticle) this._reticle.visible = false;
+    logger.info({
+      event: "webxr_object_placed",
+      position: this._placedTransform
+    }, "Object placed on surface");
+
+    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+      window.dispatchEvent(new CustomEvent("safear:placement_confirmed", {
+        detail: {
+          position: this._placedTransform,
+          quaternion: this._placedQuaternion,
+          viewerQuaternion: this._viewerQuaternionAtPlacement
+        }
+      }));
+    }
+  }
+
+  // listen for screen tap to place object
+  _bindSelectEvent() {
+    if (!this.session) return;
+    this._onSelect = () => {
+      this.confirmPlacement();
     };
     this.session.addEventListener("select", this._onSelect);
   }
