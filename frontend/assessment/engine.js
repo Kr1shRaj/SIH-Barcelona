@@ -1,10 +1,43 @@
-// manifest fetch wiring is follow up task, caller supplies weight and threshold
+// safe constants for assessment contract v1.0 and offline sync
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const IDENTIFIER = /^[a-z][a-z0-9_-]{1,63}$/;
 const CHECKPOINT_TYPES = ["aim", "proximity", "select"];
 const MAX_CONTEXT_BYTES = 4096;
 const MAX_DURATION_MS = 4 * 60 * 60 * 1000;
 const QUEUE_STORAGE_KEY = "safear_attempt_sync_queue";
+const WORKER_STORAGE_KEY = "safear_worker_id";
+const DEVICE_STORAGE_KEY = "safear_device_id";
+const MANIFEST_STORAGE_KEY = "safear_module_manifests";
+const CANONICAL_DEMO_WORKER_ID = "WRK-0001";
+const MAX_BATCH_ATTEMPTS = 50;
+
+// default deterministic manifests used offline when server unavailable
+const DEFAULT_LOCAL_MANIFESTS = [
+  {
+    moduleId: "fire-response",
+    title: "Fire & Explosion Response",
+    version: 1,
+    passThreshold: 0.7,
+    recertMonths: null,
+    requiredCheckpoints: [
+      { checkpointId: "fire_exit_identification", type: "proximity", weight: 1, required: true, critical: false },
+      { checkpointId: "fire_extinguisher_aim", type: "aim", weight: 1, required: true, critical: false },
+      { checkpointId: "fire_evacuation_sequence", type: "select", weight: 1, required: true, critical: false }
+    ]
+  },
+  {
+    moduleId: "gas-leak",
+    title: "Gas Leak & Confined Space Protocol",
+    version: 1,
+    passThreshold: 0.7,
+    recertMonths: null,
+    requiredCheckpoints: [
+      { checkpointId: "gas_hazard_zone_recognition", type: "proximity", weight: 1, required: true, critical: false },
+      { checkpointId: "gas_ppe_selection", type: "select", weight: 1, required: true, critical: false },
+      { checkpointId: "gas_buddy_procedure", type: "select", weight: 1, required: true, critical: false }
+    ]
+  }
+];
 
 let _activeSession = null;
 let _boundListener = null;
@@ -248,6 +281,280 @@ function getQueuedAttempts() {
   }
 }
 
+// resolve effective worker id from query param, local storage, or canonical demo fallback
+function getEffectiveWorkerId() {
+  if (typeof window !== "undefined" && window.location && typeof window.location.search === "string") {
+    try {
+      const URLParamsCtor = window.URLSearchParams || (typeof globalThis !== "undefined" ? globalThis.URLSearchParams : null);
+      if (URLParamsCtor) {
+        const params = new URLParamsCtor(window.location.search);
+        const queryWorker = params.get("workerId") || params.get("worker");
+        if (queryWorker && typeof queryWorker === "string" && queryWorker.trim().length > 0 && queryWorker.length <= 64) {
+          const clean = queryWorker.trim();
+          setWorkerId(clean);
+          return clean;
+        }
+      }
+    } catch (_err) {
+      // url params parsing failed
+    }
+  }
+
+  const storage = _getStorage();
+  if (storage) {
+    try {
+      const stored = storage.getItem(WORKER_STORAGE_KEY);
+      if (stored && typeof stored === "string" && stored.trim().length > 0 && stored.length <= 64) {
+        return stored.trim();
+      }
+    } catch (_err) {
+      // storage read failed
+    }
+  }
+
+  return CANONICAL_DEMO_WORKER_ID;
+}
+
+// set active worker id explicitly in local storage
+function setWorkerId(id) {
+  if (!id || typeof id !== "string" || id.trim().length === 0 || id.length > 64) {
+    throw new Error("workerId must be a string between 1 and 64 characters");
+  }
+  const clean = id.trim();
+  const storage = _getStorage();
+  if (storage) {
+    storage.setItem(WORKER_STORAGE_KEY, clean);
+  }
+  return clean;
+}
+
+// resolve or create stable device id for phone
+function getDeviceId() {
+  const storage = _getStorage();
+  if (storage) {
+    try {
+      const stored = storage.getItem(DEVICE_STORAGE_KEY);
+      if (stored && typeof stored === "string" && stored.trim().length > 0 && stored.length <= 64) {
+        return stored.trim();
+      }
+      const newId = `dev-${_generateUUIDv4().substring(0, 8)}`;
+      storage.setItem(DEVICE_STORAGE_KEY, newId);
+      return newId;
+    } catch (_err) {
+      // fallback
+    }
+  }
+  return "dev-local";
+}
+
+// validate structure of module manifest array
+function validateModuleManifests(data) {
+  if (!Array.isArray(data) || data.length === 0) {
+    return false;
+  }
+  return data.every((m) => {
+    if (!m || typeof m !== "object" || typeof m.moduleId !== "string" || !IDENTIFIER.test(m.moduleId)) {
+      return false;
+    }
+    if (typeof m.title !== "string" || m.title.length === 0 || m.title.length > 200) {
+      return false;
+    }
+    if (typeof m.version !== "number" || !Number.isInteger(m.version) || m.version <= 0) {
+      return false;
+    }
+    if (typeof m.passThreshold !== "number" || Number.isNaN(m.passThreshold) || m.passThreshold < 0 || m.passThreshold > 1) {
+      return false;
+    }
+    if (!Array.isArray(m.requiredCheckpoints) || m.requiredCheckpoints.length === 0) {
+      return false;
+    }
+    return m.requiredCheckpoints.every((cp) => {
+      return cp && typeof cp === "object" &&
+        typeof cp.checkpointId === "string" && IDENTIFIER.test(cp.checkpointId) &&
+        CHECKPOINT_TYPES.includes(cp.type) &&
+        typeof cp.weight === "number" && cp.weight > 0;
+    });
+  });
+}
+
+// read cached manifest from local storage or fallback to local definitions synchronously
+function getCachedOrLocalManifest(moduleId) {
+  const storage = _getStorage();
+  if (storage) {
+    try {
+      const raw = storage.getItem(MANIFEST_STORAGE_KEY);
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (validateModuleManifests(cached)) {
+          const found = cached.find((m) => m.moduleId === moduleId);
+          if (found) return found;
+        }
+      }
+    } catch (_err) {
+      // cached json parse failed
+    }
+  }
+  return DEFAULT_LOCAL_MANIFESTS.find((m) => m.moduleId === moduleId) || null;
+}
+
+// fetch manifests from backend, update cache, fall back gracefully offline
+async function fetchModuleManifests({ baseUrl = "", timeoutMs = 5000 } = {}) {
+  const storage = _getStorage();
+
+  const fetchHandle = (typeof window !== "undefined" && window.fetch)
+    ? window.fetch
+    : (typeof globalThis !== "undefined" && globalThis.fetch ? globalThis.fetch : null);
+
+  if (fetchHandle) {
+    try {
+      const AbortCtrl = (typeof window !== "undefined" && window.AbortController) || (typeof globalThis !== "undefined" ? globalThis.AbortController : null);
+      const setTimer = (typeof window !== "undefined" && window.setTimeout) || (typeof globalThis !== "undefined" ? globalThis.setTimeout : null);
+      const clearTimer = (typeof window !== "undefined" && window.clearTimeout) || (typeof globalThis !== "undefined" ? globalThis.clearTimeout : null);
+
+      const controller = AbortCtrl ? new AbortCtrl() : null;
+      const timer = (controller && setTimer) ? setTimer(() => controller.abort(), timeoutMs) : null;
+      const res = await fetchHandle(`${baseUrl}/api/modules`, {
+        signal: controller ? controller.signal : undefined
+      });
+      if (timer && clearTimer) clearTimer(timer);
+
+      if (res.ok) {
+        const data = await res.json();
+        if (validateModuleManifests(data)) {
+          if (storage) {
+            storage.setItem(MANIFEST_STORAGE_KEY, JSON.stringify(data));
+          }
+          return data;
+        }
+      }
+    } catch (_err) {
+      // offline or backend unreachable, proceed to cache/local fallback
+    }
+  }
+
+  // try cache
+  if (storage) {
+    try {
+      const raw = storage.getItem(MANIFEST_STORAGE_KEY);
+      if (raw) {
+        const cached = JSON.parse(raw);
+        if (validateModuleManifests(cached)) {
+          return cached;
+        }
+      }
+    } catch (_err) {
+      // cached json parse failed
+    }
+  }
+
+  return DEFAULT_LOCAL_MANIFESTS;
+}
+
+// get single module manifest by id
+async function getModuleManifest(moduleId, options = {}) {
+  const manifests = await fetchModuleManifests(options);
+  const found = manifests.find((m) => m.moduleId === moduleId);
+  if (found) return found;
+  return DEFAULT_LOCAL_MANIFESTS.find((m) => m.moduleId === moduleId) || null;
+}
+
+// remove confirmed synced attempt ids from queue
+function removeSyncedAttempts(syncedAttemptIds) {
+  if (!Array.isArray(syncedAttemptIds) || syncedAttemptIds.length === 0) {
+    return getQueuedAttempts();
+  }
+  const idSet = new Set(syncedAttemptIds);
+  const current = getQueuedAttempts();
+  const filtered = current.filter((attempt) => !idSet.has(attempt.attemptId));
+  const storage = _getStorage();
+  if (storage) {
+    storage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(filtered));
+  }
+  return filtered;
+}
+
+// push queued attempts to backend /api/sync
+async function syncQueuedAttempts({ baseUrl = "", deviceId, workerId, batchSize = MAX_BATCH_ATTEMPTS } = {}) {
+  const queue = getQueuedAttempts();
+  if (queue.length === 0) {
+    return { success: true, synced: 0, remaining: 0 };
+  }
+
+  const effectiveWorkerId = workerId || getEffectiveWorkerId();
+  const effectiveDeviceId = deviceId || getDeviceId();
+  const limit = Math.min(queue.length, Math.min(batchSize, MAX_BATCH_ATTEMPTS));
+  const batch = queue.slice(0, limit);
+
+  // ensure every attempt in batch carries the validated workerId
+  const normalizedBatch = batch.map((att) => {
+    if (!att.workerId || att.workerId === "WRK-DEFAULT") {
+      return { ...att, workerId: effectiveWorkerId };
+    }
+    return att;
+  });
+
+  const envelope = {
+    batchId: _generateUUIDv4(),
+    deviceId: effectiveDeviceId,
+    workerId: effectiveWorkerId,
+    sentAt: new Date().toISOString(),
+    attempts: normalizedBatch
+  };
+
+  const fetchHandle = (typeof window !== "undefined" && window.fetch)
+    ? window.fetch
+    : (typeof globalThis !== "undefined" && globalThis.fetch ? globalThis.fetch : null);
+
+  if (!fetchHandle) {
+    return { success: false, reason: "no_fetch", remaining: queue.length };
+  }
+
+  try {
+    const res = await fetchHandle(`${baseUrl}/api/sync`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(envelope)
+    });
+
+    let resData = null;
+    try {
+      resData = await res.json();
+    } catch (_err) {
+      resData = null;
+    }
+
+    if (res.ok) {
+      const syncedIds = normalizedBatch.map((a) => a.attemptId);
+      const remainingQueue = removeSyncedAttempts(syncedIds);
+      return {
+        success: true,
+        status: res.status,
+        synced: normalizedBatch.length,
+        remaining: remainingQueue.length,
+        data: resData
+      };
+    }
+
+    // backend rejected batch (4xx validation error or 5xx server error)
+    // NEVER remove attempts from queue on rejection
+    return {
+      success: false,
+      status: res.status,
+      reason: res.status >= 500 ? "server_error" : "validation_error",
+      error: resData,
+      remaining: queue.length
+    };
+  } catch (err) {
+    // network failure / offline: retain all attempts in queue
+    return {
+      success: false,
+      reason: "network_offline",
+      error: err.message,
+      remaining: queue.length
+    };
+  }
+}
+
 // clear local storage offline sync queue
 function clearAttemptQueue() {
   const storage = _getStorage();
@@ -279,15 +586,15 @@ function queueAttemptForSync(attemptRecord) {
 
 // start active assessment session to collect checkpoints
 function startAssessmentSession({
-  workerId = "WRK-DEFAULT",
+  workerId,
   moduleId,
   moduleVersion = 1,
   engineVersion = "1.0.0",
-  deviceId = "dev-local",
+  deviceId,
   arTier = 2,
   locale = "hi",
-  passThreshold = 0.7,
-  weights = {},
+  passThreshold,
+  weights,
   startedAt = new Date().toISOString(),
   attemptId = _generateUUIDv4()
 } = {}) {
@@ -295,17 +602,34 @@ function startAssessmentSession({
     throw new Error("moduleId is required to start assessment session");
   }
 
+  const effectiveWorkerId = workerId || getEffectiveWorkerId();
+  const effectiveDeviceId = deviceId || getDeviceId();
+  const manifest = getCachedOrLocalManifest(moduleId);
+
+  const resolvedPassThreshold = (typeof passThreshold === "number" && !Number.isNaN(passThreshold))
+    ? passThreshold
+    : (manifest && typeof manifest.passThreshold === "number" ? manifest.passThreshold : 0.7);
+
+  const resolvedWeights = weights ? { ...weights } : {};
+  if (manifest && (!weights || Object.keys(weights).length === 0)) {
+    manifest.requiredCheckpoints.forEach((cp) => {
+      if (resolvedWeights[cp.checkpointId] === undefined) {
+        resolvedWeights[cp.checkpointId] = cp.weight;
+      }
+    });
+  }
+
   _activeSession = {
     attemptId,
-    workerId,
+    workerId: effectiveWorkerId,
     moduleId,
-    moduleVersion,
+    moduleVersion: manifest && manifest.version ? manifest.version : moduleVersion,
     engineVersion,
-    deviceId,
+    deviceId: effectiveDeviceId,
     arTier,
     locale,
-    passThreshold,
-    weights,
+    passThreshold: resolvedPassThreshold,
+    weights: resolvedWeights,
     startedAt,
     checkpoints: new Map()
   };
@@ -394,6 +718,9 @@ function finishAssessmentSession(options = {}) {
   const evaluated = evaluateAssessment(attemptRecord, session.passThreshold);
   queueAttemptForSync(evaluated);
 
+  // attempt background sync if online, never blocking module finish
+  syncQueuedAttempts().catch(() => {});
+
   _activeSession = null;
   return evaluated;
 }
@@ -435,11 +762,26 @@ export {
   queueAttemptForSync,
   getQueuedAttempts,
   clearAttemptQueue,
+  removeSyncedAttempts,
+  syncQueuedAttempts,
   startAssessmentSession,
   getActiveSession,
   recordCheckpointResult,
   finishAssessmentSession,
   abortAssessmentSession,
   bindAssessmentSessionListeners,
-  unbindAssessmentSessionListeners
+  unbindAssessmentSessionListeners,
+  getEffectiveWorkerId,
+  setWorkerId,
+  getDeviceId,
+  fetchModuleManifests,
+  getModuleManifest,
+  validateModuleManifests,
+  getCachedOrLocalManifest,
+  CANONICAL_DEMO_WORKER_ID,
+  DEFAULT_LOCAL_MANIFESTS,
+  QUEUE_STORAGE_KEY,
+  WORKER_STORAGE_KEY,
+  MANIFEST_STORAGE_KEY
 };
+

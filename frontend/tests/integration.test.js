@@ -11,12 +11,16 @@ import {
   clearAttemptQueue,
   abortAssessmentSession,
   bindAssessmentSessionListeners,
-  unbindAssessmentSessionListeners
+  unbindAssessmentSessionListeners,
+  syncQueuedAttempts
 } from "../assessment/engine.js";
 import { startFireModule, cleanupFireModule } from "../modules/fire-response/fire-response.js";
 import { startGasLeakModule, cleanupGasLeakModule } from "../modules/gas-leak/gas-leak.js";
 import { loadLocale, setLocale, t, clearLocales } from "../js/i18n.js";
 import { validateAttemptContract } from "../../backend/models/attempt.js";
+import { validateSyncPayload } from "../../backend/models/sync.js";
+import { initDatabase, closeDatabase } from "../../backend/db/index.js";
+import { seedDatabase } from "../../backend/db/seed.js";
 
 // mock storage
 let store = {};
@@ -201,6 +205,8 @@ describe("End-to-End Runtime Integration", () => {
 
     const attempt = queued[0];
     assert.strictEqual(attempt.moduleId, "fire-response");
+    assert.strictEqual(attempt.workerId, "WRK-0001", "workerId must be valid provisioned worker WRK-0001");
+    assert.notStrictEqual(attempt.workerId, "WRK-DEFAULT", "workerId must NEVER be WRK-DEFAULT");
     assert.strictEqual(attempt.status, "completed");
     assert.strictEqual(attempt.passed, true);
     assert.strictEqual(attempt.checkpoints.length, 3);
@@ -238,6 +244,8 @@ describe("End-to-End Runtime Integration", () => {
 
     const attempt = queued[0];
     assert.strictEqual(attempt.moduleId, "gas-leak");
+    assert.strictEqual(attempt.workerId, "WRK-0001", "workerId must be valid provisioned worker WRK-0001");
+    assert.notStrictEqual(attempt.workerId, "WRK-DEFAULT", "workerId must NEVER be WRK-DEFAULT");
     assert.strictEqual(attempt.status, "completed");
     assert.strictEqual(attempt.passed, true);
     assert.strictEqual(attempt.checkpoints.length, 3);
@@ -294,5 +302,97 @@ describe("End-to-End Runtime Integration", () => {
     // test step indicator localization
     const stepInd = t("app.step_indicator", { current: 1, total: 3 });
     assert.strictEqual(stepInd, "चरण 1 / 3");
+  });
+
+  it("completed attempt can be synced via /api/sync envelope and satisfies SQLite database schema", async () => {
+    clearAttemptQueue();
+    await loadModule("fire-response");
+
+    _elements["btn-exit-found"]?.click();
+    const btnAimConfirm = _elements["btn-aim-confirm"];
+    btnAimConfirm._testAccuracy = 0.9;
+    btnAimConfirm.click();
+    _elements["evacuation-opt-sound_alarm_then_evacuate"]?.click();
+
+    const queued = getQueuedAttempts();
+    assert.strictEqual(queued.length, 1);
+    const attempt = queued[0];
+
+    // verify payload passes Krishna's backend sync validator
+    let sentEnvelope = null;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (_url, options) => {
+      sentEnvelope = JSON.parse(options.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ batchId: sentEnvelope.batchId, status: "accepted", processed: 1 })
+      };
+    };
+
+    try {
+      const syncResult = await syncQueuedAttempts();
+      assert.strictEqual(syncResult.success, true);
+      assert.strictEqual(syncResult.synced, 1);
+      assert.strictEqual(getQueuedAttempts().length, 0);
+
+      // validate backend envelope model
+      const validatedEnvelope = validateSyncPayload(sentEnvelope, { now: Date.now() });
+      assert.strictEqual(validatedEnvelope.workerId, "WRK-0001");
+
+      // test real SQLite insertion with seed database and foreign keys enabled
+      const db = initDatabase(":memory:");
+      try {
+        seedDatabase(db);
+
+        // insert sync_batch referencing worker_id
+        db.prepare(
+          `INSERT INTO sync_batch (batch_id, worker_id, device_id, received_at, attempt_count, status)
+           VALUES (?, ?, ?, ?, ?, ?)`
+        ).run(validatedEnvelope.batchId, validatedEnvelope.workerId, validatedEnvelope.deviceId, validatedEnvelope.sentAt, 1, "accepted");
+
+        // insert attempt referencing worker_id and module_id
+        db.prepare(
+          `INSERT INTO attempt (
+             attempt_id, worker_id, module_id, module_version, contract_version,
+             engine_version, device_id, ar_tier, locale, started_at, completed_at,
+             duration_ms, status, server_total_score, server_max_score, server_percentage,
+             server_passed, threshold_applied, client_percentage, client_passed,
+             sync_batch_id, server_received_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          attempt.attemptId,
+          attempt.workerId,
+          attempt.moduleId,
+          attempt.moduleVersion,
+          attempt.contractVersion,
+          attempt.engineVersion,
+          attempt.deviceId,
+          attempt.arTier,
+          attempt.locale,
+          attempt.startedAt,
+          attempt.completedAt,
+          attempt.durationMs,
+          attempt.status,
+          attempt.totalScore,
+          attempt.maxScore,
+          attempt.percentage,
+          attempt.passed ? 1 : 0,
+          attempt.passThresholdUsed,
+          attempt.percentage,
+          attempt.passed ? 1 : 0,
+          validatedEnvelope.batchId,
+          validatedEnvelope.sentAt
+        );
+
+        const row = db.prepare("SELECT * FROM attempt WHERE attempt_id = ?").get(attempt.attemptId);
+        assert.ok(row, "attempt must be successfully inserted in database");
+        assert.strictEqual(row.worker_id, "WRK-0001");
+      } finally {
+        closeDatabase();
+      }
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
