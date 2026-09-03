@@ -103,6 +103,16 @@ globalThis.window = {
   localStorage: globalThis.localStorage
 };
 
+function clickThroughSubscreens() {
+  let nextBtn = _elements["btn-step-next"];
+  let count = 0;
+  while (nextBtn && count < 10) {
+    nextBtn.click();
+    nextBtn = _elements["btn-step-next"];
+    count++;
+  }
+}
+
 describe("End-to-End Runtime Integration", () => {
   beforeEach(() => {
     store = {};
@@ -156,6 +166,7 @@ describe("End-to-End Runtime Integration", () => {
     await loadModule("fire-response");
 
     // emit checkpoint
+    clickThroughSubscreens();
     _elements["btn-exit-found"]?.click();
 
     const session = getActiveSession();
@@ -169,6 +180,7 @@ describe("End-to-End Runtime Integration", () => {
   it("checkpoint event is recorded by the active session", async () => {
     await loadModule("fire-response");
 
+    clickThroughSubscreens();
     _elements["btn-exit-found"]?.click();
 
     const session = getActiveSession();
@@ -184,15 +196,23 @@ describe("End-to-End Runtime Integration", () => {
     await loadModule("fire-response");
 
     // step 1: confirm exit
+    clickThroughSubscreens();
     _elements["btn-exit-found"]?.click();
 
-    // step 2: aim and confirm
-    const btnAimConfirm = _elements["btn-aim-confirm"];
-    assert.ok(btnAimConfirm, "aim confirm button must exist");
-    btnAimConfirm._testAccuracy = 0.85;
-    btnAimConfirm.click();
+    // step 2: PASS technique
+    const pin = _elements["extinguisher-pin"];
+    if (pin?.simulateSelect) pin.simulateSelect();
+    if (pin?.simulatePull) pin.simulatePull(60);
+    const reticle = _elements["aim-reticle"];
+    if (reticle?.simulateAim) reticle.simulateAim(0.85, 0.12);
+    const handle = _elements["extinguisher-handle"];
+    if (handle?.simulateSelect) handle.simulateSelect();
+    if (handle?.simulateSqueeze) handle.simulateSqueeze(1500);
+    const sweep = _elements["sweep-zone"];
+    if (sweep?.simulateSweep) sweep.simulateSweep([0, 100, 200, 240]);
 
     // step 3: pick correct evacuation option
+    clickThroughSubscreens();
     const btnEvac = _elements["evacuation-opt-sound_alarm_then_evacuate"];
     assert.ok(btnEvac, "evacuation option button must exist");
     btnEvac.click();
@@ -226,15 +246,18 @@ describe("End-to-End Runtime Integration", () => {
     await loadModule("gas-leak");
 
     // step 1: acknowledge hazard zone
+    clickThroughSubscreens();
     _elements["btn-hazard-found"]?.click();
 
     // step 2: toggle mandatory PPE and confirm
+    clickThroughSubscreens();
     _elements["ppe-opt-scba_respirator"]?.click();
     _elements["ppe-opt-multi_gas_detector"]?.click();
     _elements["ppe-opt-safety_harness"]?.click();
     _elements["btn-confirm-ppe"]?.click();
 
     // step 3: select correct buddy procedure
+    clickThroughSubscreens();
     _elements["buddy-opt-standby_outside_with_lifeline"]?.click();
 
     assert.strictEqual(getActiveSession(), null);
@@ -263,6 +286,7 @@ describe("End-to-End Runtime Integration", () => {
     await loadModule("fire-response");
 
     // complete only step 1
+    clickThroughSubscreens();
     _elements["btn-exit-found"]?.click();
     assert.ok(getActiveSession() !== null);
 
@@ -308,10 +332,20 @@ describe("End-to-End Runtime Integration", () => {
     clearAttemptQueue();
     await loadModule("fire-response");
 
+    clickThroughSubscreens();
     _elements["btn-exit-found"]?.click();
-    const btnAimConfirm = _elements["btn-aim-confirm"];
-    btnAimConfirm._testAccuracy = 0.9;
-    btnAimConfirm.click();
+    const pin = _elements["extinguisher-pin"];
+    if (pin?.simulateSelect) pin.simulateSelect();
+    if (pin?.simulatePull) pin.simulatePull(60);
+    const reticle = _elements["aim-reticle"];
+    if (reticle?.simulateAim) reticle.simulateAim(0.9, 0.1);
+    const handle = _elements["extinguisher-handle"];
+    if (handle?.simulateSelect) handle.simulateSelect();
+    if (handle?.simulateSqueeze) handle.simulateSqueeze(1500);
+    const sweep = _elements["sweep-zone"];
+    if (sweep?.simulateSweep) sweep.simulateSweep([0, 100, 200, 240]);
+
+    clickThroughSubscreens();
     _elements["evacuation-opt-sound_alarm_then_evacuate"]?.click();
 
     const queued = getQueuedAttempts();

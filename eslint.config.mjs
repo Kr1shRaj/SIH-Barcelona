@@ -10,7 +10,14 @@ export default [
         navigator: "readonly",
         CustomEvent: "readonly",
         self: "readonly",
-        console: "readonly"
+        console: "readonly",
+        setTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
+        Date: "readonly",
+        Math: "readonly",
+        URLSearchParams: "readonly",
+        globalThis: "readonly"
       }
     },
     rules: {
