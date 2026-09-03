@@ -1,6 +1,8 @@
 import { createLogger } from "../../js/logger.js";
 import { registerCheckpoint, fireCheckpointResult } from "../../ar/interactions.js";
 import { unloadModule } from "../../js/module-loader.js";
+import { requestCertificateForAttempt, flushPendingCertificates } from "../../js/certificates.js";
+import { renderCompletionPanel } from "../../js/certificate-panel.js";
 import { buildFireGraphic, buildExitGraphic } from "./graphics.js";
 import { t } from "../../js/i18n.js";
 import { playNarration, stopNarration } from "../../js/audio.js";
@@ -373,40 +375,52 @@ function cleanupFireModule() {
 }
 
 // show completion panel after all three steps done
-function _showComplete(lastPassed) {
+function _showComplete(_lastPassed) {
   _currentStep = 0;
 
-  // finalize assessment attempt if session is active
+  const overlay = document.getElementById("fire-module-overlay");
+  const theme = { passColor: "#00e676", failColor: "#ff6a00", exitColor: "#ff6a00", exitTextColor: "#fff" };
+
+  let evaluated = null;
   if (getActiveSession()) {
     try {
-      finishAssessmentSession();
+      // the evaluated attempt is the aggregate result. the last checkpoint alone
+      // does not decide whether the module was passed.
+      evaluated = finishAssessmentSession();
     } catch (err) {
       logger.warn({ event: "assessment_finish_error", error: err.message }, "Assessment finalize failed");
     }
   }
 
-  const overlay = document.getElementById("fire-module-overlay");
-  if (overlay) {
-    const titlePass = t("modules.fire_response.complete_pass", {}, "✅ MODULE COMPLETE");
-    const titleReview = t("modules.fire_response.complete_review", {}, "⚠ MODULE COMPLETE — Review step 3");
-    const desc = t("modules.fire_response.complete_desc", {}, "All checkpoints fired. Assessment engine will score your attempt.");
-    overlay.innerHTML = `
-      <div style="font-size:1.2rem;font-weight:bold;color:${lastPassed ? "#00e676" : "#ff6a00"}">
-        ${lastPassed ? titlePass : titleReview}
-      </div>
-      <div style="margin:0.5rem 0;font-size:0.95rem">${desc}</div>
-    `;
-
-    const btnExit = document.createElement("button");
-    btnExit.id = "btn-module-exit";
-    btnExit.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.5rem;background:#ff6a00;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;";
-    btnExit.textContent = t("modules.fire_response.btn_exit_module", {}, "✖ Exit Module");
-    btnExit.addEventListener("click", () => {
-      cleanupFireModule();
-      unloadModule();
+  function draw() {
+    return renderCompletionPanel(overlay, {
+      evaluated: evaluated || {},
+      theme,
+      exitLabel: t("modules.fire_response.btn_exit_module", {}, "✖ Exit Module"),
+      onExit: () => {
+        cleanupFireModule();
+        unloadModule();
+      }
     });
-    overlay.appendChild(btnExit);
   }
+
+  // draw at once from local state so the worker sees a result with no network
+  draw();
+
+  // then ask for the certificate. finishAssessmentSession already fired its own
+  // background sync and discarded the response, so there is nothing left to observe
+  // and no second sync is started here. the server still decides: a run that did not
+  // pass comes back 422 and the pending item is dropped.
+  if (evaluated && evaluated.passed === true) {
+    requestCertificateForAttempt(evaluated);
+    draw();
+    flushPendingCertificates()
+      .then(() => draw())
+      .catch((err) => {
+        logger.warn({ event: "certificate_flush_error", error: err.message }, "Certificate flush failed");
+      });
+  }
+
   logger.info({ event: "fire_module_complete" }, "Fire module all steps done");
 }
 

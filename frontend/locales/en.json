@@ -53,6 +53,15 @@
   "cert": {
     "passed": "Training Passed!",
     "score": "Your Score",
-    "qr_ready": "Certificate QR Code Ready"
+    "qr_ready": "Certificate QR Code Ready",
+    "pending": "Certificate pending",
+    "pending_desc": "Your certificate will appear once you are back online",
+    "issued": "Certificate Issued",
+    "cert_id": "Certificate ID",
+    "view": "View Certificate",
+    "not_passed": "Not Passed",
+    "not_passed_desc": "You did not reach the pass mark. You can try again.",
+    "scan_hint": "Show this code to your supervisor",
+    "preparing": "Training passed. Preparing your certificate…"
   }
 }

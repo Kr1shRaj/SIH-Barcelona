@@ -15,8 +15,7 @@ import {
   getPendingCertificates,
   getCertificates,
   clearPendingCertificates,
-  clearCertificates,
-  CERTIFICATE_STORAGE_KEY
+  clearCertificates
 } from "../js/certificates.js";
 
 // mock local storage for the node test runner
@@ -282,17 +281,17 @@ describe("Certificate infrastructure", () => {
       assert.ok(cert.payload);
     });
 
-    it("17. qrImage is NOT stored, it is ~9KB against a 5MB budget", async () => {
+    it("17. qrImage IS stored, it is the offline picture of the credential", async () => {
       queueEligibleCertificates(syncResponse([acceptedEligible(ATTEMPT_A)]));
       await withFetch(() => jsonResponse(201, issueBody(ATTEMPT_A, "issued")), () => flushPendingCertificates());
 
       const cert = getCertificateByAttemptId(ATTEMPT_A);
-      assert.ok(!("qrImage" in cert), "qrImage must not be persisted");
-
-      // and it must not have leaked into the raw stored blob either
-      const raw = globalThis.localStorage.getItem(CERTIFICATE_STORAGE_KEY);
-      assert.ok(!raw.includes("data:image/png"), "no data url in storage");
-      assert.ok(raw.length < 2000, `stored blob was ${raw.length} chars, qrImage likely leaked`);
+      // the frontend has no bundler and no QR encoder, so the stored image is the
+      // only way to draw the code once the worker is offline. qr stays the credential.
+      assert.ok(cert.qrImage, "qrImage must be persisted for offline display");
+      assert.match(cert.qrImage, /^data:image\/png;base64,/);
+      assert.ok(cert.qr, "the signed qr string is still the credential");
+      assert.notStrictEqual(cert.qr, cert.qrImage);
     });
 
     it("18. the certificate is retrievable by attemptId", async () => {

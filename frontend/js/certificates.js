@@ -109,9 +109,11 @@ function _markPendingError(attemptId, error) {
   return _writeList(PENDING_CERT_STORAGE_KEY, updated);
 }
 
-// keep only the fields worth carrying. qrImage is deliberately dropped: it is a
-// data url around 9KB against a 5MB storage budget, and it can be re-rendered
-// from the qr string any time it is needed.
+// keep the fields worth carrying.
+// qr is the signed credential, the thing a verifier actually checks.
+// qrImage is only the picture of it, kept so the worker can see the certificate
+// offline. the frontend has no bundler and no QR encoder, so without this there
+// is no way to draw the code from the qr string alone. about 9KB per cert.
 function _storeCertificate(body, pendingEntry) {
   const certificate = {
     certId: body.certId,
@@ -120,6 +122,7 @@ function _storeCertificate(body, pendingEntry) {
     moduleId: body.payload && body.payload.m ? body.payload.m : pendingEntry.moduleId,
     payload: body.payload,
     qr: body.qr,
+    qrImage: body.qrImage || null,
     algo: body.algo,
     keyId: body.keyId,
     status: body.status,
@@ -195,6 +198,67 @@ function queueEligibleCertificates(syncResponse) {
   return { queued, skipped, results: results.length };
 }
 
+// A finished attempt asks the server for its certificate.
+//
+// This exists because finishAssessmentSession fires its own background sync and
+// throws the response away. By the time any UI can look, the attempt is gone from
+// the queue and certificateEligible went with it, so queueEligibleCertificates has
+// nothing to work from and the certificate would never be requested at all.
+//
+// evaluated.passed is only the TRIGGER to ask. The server stays the authority:
+// flushPendingCertificates sends attemptId and nothing else, and a 422
+// attempt_not_passed drops the pending item permanently. A locally optimistic
+// client cannot talk the server into minting anything.
+function requestCertificateForAttempt(evaluated) {
+  if (!evaluated || typeof evaluated.attemptId !== "string") {
+    return { queued: 0, reason: "no_attempt" };
+  }
+  if (evaluated.passed !== true) {
+    return { queued: 0, reason: "not_passed_locally" };
+  }
+  if (getCertificateByAttemptId(evaluated.attemptId)) {
+    return { queued: 0, reason: "already_certified" };
+  }
+  if (getPendingCertificate(evaluated.attemptId)) {
+    return { queued: 0, reason: "already_pending" };
+  }
+
+  const pending = getPendingCertificates();
+  pending.push({
+    attemptId: evaluated.attemptId,
+    moduleId: evaluated.moduleId || null,
+    workerId: evaluated.workerId || null,
+    queuedAt: new Date().toISOString(),
+    lastError: null
+  });
+  _writeList(PENDING_CERT_STORAGE_KEY, pending);
+  logger.info({ event: "certificate_requested", attemptId: evaluated.attemptId }, "Certificate requested for finished attempt");
+
+  return { queued: 1, reason: "queued" };
+}
+
+// which of the four completion states an attempt is in right now.
+// pure lookup against local storage, so it answers instantly and works offline.
+function resolveCertificateState(attemptId, evaluated) {
+  const passed = evaluated ? evaluated.passed === true : false;
+
+  if (!passed) {
+    return { state: "failed", certificate: null, pending: null };
+  }
+
+  const certificate = getCertificateByAttemptId(attemptId);
+  if (certificate) {
+    return { state: "issued", certificate, pending: null };
+  }
+
+  const pending = getPendingCertificate(attemptId);
+  if (pending) {
+    return { state: "pending", certificate: null, pending };
+  }
+
+  return { state: "passed", certificate: null, pending: null };
+}
+
 // ask the server to mint every pending certificate, one request at a time.
 // there is no batch issue endpoint, and a realistic queue holds one or two items.
 async function flushPendingCertificates(options = {}) {
@@ -268,6 +332,8 @@ async function flushPendingCertificates(options = {}) {
 
 export {
   queueEligibleCertificates,
+  requestCertificateForAttempt,
+  resolveCertificateState,
   flushPendingCertificates,
   getCertificateByAttemptId,
   getCertificateByCertId,
