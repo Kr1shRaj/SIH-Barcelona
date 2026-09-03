@@ -12,7 +12,11 @@
     "start:backend": "npm run start --workspace=backend",
     "dev:backend": "npm run dev --workspace=backend",
     "test:backend": "npm run test --workspace=backend",
+    "test:frontend": "npm run test --workspace=frontend",
+    "test:dashboard": "npm run test --workspace=dashboard",
     "dev:frontend": "npm run dev --workspace=frontend",
+    "dev:dashboard": "npm run dev --workspace=dashboard",
+    "cap:sync": "npx cap sync android",
     "lint": "eslint backend/ frontend/ dashboard/"
   },
   "devDependencies": {

@@ -117,6 +117,9 @@ async function initApp() {
     });
   }
 
+  // register service worker for offline use in mines
+  registerServiceWorker().catch(() => {});
+
   // probe device hardware caps
   const caps = await detectDeviceCaps(window);
   const decision = selectArTier(caps, logger);
@@ -234,6 +237,21 @@ function _bindScaffoldButton(container) {
 }
 
 
+// register service worker for offline use in mines
+async function registerServiceWorker(nav = (typeof navigator !== "undefined" ? navigator : null)) {
+  if (nav && "serviceWorker" in nav && typeof nav.serviceWorker.register === "function") {
+    try {
+      const reg = await nav.serviceWorker.register("./sw.js");
+      logger.info({ event: "sw_registered", scope: reg ? reg.scope : "" }, "Service worker registered");
+      return reg;
+    } catch (err) {
+      logger.warn({ event: "sw_registration_error", error: err.message }, "Service worker registration warning");
+      return null;
+    }
+  }
+  return null;
+}
+
 if (typeof window !== "undefined" && typeof document !== "undefined") {
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", initApp);
@@ -242,4 +260,10 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
   }
 }
 
-export { initApp, renderUnsupportedView, renderArShell, bindModuleLifecycleUI };
+export {
+  initApp,
+  renderUnsupportedView,
+  renderArShell,
+  bindModuleLifecycleUI,
+  registerServiceWorker
+};
