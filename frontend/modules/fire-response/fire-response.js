@@ -97,9 +97,9 @@ function _renderFireGraphic(container) {
 
   // anchor to camera so fire is always visible (SENAR markerless benchmark)
   if (camera) {
-    graphic.setAttribute("position", "0 -0.10 -2.5");
+    graphic.setAttribute("position", "0 -0.55 -2.4");
     graphic.setAttribute("rotation", "0 0 0");
-    graphic.setAttribute("scale", "0.50 0.50 0.50");
+    graphic.setAttribute("scale", "0.55 0.55 0.55");
     graphic.setAttribute("visible", "true");
     camera.appendChild(graphic);
   } else if (scene) {
@@ -761,18 +761,18 @@ function _setupStep2(container, tierInfo) {
     }
   }
 
-  // pass sub-step 2: A — Aim via screen-center camera gaze laser targeting 3D fire base
+  // pass sub-step 2: A — Aim via screen-center camera gaze laser or direct tap on fire base
   function _renderAim() {
     if (!overlay) return;
     overlay.innerHTML = `
       <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (2/4)</div>
       <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">A — Aim at the Base</div>
-      <div id="aim-instruction-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Point your phone camera so the center reticle aims at the base of the fire container. Hold steady for 800ms.</div>
-      <div id="aim-status-badge" style="display:inline-block;padding:4px 10px;border-radius:6px;background:#334155;color:#94a3b8;font-size:0.8rem;font-weight:bold;margin-bottom:0.4rem;">⚪ POINT PHONE AT BASE OF FIRE</div>
+      <div id="aim-instruction-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Aim at the glowing green ring at the bottom of the fire. Tap the button below or point your phone camera at it.</div>
+      <button id="aim-status-badge" style="display:block;width:100%;max-width:340px;padding:12px 18px;border-radius:10px;border:2px solid #00e676;background:#0f172a;color:#00e676;font-size:0.95rem;font-weight:bold;cursor:pointer;margin:0.5rem 0;box-shadow:0 0 15px rgba(0,230,118,0.35);pointer-events:auto !important;text-align:center;">🎯 TAP TO LOCK AIM AT FIRE BASE</button>
       <div style="width:100%;max-width:280px;height:8px;background:#334155;border-radius:4px;overflow:hidden;margin:0.5rem 0;">
         <div id="aim-progress-bar" style="width:0%;height:100%;background:#00e676;transition:width 0.08s linear;"></div>
       </div>
-      <div id="aim-status-label" style="font-size:0.85rem;color:#94a3b8;font-weight:bold;">AWAITING GAZE INTERSECTION</div>
+      <div id="aim-status-label" style="font-size:0.85rem;color:#94a3b8;font-weight:bold;">READY — TAP BUTTON OR POINT AT BASE</div>
     `;
 
     const progressBar = document.getElementById("aim-progress-bar");
@@ -785,8 +785,8 @@ function _setupStep2(container, tierInfo) {
     const fireGraphic = document.getElementById("fire-graphic");
     if (fireGraphic && typeof fireGraphic.setAttribute === "function") {
       fireGraphic.setAttribute("visible", "true");
-      fireGraphic.setAttribute("position", "0 -0.10 -2.5");
-      fireGraphic.setAttribute("scale", "0.50 0.50 0.50");
+      fireGraphic.setAttribute("position", "0 -0.55 -2.4");
+      fireGraphic.setAttribute("scale", "0.55 0.55 0.55");
     }
 
     const bTitle = document.getElementById("billboard-step-title");
@@ -922,11 +922,20 @@ function _setupStep2(container, tierInfo) {
       };
     }
 
+    if (statusBadge && typeof statusBadge.addEventListener === "function") {
+      statusBadge.addEventListener("click", () => handleAimSuccess(0.92, 0.08, false));
+    }
+
+    const targetBase = typeof document !== "undefined" ? document.getElementById("fire-target-base") : null;
+    if (targetBase && typeof targetBase.addEventListener === "function") {
+      targetBase.addEventListener("click", () => handleAimSuccess(0.92, 0.08, false));
+    }
+
     if (reticle) {
       reticle.simulateAim = (score = 0.9, dist = 0.1) => {
         handleAimSuccess(score, dist, true);
       };
-      reticle.addEventListener("click", () => handleAimSuccess(0.9, 0.08, true));
+      reticle.addEventListener("click", () => handleAimSuccess(0.92, 0.08, false));
       reticle.addEventListener("raycaster-intersected", onRaycastIntersection);
       reticle.addEventListener("raycaster-intersected-cleared", stopHold);
       reticle.addEventListener("pointerdown", () => startHold(0.9, 0.08));
@@ -936,6 +945,7 @@ function _setupStep2(container, tierInfo) {
     }
 
     if (graphic && typeof graphic.addEventListener === "function") {
+      graphic.addEventListener("click", () => handleAimSuccess(0.90, 0.10, false));
       graphic.addEventListener("raycaster-intersected", onRaycastIntersection);
       graphic.addEventListener("raycaster-intersected-cleared", stopHold);
     }

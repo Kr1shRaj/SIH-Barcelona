@@ -17,11 +17,12 @@ function buildFireEntity() {
     <a-torus id="fire-barrel-rim" position="0 0 0" rotation="90 0 0" radius="0.52" radius-tubular="0.025" material="color: #0f172a; metalness: 0.85"></a-torus>
     <a-cylinder id="fire-embers" position="0 -0.02 0" radius="0.48" height="0.06" material="color: #ff4400; shader: flat; opacity: 0.95" animation="property: material.color; type: color; to: #ff6600; from: #ff2200; dir: alternate; dur: 200; loop: true"></a-cylinder>
 
-    <!-- dynamic flickering flame tongues (SENAR realistic fire look with radiant emissive glow) -->
+    <!-- dynamic flickering flame tongues (SENAR realistic fire look with radiant layered glow) -->
     <a-cone id="fire-outer-cone" position="0 0.85 0" radius-bottom="0.56" radius-top="0.04" height="1.80" material="color: #ff3d00; shader: flat; opacity: 0.90; transparent: true" animation="property: scale; to: 1.08 1.18 1.08; from: 0.92 0.85 0.92; dir: alternate; dur: 220; loop: true; easing: easeInOutSine"></a-cone>
     <a-cone id="fire-inner-cone" position="0 0.60 0" radius-bottom="0.40" radius-top="0.02" height="1.30" material="color: #ffea00; shader: flat; opacity: 0.95; transparent: true" animation="property: scale; to: 1.15 1.25 1.15; from: 0.85 0.80 0.85; dir: alternate; dur: 170; loop: true; easing: easeInOutQuad"></a-cone>
     <a-cone id="fire-tongue-left" position="0.08 0.70 -0.04" rotation="8 40 -12" radius-bottom="0.36" radius-top="0.02" height="1.45" material="color: #ff6d00; shader: flat; opacity: 0.88; transparent: true" animation="property: rotation; to: 6 40 -16; from: 12 40 -8; dir: alternate; dur: 250; loop: true"></a-cone>
     <a-cone id="fire-tongue-right" position="-0.08 0.72 0.04" rotation="-10 -40 10" radius-bottom="0.34" radius-top="0.02" height="1.38" material="color: #ff9100; shader: flat; opacity: 0.88; transparent: true" animation="property: rotation; to: -14 -40 6; from: -6 -40 14; dir: alternate; dur: 190; loop: true"></a-cone>
+    <a-cone id="fire-core-flame" position="0 0.45 0" radius-bottom="0.25" radius-top="0.01" height="0.95" material="color: #ffffff; shader: flat; opacity: 0.92; transparent: true" animation="property: scale; to: 1.2 1.3 1.2; from: 0.8 0.8 0.8; dir: alternate; dur: 130; loop: true"></a-cone>
 
     <!-- dynamic real-time fire point light casting flickering orange illumination -->
     <a-light id="fire-light" type="point" color="#ff7700" intensity="2.0" distance="5" position="0 0.8 0" animation="property: intensity; to: 2.6; from: 1.5; dir: alternate; dur: 140; loop: true"></a-light>
@@ -30,22 +31,25 @@ function buildFireEntity() {
     <a-sphere id="fire-smoke-1" position="0 1.6 0" radius="0.32" material="color: #334155; opacity: 0.35; transparent: true" animation="property: position; to: 0.08 2.4 0.04; dur: 1600; loop: true; easing: linear" animation__fade="property: material.opacity; to: 0; from: 0.35; dur: 1600; loop: true; easing: linear"></a-sphere>
     <a-sphere id="fire-smoke-2" position="-0.06 1.8 0" radius="0.38" material="color: #1e293b; opacity: 0.30; transparent: true" animation="property: position; to: -0.12 2.7 -0.04; dur: 2000; loop: true; easing: linear" animation__fade="property: material.opacity; to: 0; from: 0.30; dur: 2000; loop: true; easing: linear"></a-sphere>
 
-    <!-- aim target base collision disc for gaze laser -->
-    <a-cylinder id="fire-target-base" class="clickable aim-target" data-raycast-target="aim" position="0 0.05 0" radius="0.70" height="0.12" material="color: #ff1100; opacity: 0.0; transparent: true"></a-cylinder>
+    <!-- generous aim target collision cylinder covering entire base -->
+    <a-cylinder id="fire-target-base" class="clickable aim-target" data-raycast-target="aim" position="0 -0.20 0" radius="0.95" height="0.75" material="color: #00e676; opacity: 0.01; transparent: true"></a-cylinder>
+
+    <!-- 3D visual target label at ground base -->
+    <a-text id="aim-ground-label" value="👇 AIM AT BASE OF FLAMES" align="center" position="0 -0.62 0.50" rotation="-20 0 0" scale="0.50 0.50 0.50" color="#00e676" material="shader: flat"></a-text>
   `;
 
-  // 3d aim reticle at the base of the fire container
+  // 3d neon green aim reticle facing user at the base of the fire container
   const aimReticle = document.createElement("a-ring");
   aimReticle.id = "aim-reticle";
   if (typeof aimReticle.setAttribute === "function") {
     aimReticle.setAttribute("class", "clickable aim-target");
     aimReticle.setAttribute("data-raycast-target", "aim");
-    aimReticle.setAttribute("position", "0 0.12 0");
-    aimReticle.setAttribute("rotation", "-90 0 0");
+    aimReticle.setAttribute("position", "0 -0.15 0");
+    aimReticle.setAttribute("rotation", "-60 0 0");
     aimReticle.setAttribute("radius-inner", "0.45");
-    aimReticle.setAttribute("radius-outer", "0.78");
-    aimReticle.setAttribute("material", "color: #ff3d00; shader: flat; side: double");
-    aimReticle.setAttribute("animation", "property: scale; to: 1.15 1.15 1.15; dir: alternate; dur: 600; loop: true; easing: easeInOutSine");
+    aimReticle.setAttribute("radius-outer", "0.80");
+    aimReticle.setAttribute("material", "color: #00e676; shader: flat; side: double; opacity: 0.9");
+    aimReticle.setAttribute("animation", "property: scale; to: 1.15 1.15 1.15; from: 0.95 0.95 0.95; dir: alternate; dur: 500; loop: true; easing: easeInOutSine");
   } else {
     aimReticle.className = "clickable aim-target";
   }
