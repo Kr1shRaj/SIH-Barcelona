@@ -7,6 +7,7 @@ const path = require("node:path");
 const { initDatabase, closeDatabase } = require("../../db/index");
 const { seedDatabase } = require("../../db/seed");
 const { createApp } = require("../../app");
+const { testKeys } = require("../fixtures/certs");
 
 // config the app needs, without touching a real .env
 const TEST_CONFIG = Object.freeze({
@@ -27,7 +28,7 @@ function buildTestApp() {
   const db = initDatabase(path.join(dir, "api-test.db"));
   seedDatabase(db);
 
-  const app = createApp({ db, config: TEST_CONFIG });
+  const app = createApp({ db, config: TEST_CONFIG, keys: testKeys() });
 
   function cleanup() {
     closeDatabase();

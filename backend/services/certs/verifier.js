@@ -18,6 +18,13 @@ function _fail(reason, message) {
   return { valid: false, reason, message };
 }
 
+// the signature already passed, so these bytes are the authority's own. handing the
+// payload back lets a caller say WHOSE certificate expired instead of just "expired".
+// never used for a failure that happened before or during the signature check.
+function _failTrusted(reason, message, payload) {
+  return { valid: false, reason, message, payload };
+}
+
 // verify cert signature offline with key.
 //
 // the order here is the whole point and must not be rearranged:
@@ -70,18 +77,20 @@ function verifyCertificateOffline(qrPayload, publicKey, options = {}) {
   }
 
   if (payload.v !== CERT_PAYLOAD_VERSION) {
-    return _fail(
+    return _failTrusted(
       REASONS.UNKNOWN_VERSION,
-      `certificate payload version ${payload.v} is not understood, this build reads v${CERT_PAYLOAD_VERSION}`
+      `certificate payload version ${payload.v} is not understood, this build reads v${CERT_PAYLOAD_VERSION}`,
+      payload
     );
   }
 
   // single key deployment, so we verify first and check the id after. a multi key
   // setup would instead read k first to pick which public key to try.
   if (options.expectedKeyId && payload.k !== options.expectedKeyId) {
-    return _fail(
+    return _failTrusted(
       REASONS.UNKNOWN_KEY,
-      `certificate was signed by key ${payload.k}, this verifier holds ${options.expectedKeyId}`
+      `certificate was signed by key ${payload.k}, this verifier holds ${options.expectedKeyId}`,
+      payload
     );
   }
 
@@ -93,7 +102,7 @@ function verifyCertificateOffline(qrPayload, publicKey, options = {}) {
     }
     const nowSeconds = Math.floor((typeof options.now === "number" ? options.now : Date.now()) / 1000);
     if (payload.e < nowSeconds) {
-      return _fail(REASONS.EXPIRED, `certificate expired at unix ${payload.e}`);
+      return _failTrusted(REASONS.EXPIRED, `certificate expired at unix ${payload.e}`, payload);
     }
   }
 

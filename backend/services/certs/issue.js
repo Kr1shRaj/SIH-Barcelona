@@ -158,6 +158,12 @@ function getCertificate(db, certId) {
   return db.prepare("SELECT * FROM certificate WHERE cert_id = ?").get(certId);
 }
 
+// the certificate an attempt already earned. lets a retrying phone get its cert back
+// instead of a conflict it has no way to recover from.
+function getCertificateByAttempt(db, attemptId) {
+  return db.prepare("SELECT * FROM certificate WHERE attempt_id = ?").get(attemptId);
+}
+
 module.exports = {
   issueCertificateForAttempt,
   buildCertificatePayload,
@@ -165,6 +171,7 @@ module.exports = {
   toBasisPoints,
   generateCertId,
   getCertificate,
+  getCertificateByAttempt,
   CertificateIssueError,
   ISSUE_ERRORS
 };
