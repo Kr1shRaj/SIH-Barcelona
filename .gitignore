@@ -11,6 +11,8 @@ package-lock.json
 *.db
 *.db-journal
 *.sqlite
+data/
+backend/data/
 
 # build outputs
 dist/
