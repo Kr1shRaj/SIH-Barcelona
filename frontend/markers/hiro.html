@@ -66,8 +66,8 @@
 </head>
 <body>
   <div class="card">
-    <div class="badge">🧯 HIRO MARKER (EXTINGUISHER STATION)</div>
-    <p>Point your phone camera at this marker to trigger the 3D Fire Extinguisher.</p>
+    <div id="marker-badge" class="badge">🧯 HIRO MARKER (EXTINGUISHER STATION)</div>
+    <p id="marker-desc">Point your phone camera at this marker to trigger the 3D Fire Extinguisher.</p>
     <div class="marker-box">
       <div class="marker-inner">
         <svg viewBox="0 0 100 100" fill="#000">
@@ -75,7 +75,16 @@
         </svg>
       </div>
     </div>
-    <p style="font-size:0.8rem;color:#64748b;">SafeAR Industrial Safety Platform — Tier 2 Marker Anchor</p>
+    <p id="marker-footer" style="font-size:0.8rem;color:#64748b;">SafeAR Industrial Safety Platform — Tier 2 Marker Anchor</p>
   </div>
+  <script type="module">
+    import { t } from "../js/i18n.js";
+    const badge = document.getElementById("marker-badge");
+    const desc = document.getElementById("marker-desc");
+    const footer = document.getElementById("marker-footer");
+    if (badge) badge.textContent = t("marker.hiro_badge", "🧯 HIRO MARKER (EXTINGUISHER STATION)");
+    if (desc) desc.textContent = t("marker.hiro_desc", "Point your phone camera at this marker to trigger the 3D Fire Extinguisher.");
+    if (footer) footer.textContent = t("marker.footer", "SafeAR Industrial Safety Platform — Tier 2 Marker Anchor");
+  </script>
 </body>
 </html>

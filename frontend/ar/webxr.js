@@ -34,8 +34,8 @@ async function initWebXRSession(canvasElement, options = {}) {
   }
 
   const sessionOptions = {
-    requiredFeatures: ["hit-test", "local-floor"],
-    optionalFeatures: ["dom-overlay", "anchors"],
+    requiredFeatures: ["hit-test"],
+    optionalFeatures: ["local-floor", "dom-overlay", "anchors"],
     domOverlay: typeof document !== "undefined" && document.body ? { root: document.body } : undefined,
     ...options.sessionInit
   };

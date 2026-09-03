@@ -2,8 +2,13 @@ import { createLogger } from "../../js/logger.js";
 import { registerCheckpoint, fireCheckpointResult } from "../../ar/interactions.js";
 import { unloadModule } from "../../js/module-loader.js";
 import { buildFireGraphic, buildExitGraphic, buildExtinguisherGraphic } from "./graphics.js";
+import { t } from "../../js/i18n.js";
 
 const logger = createLogger("FireModule");
+const _activeCleanups = [];
+function addCleanup(fn) {
+  if (typeof fn === "function") _activeCleanups.push(fn);
+}
 
 // checkpoint ids — stable identifiers for assessment engine to key on
 const CP_EXIT_ID = "fire_exit_identification";
@@ -250,22 +255,22 @@ function _setupStep1(container, tierInfo) {
 
   const screens = [
     {
-      badge: "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (1/4)",
-      title: "Why Identifying Exits Matters",
-      desc: "In a fire emergency, heavy smoke reduces visibility to zero in under 30 seconds. Panic causes confusion — knowing your exit routes beforehand saves critical seconds.",
-      buttonText: "Next: Primary & Backup Exits ➜"
+      badge: t("fire.exit_badge_1", "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (1/4)"),
+      title: t("fire.exit_title_1", "Why Identifying Exits Matters"),
+      desc: t("fire.exit_desc_1", "In a fire emergency, heavy smoke reduces visibility to zero in under 30 seconds. Panic causes confusion — knowing your exit routes beforehand saves critical seconds."),
+      buttonText: t("fire.exit_next_1", "Next: Primary & Backup Exits ➜")
     },
     {
-      badge: "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (2/4)",
-      title: "Primary vs. Backup Route",
-      desc: "Never rely on a single exit path. If flames or smoke block your primary route, you must immediately pivot to your pre-identified secondary emergency path.",
-      buttonText: "Next: Elevators Danger ➜"
+      badge: t("fire.exit_badge_2", "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (2/4)"),
+      title: t("fire.exit_title_2", "Primary vs. Backup Route"),
+      desc: t("fire.exit_desc_2", "Never rely on a single exit path. If flames or smoke block your primary route, you must immediately pivot to your pre-identified secondary emergency path."),
+      buttonText: t("fire.exit_next_2", "Next: Elevators Danger ➜")
     },
     {
-      badge: "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (3/4)",
-      title: "Never Use Elevators in a Fire",
-      desc: "Elevator shafts act as natural chimneys drawing superheated toxic gases. Power failure can strand the car between burning floors. Always use designated fire stairwells.",
-      buttonText: "Next: Locate Exit in AR ➜"
+      badge: t("fire.exit_badge_3", "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (3/4)"),
+      title: t("fire.exit_title_3", "Never Use Elevators in a Fire"),
+      desc: t("fire.exit_desc_3", "Elevator shafts act as natural chimneys drawing superheated toxic gases. Power failure can strand the car between burning floors. Always use designated fire stairwells."),
+      buttonText: t("fire.exit_next_3", "Next: Locate Exit in AR ➜")
     }
   ];
 
@@ -728,35 +733,39 @@ function _setupStep2(container, tierInfo) {
         typeof document !== "undefined" ? document : null
       ].filter((t) => t && typeof t.addEventListener === "function");
       dragTargets.forEach((target) => {
-        target.addEventListener("pointerdown", (e) => {
-          if (isSelected) onDragStart(e.clientX);
-        });
-        target.addEventListener("touchstart", (e) => {
-          if (isSelected && e.touches && e.touches[0]) {
-            onDragStart(e.touches[0].clientX);
-          }
-        }, { passive: true });
-        target.addEventListener("pointermove", (e) => {
-          if (isSelected && startX !== null) onDragMove(e.clientX);
-        });
+        const onDown = (e) => { if (isSelected) onDragStart(e.clientX); };
+        const onTouchStart = (e) => { if (isSelected && e.touches && e.touches[0]) onDragStart(e.touches[0].clientX); };
+        const onMove = (e) => { if (isSelected && startX !== null) onDragMove(e.clientX); };
+        const onTouchMove = (e) => { if (isSelected && startX !== null && e.touches && e.touches[0]) onDragMove(e.touches[0].clientX); };
+
+        target.addEventListener("pointerdown", onDown);
+        target.addEventListener("touchstart", onTouchStart, { passive: true });
+        target.addEventListener("pointermove", onMove);
         target.addEventListener("pointerup", onDragEnd);
-        target.addEventListener("touchmove", (e) => {
-          if (isSelected && startX !== null && e.touches && e.touches[0]) {
-            onDragMove(e.touches[0].clientX);
-          }
-        }, { passive: true });
+        target.addEventListener("touchmove", onTouchMove, { passive: true });
         target.addEventListener("touchend", onDragEnd);
+
+        addCleanup(() => {
+          target.removeEventListener("pointerdown", onDown);
+          target.removeEventListener("touchstart", onTouchStart);
+          target.removeEventListener("pointermove", onMove);
+          target.removeEventListener("pointerup", onDragEnd);
+          target.removeEventListener("touchmove", onTouchMove);
+          target.removeEventListener("touchend", onDragEnd);
+        });
       });
 
       // tap anywhere on viewport or canvas selects pin if not selected, or pulls if selected
       const viewport = typeof document !== "undefined" ? (document.getElementById("ar-viewport") || document.body) : null;
       if (viewport && typeof viewport.addEventListener === "function") {
-        viewport.addEventListener("click", () => {
+        const onViewportClick = () => {
           if (completed) return;
           if (!isSelected) {
             applySelectedVisuals(true);
           }
-        });
+        };
+        viewport.addEventListener("click", onViewportClick);
+        addCleanup(() => viewport.removeEventListener("click", onViewportClick));
       }
     }
   }
@@ -1167,6 +1176,11 @@ function _setupStep2(container, tierInfo) {
         statusBadge.addEventListener("pointerdown", startSqueeze);
         statusBadge.addEventListener("mousedown", startSqueeze);
         statusBadge.addEventListener("touchstart", startSqueeze, { passive: true });
+        addCleanup(() => {
+          statusBadge.removeEventListener("pointerdown", startSqueeze);
+          statusBadge.removeEventListener("mousedown", startSqueeze);
+          statusBadge.removeEventListener("touchstart", startSqueeze);
+        });
       }
 
       const releaseTargets = [
@@ -1179,6 +1193,13 @@ function _setupStep2(container, tierInfo) {
         target.addEventListener("mouseup", stopSqueeze);
         target.addEventListener("pointercancel", stopSqueeze);
         target.addEventListener("touchend", stopSqueeze);
+
+        addCleanup(() => {
+          target.removeEventListener("pointerup", stopSqueeze);
+          target.removeEventListener("mouseup", stopSqueeze);
+          target.removeEventListener("pointercancel", stopSqueeze);
+          target.removeEventListener("touchend", stopSqueeze);
+        });
       });
     }
   }
@@ -1194,6 +1215,7 @@ function _setupStep2(container, tierInfo) {
         <div id="sweep-progress-fill" style="width:0%;height:100%;background:#00e676;transition:width 0.08s ease;"></div>
       </div>
       <div id="sweep-status-text" style="font-size:0.85rem;color:#00e676;font-weight:bold;">↔ SWEEP PHONE SIDE TO SIDE (0% COVERED)</div>
+      <button id="btn-sweep-complete-fallback" style="margin-top:0.6rem;padding:0.6rem 1rem;background:#334155;color:#94a3b8;border:1px solid #475569;border-radius:8px;font-size:0.85rem;cursor:pointer;display:block;width:100%;max-width:280px;">Tap here if motion not detected ➜</button>
     `;
 
     // invisible sweep zone controller for tests and fallback
@@ -1202,50 +1224,32 @@ function _setupStep2(container, tierInfo) {
     sweepZone.style.display = "none";
     overlay.appendChild(sweepZone);
 
-    const progressFill = document.getElementById("sweep-progress-fill");
     const statusText = document.getElementById("sweep-status-text");
+    const progressFill = document.getElementById("sweep-progress-fill");
+    const fallbackBtn = document.getElementById("btn-sweep-complete-fallback");
 
-    const bTitle = document.getElementById("billboard-step-title");
-    const bDesc = document.getElementById("billboard-step-desc");
-    const bPill = document.getElementById("billboard-pill-text");
-    if (bTitle) bTitle.setAttribute("value", "S — SWEEP HAZARD");
-    if (bDesc) bDesc.setAttribute("value", "Move camera side-to-side\nacross fire base.");
-    if (bPill) bPill.setAttribute("value", "↔ SWEEPING 0%");
+    // billboard text updates for step 4 (Sweep)
+    const billboardTitle = document.getElementById("billboard-step-title");
+    const billboardPill = document.getElementById("billboard-pill-text");
+    if (billboardTitle) billboardTitle.setAttribute("value", "STEP 4: SWEEP");
+    if (billboardPill) billboardPill.setAttribute("value", "↔ SWEEP SIDE TO SIDE");
 
-    const motionSamples = [];
     let completed = false;
-    let markerLost = false;
     let rafId = null;
 
-    const marker = typeof document !== "undefined" && typeof document.querySelector === "function"
-      ? (document.querySelector("#kanji-marker") || document.querySelector("a-marker[preset='kanji']") || document.querySelector("a-marker"))
-      : null;
-
-    const onMarkerLost = () => {
-      markerLost = true;
-      if (statusText) {
-        statusText.textContent = "⚠️ Keep marker in camera view to sweep";
-        statusText.style.color = "#f59e0b";
+    addCleanup(() => {
+      if (typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function" && rafId) {
+        window.cancelAnimationFrame(rafId);
       }
-    };
+    });
 
-    const onMarkerFound = () => {
-      markerLost = false;
-      if (statusText) {
-        statusText.style.color = "#00e676";
-      }
-    };
-
-    function handleSweepFinish(sync = false) {
+    const handleSweepFinish = (sync = false) => {
       if (completed) return;
       completed = true;
       if (typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function" && rafId) {
         window.cancelAnimationFrame(rafId);
       }
-      if (marker && typeof marker.removeEventListener === "function") {
-        marker.removeEventListener("markerLost", onMarkerLost);
-        marker.removeEventListener("markerFound", onMarkerFound);
-      }
+
       if (statusText) {
         statusText.textContent = "✔ FIRE EXTINGUISHED!";
         statusText.style.color = "#00e676";
@@ -1280,53 +1284,55 @@ function _setupStep2(container, tierInfo) {
       }, "PASS technique completed");
 
       fireCheckpointResult(CP_EXTINGUISHER_ID, passed, {
+        method: sync ? "button_fallback" : "physical_motion_sweep",
         accuracy: finalAccuracy,
+        distance: finalDistance,
         target: passed ? "base" : "missed",
-        distance: finalDistance
+        tier: tierInfo && tierInfo.tier
       });
 
       if (sync) {
         _setupStep3(container);
       } else {
-        setTimeout(() => _setupStep3(container), 450);
+        setTimeout(() => {
+          _setupStep3(container);
+        }, 450);
       }
+    };
+
+    if (fallbackBtn) {
+      fallbackBtn.addEventListener("click", () => handleSweepFinish(true));
     }
 
     sweepZone.simulateSweep = (positions = [0, 80, 160, 220]) => {
       const maxVal = Math.max(...positions.map(Math.abs));
       const coverage = maxVal > 5
         ? calcSweepCoverage(positions, 220)
-        : calcMotionSweepCoverage(positions, MOTION_SWEEP_TARGET_SPAN);
-      if (isSweepComplete(coverage, SWEEP_MIN_COVERAGE)) {
+        : calcMotionSweepCoverage(positions);
+      if (isSweepComplete(coverage)) {
         handleSweepFinish(true);
       }
     };
     sweepZone.addEventListener("click", () => handleSweepFinish(true));
 
-    if (marker && typeof marker.addEventListener === "function") {
-      marker.addEventListener("markerLost", onMarkerLost);
-      marker.addEventListener("markerFound", onMarkerFound);
-    }
+    const cameraEl = document.getElementById("main-camera");
+    const sweepSamples = [];
 
     function checkMotionFrame() {
       if (completed) return;
-      if (!markerLost && marker && marker.object3D) {
-        const posX = marker.object3D.position ? marker.object3D.position.x : null;
-        if (typeof posX === "number" && !isNaN(posX)) {
-          motionSamples.push(posX);
-          const coverage = calcMotionSweepCoverage(motionSamples, MOTION_SWEEP_TARGET_SPAN);
-          const pct = Math.min(100, Math.round(coverage * 100));
-          if (progressFill) progressFill.style.width = `${pct}%`;
-          if (statusText && !markerLost) {
-            statusText.textContent = `↔ SWEEPING FIRE BASE (${pct}% COVERED)`;
+      if (cameraEl && cameraEl.object3D) {
+        const posX = cameraEl.object3D.position.x;
+        sweepSamples.push(posX);
+
+        if (sweepSamples.length >= 5) {
+          const coverage = calcMotionSweepCoverage(sweepSamples);
+          if (progressFill) {
+            progressFill.style.width = `${Math.min(100, Math.round(coverage * 100))}%`;
           }
-          const bPill = document.getElementById("billboard-pill-text");
-          if (bPill) bPill.setAttribute("value", `↔ SWEEPING (${pct}%)`);
-          const fireEl = document.getElementById("fire-graphic");
-          if (fireEl && typeof fireEl.setAttribute === "function") {
-            const remaining = Math.max(0.01, 1 - (coverage / SWEEP_MIN_COVERAGE));
-            fireEl.setAttribute("scale", `${remaining} ${remaining} ${remaining}`);
+          if (statusText) {
+            statusText.textContent = `↔ SWEEPING... (${Math.round(coverage * 100)}% COVERED)`;
           }
+
           if (isSweepComplete(coverage, SWEEP_MIN_COVERAGE)) {
             handleSweepFinish(false);
             return;
@@ -1370,25 +1376,25 @@ function _setupStep3(_container) {
 
   const screens = [
     {
-      badge: "🔥 STEP 3 / 3 — EVACUATION (1/3)",
-      title: "Why Evacuation Order Matters",
-      desc: "Sounding the building alarm immediately alerts everyone before heat spreads. Never delay evacuation to gather personal belongings or tools.",
-      buttonText: "Next: Assembly Area Purpose ➜"
+      badge: t("fire.evac_badge_1", "🔥 STEP 3 / 3 — EVACUATION (1/3)"),
+      title: t("fire.evac_title_1", "Why Evacuation Order Matters"),
+      desc: t("fire.evac_desc_1", "Sounding the building alarm immediately alerts everyone before heat spreads. Never delay evacuation to gather personal belongings or tools."),
+      buttonText: t("fire.evac_next_1", "Next: Assembly Area Purpose ➜")
     },
     {
-      badge: "🔥 STEP 3 / 3 — EVACUATION (2/3)",
-      title: "Assembly & Headcount",
-      desc: "Proceed directly to your designated external assembly area. Immediate headcount verification ensures rescuers know if anyone is trapped inside.",
-      buttonText: "Next: Evacuation Protocol Choice ➜"
+      badge: t("fire.evac_badge_2", "🔥 STEP 3 / 3 — EVACUATION (2/3)"),
+      title: t("fire.evac_title_2", "Assembly & Headcount"),
+      desc: t("fire.evac_desc_2", "Proceed directly to your designated external assembly area. Immediate headcount verification ensures rescuers know if anyone is trapped inside."),
+      buttonText: t("fire.evac_next_2", "Next: Evacuation Protocol Choice ➜")
     }
   ];
 
   function showActionScreen() {
     if (overlay) {
       overlay.innerHTML = `
-        <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 3 / 3 — EVACUATION (3/3)</div>
-        <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">Evacuation Protocol Choice</div>
-        <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">What is the correct immediate action after attempting extinguisher use?</div>
+        <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${t("fire.evac_badge_3", "🔥 STEP 3 / 3 — EVACUATION (3/3)")}</div>
+        <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("fire.evac_title_3", "Evacuation Protocol Choice")}</div>
+        <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("fire.evac_desc_3", "What is the correct immediate action after attempting extinguisher use?")}</div>
       `;
 
       _renderEvacuationOptions(overlay, (selectedId, passed) => {
@@ -1422,6 +1428,17 @@ function _setupStep3(_container) {
 // clean up all fire module graphics and overlay from DOM and a-marker
 function cleanupFireModule() {
   _currentStep = 0;
+
+  // drain tracked event listeners and animation frames
+  while (_activeCleanups.length > 0) {
+    const fn = _activeCleanups.pop();
+    try {
+      fn();
+    } catch {
+      // ignore cleanup errors
+    }
+  }
+
   [
     "fire-module-overlay",
     "fire-graphic",

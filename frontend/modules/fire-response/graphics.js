@@ -1,3 +1,5 @@
+import { t } from "../../js/i18n.js";
+
 // build 3d realistic industrial fire entity matching SENAR benchmark
 function buildFireEntity() {
   const entity = document.createElement("a-entity");
@@ -35,7 +37,7 @@ function buildFireEntity() {
     <a-cylinder id="fire-target-base" class="clickable aim-target" data-raycast-target="aim" position="0 -0.20 0" radius="0.95" height="0.75" material="color: #00e676; opacity: 0.01; transparent: true"></a-cylinder>
 
     <!-- 3D visual target label at ground base -->
-    <a-text id="aim-ground-label" value="👇 AIM AT BASE OF FLAMES" align="center" position="0 -0.62 0.50" rotation="-20 0 0" scale="0.50 0.50 0.50" color="#00e676" material="shader: flat"></a-text>
+    <a-text id="aim-ground-label" value="${t("graphics.aim_flame_base", "👇 AIM AT BASE OF FLAMES")}" align="center" position="0 -0.62 0.50" rotation="-20 0 0" scale="0.50 0.50 0.50" color="#00e676" material="shader: flat"></a-text>
   `;
 
   // 3d neon green aim reticle facing user at the base of the fire container
@@ -105,8 +107,8 @@ function buildExtinguisherEntity() {
     <!-- industrial pass instruction decal plate on front cylinder body -->
     <a-plane id="ext-decal-plate" position="0 0 0.385" width="0.46" height="0.65" material="color: #ffffff; roughness: 0.3"></a-plane>
     <a-plane id="ext-decal-header" position="0 0.24 0.388" width="0.44" height="0.12" material="color: #1e3a8a; roughness: 0.25"></a-plane>
-    <a-text position="0 0.24 0.390" value="ABC DRY CHEMICAL" align="center" scale="0.36 0.36 0.36" color="#ffffff"></a-text>
-    <a-text position="0 0.08 0.390" value="1. PULL PIN\n2. AIM AT BASE\n3. SQUEEZE LEVER\n4. SWEEP HAZARD" align="center" scale="0.30 0.30 0.30" color="#0f172a"></a-text>
+    <a-text position="0 0.24 0.390" value="${t("graphics.abc_chemical", "ABC DRY CHEMICAL")}" align="center" scale="0.36 0.36 0.36" color="#ffffff"></a-text>
+    <a-text position="0 0.08 0.390" value="${t("graphics.pass_instructions", "1. PULL PIN\\n2. AIM AT BASE\\n3. SQUEEZE LEVER\\n4. SWEEP HAZARD")}" align="center" scale="0.30 0.30 0.30" color="#0f172a"></a-text>
 
     <!-- brass valve block assembly -->
     <a-cylinder id="ext-neck" position="0 0.74 0" radius="0.12" height="0.16" material="color: #d97706; metalness: 0.85; roughness: 0.2"></a-cylinder>

@@ -2,6 +2,7 @@ import { createLogger } from "../../js/logger.js";
 import { registerCheckpoint, fireCheckpointResult } from "../../ar/interactions.js";
 import { unloadModule } from "../../js/module-loader.js";
 import { buildHazardZoneEntity, buildPpeDisplayEntity } from "./graphics.js";
+import { t } from "../../js/i18n.js";
 
 const logger = createLogger("GasLeakModule");
 
@@ -237,16 +238,16 @@ function _setupStep1(container, tierInfo) {
 
   const screens = [
     {
-      badge: "☣ STEP 1 / 3 — HAZARD ZONE RECOGNITION (1/3)",
-      title: "Confined Space Atmospheric Hazards",
-      desc: "Confined spaces (tanks, sumps, silos, underground pits) trap invisible lethal gases like H₂S, methane, or CO. Low oxygen (<19.5%) causes sudden loss of consciousness without warning.",
-      buttonText: "Next: Testing & Permits ➜"
+      badge: t("gas.step1_badge_1", "☣ STEP 1 / 3 — HAZARD ZONE RECOGNITION (1/3)"),
+      title: t("gas.step1_title_1", "Confined Space Atmospheric Hazards"),
+      desc: t("gas.step1_desc_1", "Confined spaces (tanks, sumps, silos, underground pits) trap invisible lethal gases like H₂S, methane, or CO. Low oxygen (<19.5%) causes sudden loss of consciousness without warning."),
+      buttonText: t("gas.step1_next_1", "Next: Testing & Permits ➜")
     },
     {
-      badge: "☣ STEP 1 / 3 — HAZARD ZONE RECOGNITION (2/3)",
-      title: "Atmospheric Testing & Entry Permits",
-      desc: "Never enter without a signed Confined Space Entry Permit. Calibrated gas detectors must sample the atmosphere at top (light gases), middle, and bottom (heavy gases) levels before entry.",
-      buttonText: "Next: Confirm Hazard in AR ➜"
+      badge: t("gas.step1_badge_2", "☣ STEP 1 / 3 — HAZARD ZONE RECOGNITION (2/3)"),
+      title: t("gas.step1_title_2", "Atmospheric Testing & Entry Permits"),
+      desc: t("gas.step1_desc_2", "Never enter without a signed Confined Space Entry Permit. Calibrated gas detectors must sample the atmosphere at top (light gases), middle, and bottom (heavy gases) levels before entry."),
+      buttonText: t("gas.step1_next_2", "Next: Confirm Hazard in AR ➜")
     }
   ];
 
@@ -307,16 +308,16 @@ function _setupStep2(container, tierInfo) {
 
   const screens = [
     {
-      badge: "☣ STEP 2 / 3 — PPE SELECTION (1/3)",
-      title: "Respiratory Protection for Toxic Gas",
-      desc: "In oxygen-deficient (<19.5% O₂) or unknown toxic gas atmospheres, only a Self-Contained Breathing Apparatus (SCBA) provides clean air. Cloth or dust masks offer zero protection against gases.",
-      buttonText: "Next: Gas Monitoring & Retrieval ➜"
+      badge: t("gas.step2_badge_1", "☣ STEP 2 / 3 — PPE SELECTION (1/3)"),
+      title: t("gas.step2_title_1", "Respiratory Protection for Toxic Gas"),
+      desc: t("gas.step2_desc_1", "In oxygen-deficient (<19.5% O₂) or unknown toxic gas atmospheres, only a Self-Contained Breathing Apparatus (SCBA) provides clean air. Cloth or dust masks offer zero protection against gases."),
+      buttonText: t("gas.step2_next_1", "Next: Gas Monitoring & Retrieval ➜")
     },
     {
-      badge: "☣ STEP 2 / 3 — PPE SELECTION (2/3)",
-      title: "Continuous Monitoring & Retrieval Lifeline",
-      desc: "A multi-gas monitor must continuously alert the entrant to rising toxic levels. A full-body harness and retrieval lifeline allow non-entry rescue if a worker collapses inside.",
-      buttonText: "Next: Select Required PPE ➜"
+      badge: t("gas.step2_badge_2", "☣ STEP 2 / 3 — PPE SELECTION (2/3)"),
+      title: t("gas.step2_title_2", "Continuous Monitoring & Retrieval Lifeline"),
+      desc: t("gas.step2_desc_2", "A multi-gas monitor must continuously alert the entrant to rising toxic levels. A full-body harness and retrieval lifeline allow non-entry rescue if a worker collapses inside."),
+      buttonText: t("gas.step2_next_2", "Next: Select Required PPE ➜")
     }
   ];
 
@@ -376,16 +377,16 @@ function _setupStep3(_container) {
 
   const screens = [
     {
-      badge: "☣ STEP 3 / 3 — BUDDY SYSTEM PROTOCOL (1/3)",
-      title: "The Standby Buddy Role",
-      desc: "The safety attendant (buddy) remains stationed strictly outside the entrance opening. Over 60% of confined space fatalities are would-be rescuers entering without protection.",
-      buttonText: "Next: Communication & Emergency Rescue ➜"
+      badge: t("gas.step3_badge_1", "☣ STEP 3 / 3 — BUDDY SYSTEM PROTOCOL (1/3)"),
+      title: t("gas.step3_title_1", "The Standby Buddy Role"),
+      desc: t("gas.step3_desc_1", "The safety attendant (buddy) remains stationed strictly outside the entrance opening. Over 60% of confined space fatalities are would-be rescuers entering without protection."),
+      buttonText: t("gas.step3_next_1", "Next: Communication & Emergency Rescue ➜")
     },
     {
-      badge: "☣ STEP 3 / 3 — BUDDY SYSTEM PROTOCOL (2/3)",
-      title: "Continuous Comms & Non-Entry Rescue",
-      desc: "The attendant maintains unbroken visual or radio communication at fixed intervals. If an entrant becomes unresponsive, the attendant immediately initiates external winch retrieval and summons emergency response.",
-      buttonText: "Next: Select Buddy Procedure ➜"
+      badge: t("gas.step3_badge_2", "☣ STEP 3 / 3 — BUDDY SYSTEM PROTOCOL (2/3)"),
+      title: t("gas.step3_title_2", "Continuous Comms & Non-Entry Rescue"),
+      desc: t("gas.step3_desc_2", "The attendant maintains unbroken visual or radio communication at fixed intervals. If an entrant becomes unresponsive, the attendant immediately initiates external winch retrieval and summons emergency response."),
+      buttonText: t("gas.step3_next_2", "Next: Select Buddy Procedure ➜")
     }
   ];
 

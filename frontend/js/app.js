@@ -3,6 +3,7 @@ import { detectDeviceCaps, selectArTier } from "../ar/tier.js";
 import { initWebXRSession, loadModule3DScene, WebXRPlacementController } from "../ar/webxr.js";
 import { initMarkerTracking, loadMarkerModuleScene } from "../ar/marker.js";
 import { setTierLoaders, loadModule, unloadModule } from "./module-loader.js";
+import { t } from "./i18n.js";
 
 const logger = createLogger("AppBoot");
 
@@ -171,9 +172,9 @@ async function bootTier2(container, decision) {
         : "";
 
       statusCard.innerHTML = `
-        <h3>AR Tier 2 Active (Hiro Marker)</h3>
+        <h3>${t("app.tier2_active", "AR Tier 2 Active (Hiro Marker)")}</h3>
         ${diagNotice}
-        <p>Point camera at Hiro marker. Pick a module to begin.</p>
+        <p>${t("app.tier2_active_desc", "Point camera at Hiro marker. Pick a module to begin.")}</p>
         ${_scaffoldModuleButton()}
       `;
       _bindScaffoldButton(statusCard);
@@ -205,16 +206,14 @@ async function handleWebXRFallback(container, caps, err, loggerInstance = logger
     }, "WebXR runtime failed; falling back to Tier 2 (marker)");
   }
 
-  const fallbackDecision = {
-    tier: 2,
-    mode: "marker",
-    reason: "webxr_failed_fallback_to_marker",
-    caps,
-    originalError: errorMessage,
+  const fallbackCaps = {
+    ...caps,
+    webxrRuntimeError: true,
     errorName,
     errorMessage
   };
 
+  const fallbackDecision = selectArTier(fallbackCaps);
   return await bootTier2(container, fallbackDecision);
 }
 
@@ -242,8 +241,8 @@ async function bootTier1(container, decision, caps) {
 
       if (statusCard) {
         statusCard.innerHTML = `
-          <h3>AR Tier 1 Active (WebXR)</h3>
-          <p>Point at a flat surface and tap to place the extinguisher.</p>
+          <h3>${t("app.tier1_active", "AR Tier 1 Active (WebXR)")}</h3>
+          <p>${t("app.tier1_active_desc", "Point at a flat surface and tap to place the extinguisher.")}</p>
           ${_scaffoldModuleButton()}
         `;
         _bindScaffoldButton(statusCard);
@@ -257,10 +256,10 @@ async function bootTier1(container, decision, caps) {
 
   if (statusCard) {
     statusCard.innerHTML = `
-      <h3>AR Tier 1 Ready (WebXR)</h3>
-      <p>Real-world surface tracking supported on your tablet. Tap below to start AR:</p>
-      <button id="btn-start-webxr" style="display:block;width:100%;max-width:340px;padding:14px 20px;border-radius:10px;border:2px solid #38bdf8;background:linear-gradient(135deg,#0284c7,#0369a1);color:#ffffff;font-size:1.05rem;font-weight:bold;cursor:pointer;margin:10px 0;box-shadow:0 4px 16px rgba(56,189,248,0.4);pointer-events:auto !important;text-align:center;">🚀 START AR SESSION (WEBXR)</button>
-      <p style="font-size:0.8rem;color:#94a3b8;margin-top:4px;">Or tap a module to launch directly:</p>
+      <h3>${t("app.tier1_ready", "AR Tier 1 Ready (WebXR)")}</h3>
+      <p>${t("app.tier1_ready_desc", "Real-world surface tracking supported on your tablet. Tap below to start AR:")}</p>
+      <button id="btn-start-webxr" style="display:block;width:100%;max-width:340px;padding:14px 20px;border-radius:10px;border:2px solid #38bdf8;background:linear-gradient(135deg,#0284c7,#0369a1);color:#ffffff;font-size:1.05rem;font-weight:bold;cursor:pointer;margin:10px 0;box-shadow:0 4px 16px rgba(56,189,248,0.4);pointer-events:auto !important;text-align:center;">${t("app.start_ar_session", "🚀 START AR SESSION (WEBXR)")}</button>
+      <p style="font-size:0.8rem;color:#94a3b8;margin-top:4px;">${t("app.launch_module_direct", "Or tap a module to launch directly:")}</p>
       ${_scaffoldModuleButton()}
     `;
 
@@ -277,27 +276,41 @@ async function bootTier1(container, decision, caps) {
   return { canvas, statusCard, activateWebXR };
 }
 
+let _appInitPromise = null;
+
 // start mobile app and init audio and ar
 async function initApp() {
-  const appContainer = document.getElementById("app");
-  if (!appContainer) {
-    return;
+  if (_appInitPromise) {
+    return _appInitPromise;
   }
 
-  // probe device hardware caps
-  const caps = await detectDeviceCaps(window);
-  const decision = selectArTier(caps, logger);
+  _appInitPromise = (async () => {
+    const appContainer = document.getElementById("app");
+    if (!appContainer) {
+      return null;
+    }
 
-  if (decision.tier === 0) {
-    renderUnsupportedView(appContainer, decision);
-    return;
-  }
+    // probe device hardware caps
+    const caps = await detectDeviceCaps(window);
+    const decision = selectArTier(caps);
 
-  if (decision.tier === 1) {
-    await bootTier1(appContainer, decision, caps);
-  } else if (decision.tier === 2) {
-    await bootTier2(appContainer, decision);
-  }
+    // log tier selection once at module initialization per Rule 3078729
+    logger.info(decision, "AR tier selected");
+
+    if (decision.tier === 0) {
+      renderUnsupportedView(appContainer, decision);
+      return decision;
+    }
+
+    if (decision.tier === 1) {
+      await bootTier1(appContainer, decision, caps);
+    } else if (decision.tier === 2) {
+      await bootTier2(appContainer, decision);
+    }
+    return decision;
+  })();
+
+  return _appInitPromise;
 }
 
 // bind module lifecycle events to toggle status HUD visibility
@@ -316,20 +329,23 @@ function bindModuleLifecycleUI(statusCard) {
 // SCAFFOLDING — remove when real module-selection UI exists
 function _scaffoldModuleButton() {
   return `<div style="display:flex;gap:0.6rem;margin-top:0.8rem;flex-wrap:wrap;width:100%;">
-    <button id="scaffold-load-btn" style="flex:1;min-width:130px;padding:12px 14px;background:#ef4444;color:#fff;border:none;border-radius:10px;font-weight:bold;font-size:0.95rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(0,0,0,0.6);">🔥 Fire Response</button>
-    <button id="scaffold-gas-btn" style="flex:1;min-width:130px;padding:12px 14px;background:#f59e0b;color:#000;border:none;border-radius:10px;font-weight:bold;font-size:0.95rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(0,0,0,0.6);">☣️ Gas Leak</button>
+    <button id="scaffold-load-btn" style="flex:1;min-width:130px;padding:12px 14px;background:#ef4444;color:#fff;border:none;border-radius:10px;font-weight:bold;font-size:0.95rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(0,0,0,0.6);">${t("app.fire_btn", "🔥 Fire Response")}</button>
+    <button id="scaffold-gas-btn" style="flex:1;min-width:130px;padding:12px 14px;background:#f59e0b;color:#000;border:none;border-radius:10px;font-weight:bold;font-size:0.95rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(0,0,0,0.6);">${t("app.gas_btn", "☣️ Gas Leak")}</button>
   </div>`;
 }
 
 // SCAFFOLDING — bind scaffold buttons to loadModule
-function _bindScaffoldButton(container) {
+function _bindScaffoldButton(container, onBeforeLoad) {
   const btnFire = container.querySelector("#scaffold-load-btn");
   if (btnFire) {
     btnFire.addEventListener("click", async () => {
       try {
+        if (typeof onBeforeLoad === "function") {
+          await onBeforeLoad();
+        }
         await loadModule("fire-response");
       } catch (err) {
-        logger.warn({ event: "scaffold_load_threw", error: err.message }, "Stub not implemented yet");
+        logger.warn({ event: "scaffold_load_threw", error: err.message }, "Module load threw");
       }
     });
   }
@@ -338,9 +354,12 @@ function _bindScaffoldButton(container) {
   if (btnGas) {
     btnGas.addEventListener("click", async () => {
       try {
+        if (typeof onBeforeLoad === "function") {
+          await onBeforeLoad();
+        }
         await loadModule("gas-leak");
       } catch (err) {
-        logger.warn({ event: "scaffold_load_threw", error: err.message }, "Stub not implemented yet");
+        logger.warn({ event: "scaffold_load_threw", error: err.message }, "Module load threw");
       }
     });
   }

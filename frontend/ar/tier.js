@@ -1,5 +1,3 @@
-import { defaultLogger } from "../js/logger.js";
-
 // probe device for webxr and camera support
 async function detectDeviceCaps(win = window) {
   const isSecureContext = Boolean(win.isSecureContext);
@@ -47,7 +45,7 @@ async function detectDeviceCaps(win = window) {
 }
 
 // pick ar tier, fall back if phone too weak
-function selectArTier(deviceCaps, logger = defaultLogger) {
+function selectArTier(deviceCaps) {
   if (!deviceCaps || typeof deviceCaps !== "object") {
     throw new Error("deviceCaps object is required");
   }
@@ -56,12 +54,23 @@ function selectArTier(deviceCaps, logger = defaultLogger) {
     deviceCaps.isSecureContext &&
     deviceCaps.hasWebXR &&
     deviceCaps.supportsImmersiveAr &&
-    deviceCaps.hasGetUserMedia
+    deviceCaps.hasGetUserMedia &&
+    !deviceCaps.webxrRuntimeError
   );
 
   let decision;
 
-  if (deviceCaps.forcedTier === 2 && deviceCaps.hasGetUserMedia) {
+  if (deviceCaps.webxrRuntimeError && deviceCaps.hasGetUserMedia) {
+    decision = {
+      tier: 2,
+      mode: "marker",
+      reason: "webxr_failed_fallback_to_marker",
+      caps: deviceCaps,
+      originalError: deviceCaps.errorMessage,
+      errorName: deviceCaps.errorName,
+      errorMessage: deviceCaps.errorMessage
+    };
+  } else if (deviceCaps.forcedTier === 2 && deviceCaps.hasGetUserMedia) {
     decision = {
       tier: 2,
       mode: "marker",
@@ -89,10 +98,6 @@ function selectArTier(deviceCaps, logger = defaultLogger) {
       reason: "camera_access_unavailable",
       caps: deviceCaps
     };
-  }
-
-  if (logger && typeof logger.info === "function") {
-    logger.info(decision, "AR tier selected");
   }
 
   return decision;

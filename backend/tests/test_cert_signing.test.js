@@ -12,7 +12,7 @@
  */
 
 const { describe, it } = require("node:test");
-const assert = require("node:assert");
+// const assert = require("node:assert");
 
 describe("Certificate Signing and Tamper Verification", () => {
   it("should generate a verifiable signature for valid training completion", () => {

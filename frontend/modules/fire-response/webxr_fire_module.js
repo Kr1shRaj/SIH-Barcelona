@@ -1,6 +1,7 @@
 import { createLogger } from "../../js/logger.js";
 import { registerCheckpoint, fireCheckpointResult } from "../../ar/interactions.js";
 import { unloadModule } from "../../js/module-loader.js";
+import { t } from "../../js/i18n.js";
 import {
   createFireMesh, animateFireMesh,
   createExtinguisherMesh, animateExtinguisherMesh,
@@ -23,6 +24,10 @@ let _controller = null;
 let _fireMesh = null;
 let _extMesh = null;
 let _frameHandler = null;
+let _aimFrameHandler = null;
+let _sweepFrameHandler = null;
+let _placementScreenTap = null;
+let _placementConfirmedHandler = null;
 let _interactionState = null;
 
 // read active step number
@@ -35,6 +40,22 @@ function cleanupWebXRFireModule() {
   if (_frameHandler && _controller) {
     _controller.offFrame(_frameHandler);
     _frameHandler = null;
+  }
+  if (_aimFrameHandler && _controller) {
+    _controller.offFrame(_aimFrameHandler);
+    _aimFrameHandler = null;
+  }
+  if (_sweepFrameHandler && _controller) {
+    _controller.offFrame(_sweepFrameHandler);
+    _sweepFrameHandler = null;
+  }
+  if (_placementScreenTap && typeof window !== "undefined") {
+    window.removeEventListener("click", _placementScreenTap);
+    _placementScreenTap = null;
+  }
+  if (_placementConfirmedHandler && typeof window !== "undefined") {
+    window.removeEventListener("safear:placement_confirmed", _placementConfirmedHandler);
+    _placementConfirmedHandler = null;
   }
   if (_fireMesh && _controller) {
     _controller.removeFromScene(_fireMesh);
@@ -103,22 +124,22 @@ function _setupStep1WebXR(container) {
 
   const screens = [
     {
-      badge: "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (1/4)",
-      title: "Why Identifying Exits Matters",
-      desc: "In a fire emergency, heavy smoke reduces visibility to zero in under 30 seconds. Panic causes confusion — knowing your exit routes beforehand saves critical seconds.",
-      buttonText: "Next: Primary & Backup Exits ➜"
+      badge: t("fire.exit_badge_1", "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (1/4)"),
+      title: t("fire.exit_title_1", "Why Identifying Exits Matters"),
+      desc: t("fire.exit_desc_1", "In a fire emergency, heavy smoke reduces visibility to zero in under 30 seconds. Panic causes confusion — knowing your exit routes beforehand saves critical seconds."),
+      buttonText: t("fire.exit_next_1", "Next: Primary & Backup Exits ➜")
     },
     {
-      badge: "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (2/4)",
-      title: "Primary vs. Backup Route",
-      desc: "Never rely on a single exit path. If flames or smoke block your primary route, you must immediately pivot to your pre-identified secondary emergency path.",
-      buttonText: "Next: Elevators Danger ➜"
+      badge: t("fire.exit_badge_2", "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (2/4)"),
+      title: t("fire.exit_title_2", "Primary vs. Backup Route"),
+      desc: t("fire.exit_desc_2", "Never rely on a single exit path. If flames or smoke block your primary route, you must immediately pivot to your pre-identified secondary emergency path."),
+      buttonText: t("fire.exit_next_2", "Next: Elevators Danger ➜")
     },
     {
-      badge: "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (3/4)",
-      title: "Never Use Elevators in a Fire",
-      desc: "Elevator shafts act as natural chimneys drawing superheated toxic gases. Power failure can strand the car between burning floors. Always use designated fire stairwells.",
-      buttonText: "Next: Place Extinguisher ➜"
+      badge: t("fire.exit_badge_3", "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (3/4)"),
+      title: t("fire.exit_title_3", "Never Use Elevators in a Fire"),
+      desc: t("fire.exit_desc_3", "Elevator shafts act as natural chimneys drawing superheated toxic gases. Power failure can strand the car between burning floors. Always use designated fire stairwells."),
+      buttonText: t("fire.exit_next_3", "Next: Place Extinguisher ➜")
     }
   ];
 
@@ -136,10 +157,10 @@ function _setupStep1WebXR(container) {
     }
 
     overlay.innerHTML = `
-      <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 1 / 3 — EXIT IDENTIFICATION (4/4)</div>
-      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">Place Extinguisher on Ground</div>
-      <div id="placement-status-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Point your tablet at the floor or table. Tap the green button below (or tap anywhere on screen) to place the extinguisher.</div>
-      <button id="btn-place-extinguisher" style="display:block;width:100%;max-width:340px;padding:14px 20px;border-radius:10px;border:2px solid #00e676;background:#0f172a;color:#00e676;font-size:1rem;font-weight:bold;cursor:pointer;margin:0.5rem 0;box-shadow:0 0 15px rgba(0,230,118,0.35);pointer-events:auto !important;text-align:center;">🎯 TAP TO PLACE EXTINGUISHER ON FLOOR</button>
+      <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${t("fire.place_badge", "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (4/4)")}</div>
+      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("fire.place_title", "Place Extinguisher on Ground")}</div>
+      <div id="placement-status-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("fire.place_desc", "Point your tablet at the floor or table. Tap the green button below (or tap anywhere on screen) to place the extinguisher.")}</div>
+      <button id="btn-place-extinguisher" style="display:block;width:100%;max-width:340px;padding:14px 20px;border-radius:10px;border:2px solid #00e676;background:#0f172a;color:#00e676;font-size:1rem;font-weight:bold;cursor:pointer;margin:0.5rem 0;box-shadow:0 0 15px rgba(0,230,118,0.35);pointer-events:auto !important;text-align:center;">${t("fire.place_btn", "🎯 TAP TO PLACE EXTINGUISHER ON FLOOR")}</button>
     `;
 
     let placed = false;
@@ -148,6 +169,15 @@ function _setupStep1WebXR(container) {
     const doPlace = (pos, viewerQuat) => {
       if (placed) return;
       placed = true;
+
+      if (_placementScreenTap && typeof window !== "undefined") {
+        window.removeEventListener("click", _placementScreenTap);
+        _placementScreenTap = null;
+      }
+      if (_placementConfirmedHandler && typeof window !== "undefined") {
+        window.removeEventListener("safear:placement_confirmed", _placementConfirmedHandler);
+        _placementConfirmedHandler = null;
+      }
 
       const finalPos = pos || { x: 0, y: -0.45, z: -1.20 };
       logger.info({ event: "extinguisher_placed", position: finalPos }, "Extinguisher placed on surface");
@@ -219,7 +249,7 @@ function _setupStep1WebXR(container) {
     }
 
     // 2. Hook up screen tap fallback
-    const onScreenTap = () => {
+    _placementScreenTap = () => {
       if (!placed) {
         if (_controller && typeof _controller.confirmPlacement === "function") {
           _controller.confirmPlacement();
@@ -228,14 +258,14 @@ function _setupStep1WebXR(container) {
         }
       }
     };
-    window.addEventListener("click", onScreenTap, { once: true });
+    window.addEventListener("click", _placementScreenTap, { once: true });
 
     // 3. Listen for placement confirmation from controller
-    const placementHandler = (e) => {
+    _placementConfirmedHandler = (e) => {
       const { position, viewerQuaternion } = e.detail;
       doPlace(position, viewerQuaternion);
     };
-    window.addEventListener("safear:placement_confirmed", placementHandler, { once: true });
+    window.addEventListener("safear:placement_confirmed", _placementConfirmedHandler, { once: true });
   }
 
   let subIndex = 0;
@@ -291,14 +321,14 @@ function _setupStep2WebXR(container) {
 function _showPinPhase(overlay, container) {
   if (!overlay) return;
   overlay.innerHTML = `
-    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (1/4)</div>
-    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">P — Pull the Pin</div>
-    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Tap anywhere to select the pin, then swipe right to pull it out.</div>
+    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${t("fire.pass_pull_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (1/4)")}</div>
+    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("fire.pass_pull_title", "P — Pull the Pin")}</div>
+    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("fire.pass_pull_desc", "Tap anywhere to select the pin, then swipe right to pull it out.")}</div>
   `;
   const btn = document.createElement("button");
   btn.id = "btn-webxr-pin-pull";
   btn.style.cssText = "padding:0.8rem 1.5rem;background:#00b8d4;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
-  btn.textContent = "👉 SWIPE RIGHT OR TAP TO PULL PIN";
+  btn.textContent = t("fire.pass_pull_badge_btn", "👉 SWIPE RIGHT OR TAP TO PULL PIN");
 
   let dragStart = null;
 
@@ -325,13 +355,11 @@ function _showPinPhase(overlay, container) {
 
   btn.addEventListener("touchend", (e) => {
     const touch = e.changedTouches[0];
-    checkPull(touch ? { x: touch.clientX, y: touch.clientY } : null);
+    if (touch) checkPull({ x: touch.clientX, y: touch.clientY });
+    else _onPinPulled(overlay, container);
   });
   btn.addEventListener("mouseup", (e) => {
     checkPull({ x: e.clientX, y: e.clientY });
-  });
-  btn.addEventListener("click", () => {
-    if (!dragStart) _onPinPulled(overlay, container);
   });
 
   overlay.appendChild(btn);
@@ -342,11 +370,9 @@ function _onPinPulled(overlay, container) {
   if (_interactionState) _interactionState.phase = "aim";
 
   // animate pin removal on 3D mesh
-  if (_extMesh) {
+  if (_extMesh && _extMesh.userData) {
     const pin = _extMesh.getObjectByName("extinguisher-pin");
     if (pin) pin.visible = false;
-    const arrow = _extMesh.getObjectByName("extinguisher-guide-arrow");
-    if (arrow) arrow.visible = false;
     _extMesh.userData._pinPulled = true;
   }
 
@@ -362,9 +388,9 @@ function _showAimPhase(overlay, container) {
   let aimActive = false;
 
   overlay.innerHTML = `
-    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (2/4)</div>
-    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">A — Aim at Base of Fire</div>
-    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Point your device directly at the base of the fire. Hold steady for 0.8 seconds.</div>
+    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${t("fire.pass_aim_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (2/4)")}</div>
+    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("fire.pass_aim_title", "A — Aim at Base of Fire")}</div>
+    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("fire.pass_aim_desc", "Point your device directly at the base of the fire. Hold steady for 0.8 seconds.")}</div>
     <div id="aim-progress-bar" style="width:100%;max-width:320px;height:8px;background:#1e293b;border-radius:4px;overflow:hidden;margin-top:0.5rem;">
       <div id="aim-progress-fill" style="width:0%;height:100%;background:#00e676;transition:width 0.1s;"></div>
     </div>
@@ -382,7 +408,7 @@ function _showAimPhase(overlay, container) {
   const screenCenter = new THREE.Vector2(0, 0);
 
   // add frame callback for aim tracking
-  const aimFrameHandler = ({ deltaMs }) => {
+  _aimFrameHandler = ({ deltaMs }) => {
     if (!_fireMesh || !_controller) return;
 
     const camera = _controller.getCamera();
@@ -420,7 +446,10 @@ function _showAimPhase(overlay, container) {
       if (fill) fill.style.width = `${Math.round(progress * 100)}%`;
 
       if (isComplete) {
-        _controller.offFrame(aimFrameHandler);
+        if (_controller && _aimFrameHandler) {
+          _controller.offFrame(_aimFrameHandler);
+          _aimFrameHandler = null;
+        }
         const accuracy = calcRaycastAimAccuracy(hitDistance, FIRE_BASE_MAX_DISTANCE_3D);
         logger.info({ event: "webxr_aim_complete", accuracy, hitDistance }, "Aim complete (WebXR)");
         _onAimComplete(overlay, container, accuracy);
@@ -433,12 +462,7 @@ function _showAimPhase(overlay, container) {
     }
   };
 
-  _controller.onFrame(aimFrameHandler);
-
-  // store for cleanup
-  if (_interactionState) {
-    _interactionState._aimFrameHandler = aimFrameHandler;
-  }
+  _controller.onFrame(_aimFrameHandler);
 }
 
 // fallback aim (no raycaster available — button-based)
@@ -447,8 +471,12 @@ function _showAimFallback(overlay, container) {
   const btn = document.createElement("button");
   btn.id = "btn-webxr-aim-confirm";
   btn.style.cssText = "margin-top:0.6rem;padding:0.8rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
-  btn.textContent = "🎯 I'm aiming at the base";
+  btn.textContent = t("fire.pass_aim_btn", "🎯 I'm aiming at the base");
   btn.addEventListener("click", () => {
+    if (_controller && _aimFrameHandler) {
+      _controller.offFrame(_aimFrameHandler);
+      _aimFrameHandler = null;
+    }
     _onAimComplete(overlay, container, 0.85);
   });
   overlay.appendChild(btn);
@@ -456,42 +484,46 @@ function _showAimFallback(overlay, container) {
 
 // aim done — advance to squeeze
 function _onAimComplete(overlay, container, accuracy) {
-  if (_interactionState) _interactionState.phase = "squeeze";
-  logger.info({ event: "webxr_aim_done", accuracy }, "Aim phase done");
+  if (_interactionState) {
+    _interactionState.phase = "squeeze";
+    _interactionState.aimAccuracy = accuracy;
+  }
+  logger.info({ event: "webxr_aim_done", accuracy }, "Aim phase done (WebXR)");
   _showSqueezePhase(overlay, container, accuracy);
 }
 
 // squeeze phase: tap and hold lever
 function _showSqueezePhase(overlay, container, aimAccuracy) {
   if (!overlay) return;
+
+  let squeezeTimer = null;
+  let squeezeStart = null;
+
   overlay.innerHTML = `
-    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (3/4)</div>
-    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">S — Squeeze the Lever</div>
-    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Press and hold the button below for 1.5 seconds to squeeze the lever.</div>
+    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${t("fire.pass_squeeze_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (3/4)")}</div>
+    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("fire.pass_squeeze_title", "S — Squeeze the Handle")}</div>
+    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("fire.pass_squeeze_desc", "Press and hold the button below for 1.5 seconds to discharge the extinguisher.")}</div>
     <div id="squeeze-progress-bar" style="width:100%;max-width:320px;height:8px;background:#1e293b;border-radius:4px;overflow:hidden;margin-top:0.5rem;">
-      <div id="squeeze-progress-fill" style="width:0%;height:100%;background:#f59e0b;transition:width 0.1s;"></div>
+      <div id="squeeze-progress-fill" style="width:0%;height:100%;background:#f59e0b;transition:width 0.05s;"></div>
     </div>
   `;
 
   const btn = document.createElement("button");
   btn.id = "btn-webxr-squeeze";
-  btn.style.cssText = "margin-top:0.6rem;padding:0.8rem 1.5rem;background:#f59e0b;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;user-select:none;";
-  btn.textContent = "🤜 PRESS & HOLD TO SQUEEZE";
-
-  let holdStart = null;
-  let holdInterval = null;
+  btn.style.cssText = "margin-top:0.8rem;padding:0.9rem 1.5rem;background:#f59e0b;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;user-select:none;";
+  btn.textContent = t("fire.pass_squeeze_btn", "👇 HOLD TO SQUEEZE (1.5s)");
 
   const startHold = () => {
-    holdStart = Date.now();
-    holdInterval = setInterval(() => {
-      const elapsed = Date.now() - holdStart;
+    squeezeStart = Date.now();
+    squeezeTimer = setInterval(() => {
+      const elapsed = Date.now() - squeezeStart;
       const progress = Math.min(1, elapsed / 1500);
       const fill = document.getElementById("squeeze-progress-fill");
       if (fill) fill.style.width = `${Math.round(progress * 100)}%`;
 
-      if (isSqueezeComplete(elapsed)) {
-        clearInterval(holdInterval);
-        holdInterval = null;
+      if (isSqueezeComplete(elapsed, 1500)) {
+        clearInterval(squeezeTimer);
+        squeezeTimer = null;
         logger.info({ event: "webxr_squeeze_complete", elapsed }, "Squeeze done (WebXR)");
         _onSqueezeComplete(overlay, container, aimAccuracy);
       }
@@ -499,11 +531,10 @@ function _showSqueezePhase(overlay, container, aimAccuracy) {
   };
 
   const cancelHold = () => {
-    if (holdInterval) {
-      clearInterval(holdInterval);
-      holdInterval = null;
+    if (squeezeTimer) {
+      clearInterval(squeezeTimer);
+      squeezeTimer = null;
     }
-    holdStart = null;
     const fill = document.getElementById("squeeze-progress-fill");
     if (fill) fill.style.width = "0%";
   };
@@ -528,9 +559,9 @@ function _onSqueezeComplete(overlay, container, aimAccuracy) {
 function _showSweepPhase(overlay, container, aimAccuracy) {
   if (!overlay) return;
   overlay.innerHTML = `
-    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (4/4)</div>
-    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">S — Sweep Side to Side</div>
-    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Move your device left and right to sweep the fire base. Cover at least 75% of the fire width.</div>
+    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${t("fire.pass_sweep_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (4/4)")}</div>
+    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("fire.pass_sweep_title", "S — Sweep Side to Side")}</div>
+    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("fire.pass_sweep_desc", "Move your device left and right to sweep the fire base. Cover at least 75% of the fire width.")}</div>
     <div id="sweep-progress-bar" style="width:100%;max-width:320px;height:8px;background:#1e293b;border-radius:4px;overflow:hidden;margin-top:0.5rem;">
       <div id="sweep-progress-fill" style="width:0%;height:100%;background:#06b6d4;transition:width 0.1s;"></div>
     </div>
@@ -539,7 +570,7 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
   const sweepSamples = [];
 
   // use webxr camera pose x-position for sweep tracking (real 6DOF motion)
-  const sweepFrameHandler = ({ pose }) => {
+  _sweepFrameHandler = ({ pose }) => {
     if (!pose || !pose.transform) return;
     const cameraX = pose.transform.position.x;
     sweepSamples.push(cameraX);
@@ -549,7 +580,10 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
     if (fill) fill.style.width = `${Math.round(coverage * 100)}%`;
 
     if (isSweepComplete(coverage)) {
-      if (_controller) _controller.offFrame(sweepFrameHandler);
+      if (_controller && _sweepFrameHandler) {
+        _controller.offFrame(_sweepFrameHandler);
+        _sweepFrameHandler = null;
+      }
       logger.info({ event: "webxr_sweep_complete", coverage, sampleCount: sweepSamples.length }, "Sweep done (WebXR)");
 
       // fire step 2 checkpoint with aim accuracy
@@ -567,7 +601,7 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
   };
 
   if (_controller) {
-    _controller.onFrame(sweepFrameHandler);
+    _controller.onFrame(_sweepFrameHandler);
   }
 
   // fallback button in case motion tracking isn't working
@@ -576,7 +610,10 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
   btn.style.cssText = "margin-top:1rem;padding:0.6rem 1rem;background:#334155;color:#94a3b8;border:1px solid #475569;border-radius:8px;font-size:0.85rem;cursor:pointer;display:block;width:100%;max-width:320px;";
   btn.textContent = "Skip (if motion not detected)";
   btn.addEventListener("click", () => {
-    if (_controller) _controller.offFrame(sweepFrameHandler);
+    if (_controller && _sweepFrameHandler) {
+      _controller.offFrame(_sweepFrameHandler);
+      _sweepFrameHandler = null;
+    }
     const passed = aimAccuracy >= AIM_PASS_THRESHOLD;
     fireCheckpointResult(CP_EXTINGUISHER_ID, passed, {
       method: "webxr_pass_technique_skip_sweep",
@@ -615,9 +652,9 @@ function _setupStep3WebXR(container, _step2Passed) {
   ];
 
   overlay.innerHTML = `
-    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 3 / 3 — EVACUATION ROUTE</div>
-    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">Choose Safest Evacuation Path</div>
-    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">After using the extinguisher, you must evacuate. Select the safest option:</div>
+    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${t("fire.evac_badge_3", "🔥 STEP 3 / 3 — EVACUATION ROUTE")}</div>
+    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("fire.evac_title_3", "Choose Safest Evacuation Path")}</div>
+    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("fire.evac_desc_3", "After using the extinguisher, you must evacuate. Select the safest option:")}</div>
   `;
 
   const wrapper = document.createElement("div");
@@ -629,7 +666,8 @@ function _setupStep3WebXR(container, _step2Passed) {
       correctOption: CORRECT,
       tier: 1
     });
-    _showCompletionWebXR(overlay, container, correct);
+    const allPassed = Boolean(_step2Passed && correct);
+    _showCompletionWebXR(overlay, container, allPassed);
   };
 
   options.forEach(({ id, label }) => {
@@ -654,17 +692,17 @@ function _showCompletionWebXR(overlay, container, passed) {
   if (!overlay) return;
   overlay.innerHTML = `
     <div style="font-size:1.15rem;font-weight:bold;color:${passed ? "#00e676" : "#ff1744"};margin-bottom:0.5rem;">
-      ${passed ? "✔ Module Complete — All Steps Passed" : "✖ Module Complete — Review Needed"}
+      ${passed ? t("cert.passed", "✔ Module Complete — All Steps Passed") : t("cert.review_needed", "✖ Module Complete — Review Needed")}
     </div>
     <div style="font-size:0.92rem;color:#f1f5f9;margin-bottom:0.8rem;">
-      ${passed ? "Excellent work! You completed the PASS fire extinguisher technique correctly." : "Some steps need improvement. Review the PASS technique and try again."}
+      ${passed ? t("fire.complete_pass_desc", "Excellent work! You completed the PASS fire extinguisher technique correctly.") : t("fire.complete_fail_desc", "Some steps need improvement. Review the PASS technique and try again.")}
     </div>
   `;
 
   const btnExit = document.createElement("button");
   btnExit.id = "btn-exit-module";
   btnExit.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.5rem;background:#ff6a00;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;";
-  btnExit.textContent = "✖ Exit Module";
+  btnExit.textContent = t("app.exit_module", "✖ Exit Module");
   btnExit.addEventListener("click", () => {
     cleanupWebXRFireModule();
     unloadModule();

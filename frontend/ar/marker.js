@@ -1,4 +1,5 @@
 import { createLogger } from "../js/logger.js";
+import { t } from "../js/i18n.js";
 
 const logger = createLogger("ARMarker");
 
@@ -6,7 +7,7 @@ const logger = createLogger("ARMarker");
 async function loadMarkerModuleScene(moduleId, trackingState) {
   if (moduleId === "fire-response") {
     // overlay UI anchors to document body; marker tracking handle available for future use
-    const { startFireModule } = await import(`../modules/fire-response/fire-response.js?v=${Date.now()}`);
+    const { startFireModule } = await import("../modules/fire-response/fire-response.js");
     const container = typeof document !== "undefined" ? document.getElementById("ar-viewport") : null;
     startFireModule(container, { tier: 2, trackingState });
     return;
@@ -41,21 +42,21 @@ function _showCameraPermissionModal() {
   modal.innerHTML = `
     <div style="position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(15,23,42,0.96);z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;box-sizing:border-box;text-align:center;color:#fff;">
       <div style="font-size:3.5rem;margin-bottom:12px;">📷 🚫</div>
-      <h2 style="color:#ef4444;font-size:1.35rem;margin-bottom:8px;font-weight:700;">Camera Permission Denied</h2>
+      <h2 style="color:#ef4444;font-size:1.35rem;margin-bottom:8px;font-weight:700;">${t("marker.camera_denied", "Camera Permission Denied")}</h2>
       <p style="color:#cbd5e1;font-size:0.92rem;line-height:1.5;max-width:320px;margin-bottom:16px;">
-        SafeAR requires live camera access to detect the Hiro safety marker.
+        ${t("marker.camera_denied_desc", "SafeAR requires live camera access to detect the Hiro safety marker.")}
       </p>
       <div style="background:rgba(30,41,59,0.95);border:1.5px solid #475569;border-radius:12px;padding:16px;text-align:left;font-size:0.88rem;color:#f1f5f9;margin-bottom:20px;max-width:340px;box-shadow:0 4px 14px rgba(0,0,0,0.5);">
-        <strong style="color:#f59e0b;">How to enable camera in Chrome:</strong>
+        <strong style="color:#f59e0b;">${t("marker.camera_how_to", "How to enable camera in Chrome:")}</strong>
         <ol style="margin-top:8px;padding-left:20px;line-height:1.7;">
-          <li>Tap the <strong>🔒 lock / tune icon</strong> in the top-left address bar.</li>
-          <li>Tap <strong>Permissions</strong> ➔ <strong>Camera</strong>.</li>
-          <li>Select <strong>Allow</strong>.</li>
-          <li>Tap <strong>Reload &amp; Enable</strong> below.</li>
+          <li>${t("marker.camera_step1", "Tap the 🔒 lock / tune icon in the top-left address bar.")}</li>
+          <li>${t("marker.camera_step2", "Tap Permissions ➔ Camera.")}</li>
+          <li>${t("marker.camera_step3", "Select Allow.")}</li>
+          <li>${t("marker.camera_step4", "Tap Reload & Enable below.")}</li>
         </ol>
       </div>
       <button id="btn-retry-permission" style="padding:14px 28px;background:#00e676;color:#000;border:none;border-radius:10px;font-weight:700;font-size:1rem;cursor:pointer;display:inline-flex;align-items:center;gap:8px;box-shadow:0 4px 12px rgba(0,230,118,0.4);">
-        🔄 Reload &amp; Enable Camera
+        ${t("marker.reload_enable", "🔄 Reload & Enable Camera")}
       </button>
     </div>
   `;
@@ -92,6 +93,7 @@ async function initMarkerTracking(containerElement, customConfig = {}) {
       if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
         _showCameraPermissionModal();
       }
+      throw err;
     }
   }
 

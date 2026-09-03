@@ -1,5 +1,5 @@
 // validate module score and attempt record
-function validateModuleAttempt(data) {
+function validateModuleAttempt(_data) {
   throw new Error("not implemented");
 }
 

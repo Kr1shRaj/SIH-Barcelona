@@ -1,5 +1,5 @@
 // verify cert signature offline with key
-function verifyCertificateOffline(qrPayload, secretKey) {
+function verifyCertificateOffline(_qrPayload, _secretKey) {
   throw new Error("not implemented");
 }
 
