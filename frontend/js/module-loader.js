@@ -1,5 +1,11 @@
 import { createLogger } from "./logger.js";
 import { clearCheckpoints } from "../ar/interactions.js";
+import {
+  startAssessmentSession,
+  abortAssessmentSession,
+  getActiveSession,
+  bindAssessmentSessionListeners
+} from "../assessment/engine.js";
 
 const logger = createLogger("ModuleLoader");
 
@@ -42,8 +48,15 @@ async function loadModule(moduleId) {
   clearCheckpoints();
 
   if (!_sceneLoaders.loadScene) {
+    if (getActiveSession()) {
+      abortAssessmentSession();
+    }
     throw new Error("no tier loader set — call setTierLoaders after boot");
   }
+
+  // bind checkpoint listener and initialize assessment session for this module run
+  bindAssessmentSessionListeners();
+  startAssessmentSession({ moduleId });
 
   _activeModule = moduleId;
 
@@ -55,8 +68,11 @@ async function loadModule(moduleId) {
     await _sceneLoaders.loadScene(moduleId, _sceneLoaders.tierHandle);
     logger.info({ event: "module_load_done", moduleId }, "Module loaded");
   } catch (err) {
-    // if loading failed or threw not-implemented, reset active module state
+    // if loading failed or threw not-implemented, reset active module and assessment state
     _activeModule = null;
+    if (getActiveSession()) {
+      abortAssessmentSession();
+    }
     if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
       window.dispatchEvent(new CustomEvent("safear:module_unloaded", { detail: { moduleId } }));
     }
@@ -69,6 +85,11 @@ function unloadModule() {
   const previous = _activeModule;
   _activeModule = null;
   clearCheckpoints();
+
+  // abort incomplete assessment session if closed without finishing
+  if (getActiveSession()) {
+    abortAssessmentSession();
+  }
 
   if (typeof document !== "undefined") {
     ["fire-module-overlay", "gas-module-overlay"].forEach((id) => {

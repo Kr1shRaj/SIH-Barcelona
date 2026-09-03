@@ -5,12 +5,15 @@
   "description": "SafeAR backend API, SQLite sync, and cert signing service",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
     "dev": "node --watch server.js",
+    "keygen": "node scripts/keygen.js",
+    "seed": "node db/seed.js",
+    "start": "node server.js",
     "test": "node --test tests/**/*.test.js"
   },
   "dependencies": {
-    "better-sqlite3": "9.4.3",
+    "better-sqlite3": "12.11.1",
+    "cors": "2.8.5",
     "dotenv": "16.4.5",
     "express": "4.19.2",
     "pino": "8.20.0",

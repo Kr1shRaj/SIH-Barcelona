@@ -3,7 +3,13 @@ import { detectDeviceCaps, selectArTier } from "../ar/tier.js";
 import { initWebXRSession, loadModule3DScene, WebXRPlacementController } from "../ar/webxr.js";
 import { initMarkerTracking, loadMarkerModuleScene } from "../ar/marker.js";
 import { setTierLoaders, loadModule, unloadModule } from "./module-loader.js";
-import { t } from "./i18n.js";
+import { t, loadLocale } from "./i18n.js";
+import {
+  bindAssessmentSessionListeners,
+  getEffectiveWorkerId,
+  fetchModuleManifests,
+  syncQueuedAttempts
+} from "../assessment/engine.js";
 
 const logger = createLogger("AppBoot");
 
@@ -289,6 +295,16 @@ async function initApp() {
     if (!appContainer) {
       return null;
     }
+
+    // load active locale and bind assessment engine
+    try {
+      await loadLocale();
+    } catch (_) {}
+
+    bindAssessmentSessionListeners();
+    const workerId = getEffectiveWorkerId();
+    fetchModuleManifests().catch(() => {});
+    syncQueuedAttempts(workerId).catch(() => {});
 
     // probe device hardware caps
     const caps = await detectDeviceCaps(window);
