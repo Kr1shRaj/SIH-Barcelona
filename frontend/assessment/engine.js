@@ -8,8 +8,14 @@ const QUEUE_STORAGE_KEY = "safear_attempt_sync_queue";
 const WORKER_STORAGE_KEY = "safear_worker_id";
 const DEVICE_STORAGE_KEY = "safear_device_id";
 const MANIFEST_STORAGE_KEY = "safear_module_manifests";
+const REJECTION_STORAGE_KEY = "safear_attempt_sync_rejections";
 const CANONICAL_DEMO_WORKER_ID = "WRK-0001";
 const MAX_BATCH_ATTEMPTS = 50;
+
+// accepted and duplicate are both settled: the server holds the record either way,
+// so the local copy can go. rejected is NOT settled and must stay queued, or the
+// worker run is destroyed with no record on either side.
+const SETTLED_SYNC_STATUSES = ["accepted", "duplicate"];
 
 // default deterministic manifests used offline when server unavailable
 const DEFAULT_LOCAL_MANIFESTS = [
@@ -458,6 +464,70 @@ async function getModuleManifest(moduleId, options = {}) {
   return DEFAULT_LOCAL_MANIFESTS.find((m) => m.moduleId === moduleId) || null;
 }
 
+// read the rejection log, empty when nothing has ever been turned down
+function getSyncRejections() {
+  const storage = _getStorage();
+  if (!storage) return [];
+  try {
+    const raw = storage.getItem(REJECTION_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_err) {
+    return [];
+  }
+}
+
+// wipe the rejection log
+function clearSyncRejections() {
+  const storage = _getStorage();
+  if (storage) {
+    storage.removeItem(REJECTION_STORAGE_KEY);
+  }
+}
+
+// keep why the server turned an attempt down, in its OWN key.
+// it must never ride on the queued attempt itself: the backend validates attempts
+// with a strict schema, so one extra field would fail the whole next batch.
+function _recordSyncRejections(rejections) {
+  if (!Array.isArray(rejections) || rejections.length === 0) return getSyncRejections();
+  const storage = _getStorage();
+  const log = getSyncRejections();
+  const byId = new Map(log.map((entry) => [entry.attemptId, entry]));
+  rejections.forEach((entry) => byId.set(entry.attemptId, entry));
+  const merged = Array.from(byId.values());
+  if (storage) {
+    storage.setItem(REJECTION_STORAGE_KEY, JSON.stringify(merged));
+  }
+  return merged;
+}
+
+// split the server per-attempt verdicts into settled ids and rejections.
+// returns null when the server sent no results array, which the contract says
+// it always does on 200 and 422.
+function _partitionSyncResults(resData) {
+  if (!resData || !Array.isArray(resData.results)) return null;
+
+  const settledIds = [];
+  const rejections = [];
+
+  resData.results.forEach((result) => {
+    if (!result || typeof result.attemptId !== "string") return;
+    if (SETTLED_SYNC_STATUSES.indexOf(result.status) !== -1) {
+      settledIds.push(result.attemptId);
+    } else if (result.status === "rejected") {
+      rejections.push({
+        attemptId: result.attemptId,
+        reason: result.reason || "rejected",
+        message: result.message || "",
+        at: new Date().toISOString()
+      });
+    }
+  });
+
+  return { settledIds, rejections };
+}
+
 // remove confirmed synced attempt ids from queue
 function removeSyncedAttempts(syncedAttemptIds) {
   if (!Array.isArray(syncedAttemptIds) || syncedAttemptIds.length === 0) {
@@ -523,24 +593,49 @@ async function syncQueuedAttempts({ baseUrl = "", deviceId, workerId, batchSize 
       resData = null;
     }
 
+    // trust what the server said happened, never what we happened to send
+    const partition = _partitionSyncResults(resData);
+
     if (res.ok) {
-      const syncedIds = normalizedBatch.map((a) => a.attemptId);
-      const remainingQueue = removeSyncedAttempts(syncedIds);
+      // no results array means we cannot tell which attempts landed. assuming they
+      // all did is exactly the data loss this guards against, so keep everything.
+      if (!partition) {
+        return {
+          success: false,
+          status: res.status,
+          reason: "malformed_response",
+          error: resData,
+          remaining: queue.length
+        };
+      }
+
+      const remainingQueue = removeSyncedAttempts(partition.settledIds);
+      _recordSyncRejections(partition.rejections);
+
       return {
-        success: true,
+        // a mixed batch is not a full success, even though http said 200
+        success: partition.rejections.length === 0,
         status: res.status,
-        synced: normalizedBatch.length,
+        synced: partition.settledIds.length,
+        rejected: partition.rejections.length,
+        rejections: partition.rejections,
         remaining: remainingQueue.length,
         data: resData
       };
     }
 
     // backend rejected batch (4xx validation error or 5xx server error)
-    // NEVER remove attempts from queue on rejection
+    // NEVER remove attempts from queue on rejection.
+    // a 422 still carries per attempt reasons, so keep them for later.
+    if (partition) {
+      _recordSyncRejections(partition.rejections);
+    }
+
     return {
       success: false,
       status: res.status,
       reason: res.status >= 500 ? "server_error" : "validation_error",
+      rejections: partition ? partition.rejections : [],
       error: resData,
       remaining: queue.length
     };
@@ -763,6 +858,8 @@ export {
   getQueuedAttempts,
   clearAttemptQueue,
   removeSyncedAttempts,
+  getSyncRejections,
+  clearSyncRejections,
   syncQueuedAttempts,
   startAssessmentSession,
   getActiveSession,
@@ -781,6 +878,7 @@ export {
   CANONICAL_DEMO_WORKER_ID,
   DEFAULT_LOCAL_MANIFESTS,
   QUEUE_STORAGE_KEY,
+  REJECTION_STORAGE_KEY,
   WORKER_STORAGE_KEY,
   MANIFEST_STORAGE_KEY
 };
