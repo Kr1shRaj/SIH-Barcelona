@@ -563,6 +563,171 @@ function renderDashboard(container, data, { onRefresh } = {}) {
   }
 }
 
+// render the marketing landing page that gates the admin dashboard.
+// matches the SafeAR hero mockup: navbar, hero image, features, footer.
+// the sign-in button opens a modal overlay for admin key entry.
+function renderLandingPage(container, { onSignIn, message } = {}) {
+  if (!container) return;
+
+  // reset body padding so the landing page is truly full-bleed
+  if (typeof document !== "undefined" && document.body) {
+    document.body.style.padding = "0";
+    document.body.style.background = "#0a0a0a";
+  }
+
+  container.innerHTML = `
+    <div class="landing-page">
+      <section class="landing-hero">
+        <div class="hero-bg">
+          <img src="./img/hero-bg.jpg" alt="Industrial safety training with fire extinguisher at a refinery" />
+        </div>
+
+        <nav class="landing-nav">
+          <a href="#" class="nav-brand">
+            <img src="./img/logo.png" alt="SafeAR Logo" class="nav-brand-logo" />
+            <div class="nav-brand-text">
+              <span class="nav-brand-name">Safe<span>AR</span></span>
+              <span class="nav-brand-subtitle">सुरक्षित कर्मचारी, समृद्ध भारत</span>
+            </div>
+          </a>
+
+          <ul class="nav-links">
+            <li><a href="#" class="active">Home</a></li>
+            <li><a href="#">About</a></li>
+            <li><a href="#">Features</a></li>
+            <li><a href="#">Impact</a></li>
+            <li><a href="#">Contact</a></li>
+          </ul>
+
+          <div class="nav-right">
+            <button id="landing-signin-btn" class="nav-signin-btn" type="button">Sign In →</button>
+            <div class="nav-govt-badge">
+              <div class="nav-govt-emblem">🏛️</div>
+              <div class="nav-govt-text">For a Safer and Stronger India</div>
+            </div>
+          </div>
+        </nav>
+
+        <div class="hero-content">
+          <div class="hero-eyebrow">Real Training. Real Impact</div>
+          <h1 class="hero-heading">
+            Hands-On<br>Safety Training<br>with <span class="highlight">AR</span>
+          </h1>
+          <div class="hero-tagline-row">
+            <div class="hero-tagline-dash"></div>
+            <div class="hero-tagline">सुरक्षा की तैयारी, बेहतर कल की जिम्मेदारी</div>
+          </div>
+          <button id="landing-cta-btn" class="hero-cta-btn" type="button">Get Started →</button>
+
+          <div class="hero-features">
+            <div class="feature-pill">
+              <div class="feature-icon fire">🔥</div>
+              <div class="feature-text">
+                <div class="feature-title">Fire Safety</div>
+                <div class="feature-desc">Use equipment with confidence</div>
+              </div>
+            </div>
+            <div class="feature-pill">
+              <div class="feature-icon gas">🛡️</div>
+              <div class="feature-text">
+                <div class="feature-title">Gas Leak Response</div>
+                <div class="feature-desc">Identify risks and act quickly</div>
+              </div>
+            </div>
+            <div class="feature-pill">
+              <div class="feature-icon emergency">✅</div>
+              <div class="feature-text">
+                <div class="feature-title">Emergency Preparedness</div>
+                <div class="feature-desc">Be ready for real situations</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <footer class="landing-footer">
+          <div class="footer-tagline">Skilled People. Safer Workplaces. A Stronger India.</div>
+        </footer>
+      </section>
+    </div>
+  `;
+
+  // bind sign-in interactions
+  if (typeof document !== "undefined") {
+    const openSignIn = () => {
+      // create modal overlay
+      const overlay = document.createElement("div");
+      overlay.className = "signin-overlay";
+      overlay.id = "signin-overlay";
+      overlay.innerHTML = `
+        <div class="signin-card" style="position:relative;">
+          <button class="signin-close-btn" id="signin-close" type="button">&times;</button>
+          <div class="signin-logo-wrap">
+            <img src="./img/logo.png" alt="SafeAR Logo" class="signin-modal-logo" />
+          </div>
+          <div class="signin-title">Admin Dashboard Access</div>
+          <div class="signin-desc">${esc(message || "Enter your admin key to access the compliance dashboard.")}</div>
+          <form class="signin-form" id="signin-form" autocomplete="off">
+            <input
+              type="password"
+              class="signin-input"
+              id="signin-key-input"
+              placeholder="Enter admin key"
+              aria-label="Admin key"
+              autocomplete="off"
+              spellcheck="false" />
+            <button type="submit" class="signin-submit-btn" id="signin-submit">Unlock Dashboard</button>
+          </form>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+
+      const input = document.getElementById("signin-key-input");
+      const form = document.getElementById("signin-form");
+      const closeBtn = document.getElementById("signin-close");
+
+      if (input) {
+        setTimeout(() => input.focus(), 100);
+      }
+
+      const handleSubmit = (ev) => {
+        if (ev && typeof ev.preventDefault === "function") ev.preventDefault();
+        const entered = input && typeof input.value === "string" ? input.value.trim() : "";
+        if (entered.length === 0) return;
+        if (input) input.value = "";
+        // remove overlay
+        const el = document.getElementById("signin-overlay");
+        if (el) el.remove();
+        // restore body padding for dashboard view
+        if (document.body) {
+          document.body.style.padding = "";
+          document.body.style.background = "";
+        }
+        if (typeof onSignIn === "function") onSignIn(entered);
+      };
+
+      if (form) form.addEventListener("submit", handleSubmit);
+      if (closeBtn) {
+        closeBtn.addEventListener("click", () => {
+          const el = document.getElementById("signin-overlay");
+          if (el) el.remove();
+        });
+      }
+
+      // close on backdrop click
+      overlay.addEventListener("click", (ev) => {
+        if (ev.target === overlay) {
+          overlay.remove();
+        }
+      });
+    };
+
+    const signinBtn = container.querySelector("#landing-signin-btn");
+    const ctaBtn = container.querySelector("#landing-cta-btn");
+    if (signinBtn) signinBtn.addEventListener("click", openSignIn);
+    if (ctaBtn) ctaBtn.addEventListener("click", openSignIn);
+  }
+}
+
 // controller function to initialize and mount dashboard
 async function loadComplianceMetrics(containerId = "dashboard-app", options = {}) {
   const container = typeof document !== "undefined"
@@ -579,10 +744,9 @@ async function loadComplianceMetrics(containerId = "dashboard-app", options = {}
     return loadComplianceMetrics(container, options);
   };
 
-  // nothing is fetched before there is a key to send, so an unauthenticated
-  // visitor is asked rather than shown a failed request
+  // show the landing page when there is no admin key yet
   if (!options.adminKey && !getAdminKey()) {
-    renderAuthRequired(container, { onSubmit: useKey });
+    renderLandingPage(container, { onSignIn: useKey });
     return;
   }
 
@@ -595,8 +759,8 @@ async function loadComplianceMetrics(containerId = "dashboard-app", options = {}
     // a rejected key is worthless, so drop it and ask again rather than looping
     if (err && err.code === "unauthorized") {
       clearAdminKey();
-      renderAuthRequired(container, {
-        onSubmit: useKey,
+      renderLandingPage(container, {
+        onSignIn: useKey,
         message: "That key was not accepted. Check it and try again."
       });
       return;
@@ -622,6 +786,7 @@ export {
   renderError,
   renderEmpty,
   renderAuthRequired,
+  renderLandingPage,
   renderDashboard,
   loadComplianceMetrics,
   getAdminKey,

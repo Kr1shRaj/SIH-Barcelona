@@ -1,0 +1,600 @@
+/* SafeAR Landing Page Styles */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Poppins:wght@600;700;800;900&display=swap');
+
+/* ── Reset for landing page ── */
+.landing-page {
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #0a0a0a;
+  color: #ffffff;
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Top Navigation Bar ── */
+.landing-nav {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 40px;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  color: #ffffff;
+}
+
+.nav-brand-logo {
+  height: 44px;
+  width: auto;
+  max-width: 44px;
+  object-fit: contain;
+  display: block;
+  filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.45));
+  transition: transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.nav-brand:hover .nav-brand-logo {
+  transform: scale(1.06);
+}
+
+.nav-brand-icon {
+  width: 38px;
+  height: 38px;
+  background: linear-gradient(135deg, #f5c518, #e6a800);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #1a1a1a;
+  box-shadow: 0 2px 8px rgba(245, 197, 24, 0.3);
+  position: relative;
+}
+
+.nav-brand-icon::after {
+  content: '⛑';
+  font-size: 0.85rem;
+  position: absolute;
+  top: -3px;
+  right: -3px;
+}
+
+.nav-brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.nav-brand-name {
+  font-family: 'Poppins', sans-serif;
+  font-weight: 800;
+  font-size: 1.35rem;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+
+.nav-brand-name span {
+  color: #f5c518;
+}
+
+.nav-brand-subtitle {
+  font-size: 0.6rem;
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.nav-links a {
+  color: rgba(255, 255, 255, 0.85);
+  text-decoration: none;
+  font-size: 0.88rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  transition: color 200ms ease;
+  position: relative;
+}
+
+.nav-links a:hover {
+  color: #ffffff;
+}
+
+.nav-links a.active {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.nav-links a.active::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #f5c518;
+  border-radius: 1px;
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.nav-signin-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 22px;
+  border: 1.5px solid #f5c518;
+  border-radius: 25px;
+  background: transparent;
+  color: #f5c518;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 200ms ease;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.nav-signin-btn:hover {
+  background: #f5c518;
+  color: #1a1a1a;
+}
+
+.nav-govt-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 20px;
+  border-left: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.nav-govt-emblem {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+}
+
+.nav-govt-text {
+  font-size: 0.68rem;
+  line-height: 1.3;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 500;
+  max-width: 100px;
+}
+
+/* ── Hero Section ── */
+.landing-hero {
+  position: relative;
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+}
+
+.hero-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.hero-bg img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.hero-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to right,
+    rgba(0, 0, 0, 0.82) 0%,
+    rgba(0, 0, 0, 0.65) 35%,
+    rgba(0, 0, 0, 0.3) 60%,
+    rgba(0, 0, 0, 0.15) 100%
+  );
+}
+
+.hero-content {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 0 50px 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.hero-eyebrow {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  color: #f5c518;
+}
+
+.hero-heading {
+  font-family: 'Poppins', sans-serif;
+  font-size: 3.8rem;
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -0.03em;
+  color: #ffffff;
+  max-width: 580px;
+}
+
+.hero-heading .highlight {
+  color: #f5c518;
+}
+
+.hero-tagline-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: -8px;
+}
+
+.hero-tagline-dash {
+  width: 40px;
+  height: 3px;
+  background: #f5c518;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.hero-tagline {
+  font-size: 1.1rem;
+  color: rgba(255, 255, 255, 0.85);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.hero-cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 32px;
+  background: #f5c518;
+  color: #1a1a1a;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 200ms ease;
+  align-self: flex-start;
+  box-shadow: 0 4px 20px rgba(245, 197, 24, 0.35);
+}
+
+.hero-cta-btn:hover {
+  background: #e6b800;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 28px rgba(245, 197, 24, 0.45);
+}
+
+.hero-cta-btn:active {
+  transform: scale(0.97);
+}
+
+/* ── Feature Pills ── */
+.hero-features {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.feature-pill {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.feature-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  flex-shrink: 0;
+}
+
+.feature-icon.fire {
+  background: rgba(239, 68, 68, 0.18);
+  color: #ef4444;
+}
+
+.feature-icon.gas {
+  background: rgba(59, 130, 246, 0.18);
+  color: #60a5fa;
+}
+
+.feature-icon.emergency {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34d399;
+}
+
+.feature-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.feature-title {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.feature-desc {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 400;
+}
+
+/* ── Footer Tagline ── */
+.landing-footer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  padding: 16px 50px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.footer-tagline {
+  font-size: 0.78rem;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 500;
+  font-style: italic;
+  letter-spacing: 0.02em;
+}
+
+/* ── Sign-In Modal Overlay ── */
+.signin-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 250ms ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.signin-card {
+  background: #151d2f;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 40px 36px;
+  width: 100%;
+  max-width: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
+  animation: slideUp 300ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.signin-logo-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.signin-modal-logo {
+  height: 54px;
+  width: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 16px rgba(245, 197, 24, 0.3));
+}
+
+.signin-icon {
+  font-size: 2.2rem;
+}
+
+.signin-title {
+  font-family: 'Poppins', sans-serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.signin-desc {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.55);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.signin-form {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.signin-input {
+  width: 100%;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  color: #ffffff;
+  font-size: 0.9rem;
+  font-family: 'Inter', sans-serif;
+  outline: none;
+  transition: border-color 200ms ease;
+  box-sizing: border-box;
+}
+
+.signin-input:focus {
+  border-color: #f5c518;
+  box-shadow: 0 0 0 3px rgba(245, 197, 24, 0.15);
+}
+
+.signin-submit-btn {
+  width: 100%;
+  padding: 13px 24px;
+  background: #f5c518;
+  color: #1a1a1a;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 200ms ease;
+  font-family: 'Inter', sans-serif;
+}
+
+.signin-submit-btn:hover {
+  background: #e6b800;
+}
+
+.signin-close-btn {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 1.2rem;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 200ms ease;
+}
+
+.signin-close-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+
+.signin-error {
+  font-size: 0.8rem;
+  color: #f87171;
+  text-align: center;
+  margin-top: -4px;
+}
+
+/* ── Responsive ── */
+@media (max-width: 1024px) {
+  .landing-nav {
+    padding: 14px 24px;
+  }
+
+  .nav-links {
+    display: none;
+  }
+
+  .nav-govt-badge {
+    display: none;
+  }
+
+  .hero-content {
+    padding: 0 30px 50px;
+  }
+
+  .hero-heading {
+    font-size: 2.8rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .landing-nav {
+    padding: 12px 16px;
+  }
+
+  .nav-brand-name {
+    font-size: 1.1rem;
+  }
+
+  .hero-content {
+    padding: 0 20px 40px;
+  }
+
+  .hero-heading {
+    font-size: 2.2rem;
+  }
+
+  .hero-tagline {
+    font-size: 0.9rem;
+  }
+
+  .landing-footer {
+    padding: 12px 20px;
+  }
+}
+
+/* ── Accessibility ── */
+@media (prefers-reduced-motion: reduce) {
+  .signin-overlay,
+  .signin-card {
+    animation: none !important;
+  }
+  
+  .hero-cta-btn:hover,
+  .nav-signin-btn:hover {
+    transform: none !important;
+  }
+}
