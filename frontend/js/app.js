@@ -343,16 +343,45 @@ function renderLanguageSelectionScreen(container, onLocaleChosen) {
     </div>
   `;
 
+  let chosen = false;
+  const choose = (loc, targetBtn) => {
+    if (chosen) return;
+    chosen = true;
+    if (targetBtn && targetBtn.classList && typeof targetBtn.classList.add === "function") {
+      targetBtn.classList.add("selected");
+    }
+    if (typeof onLocaleChosen === "function") {
+      onLocaleChosen(loc);
+    }
+  };
+
   ["en", "hi", "sat"].forEach((loc) => {
     const btn = container.querySelector ? container.querySelector(`#lang-opt-${loc}`) : null;
-    if (btn) {
-      btn.addEventListener("click", () => {
-        if (typeof onLocaleChosen === "function") {
-          onLocaleChosen(loc);
+    if (btn && typeof btn.addEventListener === "function") {
+      btn.addEventListener("click", (e) => {
+        if (e && typeof e.preventDefault === "function") {
+          e.preventDefault();
+        }
+        choose(loc, btn);
+      });
+      btn.addEventListener("pointerdown", (e) => {
+        if (e && e.pointerType === "touch") {
+          choose(loc, btn);
         }
       });
     }
   });
+
+  if (container && typeof container.addEventListener === "function") {
+    container.addEventListener("click", (e) => {
+      const targetBtn = e && e.target && typeof e.target.closest === "function"
+        ? e.target.closest(".lang-option-btn")
+        : null;
+      if (targetBtn && targetBtn.dataset && targetBtn.dataset.locale) {
+        choose(targetBtn.dataset.locale, targetBtn);
+      }
+    });
+  }
 }
 
 // boot safeAR app with explicit language selection first

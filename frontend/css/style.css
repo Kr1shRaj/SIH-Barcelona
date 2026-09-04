@@ -424,6 +424,7 @@ canvas.a-canvas {
   background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
   padding: 16px;
   box-sizing: border-box;
+  pointer-events: auto !important;
 }
 
 .lang-card {
@@ -436,6 +437,7 @@ canvas.a-canvas {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
   box-sizing: border-box;
   text-align: center;
+  pointer-events: auto !important;
 }
 
 .lang-header {
@@ -467,6 +469,7 @@ canvas.a-canvas {
   flex-direction: column;
   gap: 12px;
   margin-bottom: 16px;
+  pointer-events: auto !important;
 }
 
 .lang-option-btn {
@@ -484,6 +487,9 @@ canvas.a-canvas {
   transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
   box-sizing: border-box;
   touch-action: manipulation;
+  pointer-events: auto !important;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .lang-option-btn:hover,
@@ -491,6 +497,13 @@ canvas.a-canvas {
   border-color: #ff6a00;
   background: rgba(51, 65, 85, 0.9);
   transform: translateY(-1px);
+}
+
+.lang-option-btn:active,
+.lang-option-btn.selected {
+  border-color: #f59e0b !important;
+  background: rgba(245, 158, 11, 0.25) !important;
+  transform: scale(0.98);
 }
 
 .lang-btn-left {
@@ -521,6 +534,13 @@ canvas.a-canvas {
   text-transform: uppercase;
   letter-spacing: 0.5px;
   white-space: nowrap;
+}
+
+.lang-btn-left,
+.lang-btn-name,
+.lang-btn-sub,
+.lang-btn-badge {
+  pointer-events: none;
 }
 
 .badge-complete {
