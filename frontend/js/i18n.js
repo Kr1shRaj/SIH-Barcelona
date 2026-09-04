@@ -154,6 +154,39 @@ function clearLocales() {
   });
 }
 
+// read stored user language selection
+function getStoredLocale() {
+  try {
+    if (typeof globalThis !== "undefined" && globalThis.localStorage) {
+      const val = globalThis.localStorage.getItem("safear_selected_locale");
+      if (val && SUPPORTED_LOCALES.includes(val)) {
+        return val;
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
+// save explicit user language selection
+function storeLocale(locale) {
+  const applied = setLocale(locale);
+  try {
+    if (typeof globalThis !== "undefined" && globalThis.localStorage) {
+      globalThis.localStorage.setItem("safear_selected_locale", applied);
+    }
+  } catch (_) {}
+  return applied;
+}
+
+// clear stored user language selection
+function clearStoredLocale() {
+  try {
+    if (typeof globalThis !== "undefined" && globalThis.localStorage) {
+      globalThis.localStorage.removeItem("safear_selected_locale");
+    }
+  } catch (_) {}
+}
+
 export {
   SUPPORTED_LOCALES,
   DEFAULT_LOCALE,
@@ -164,5 +197,8 @@ export {
   registerLocale,
   loadLocale,
   t,
-  clearLocales
+  clearLocales,
+  getStoredLocale,
+  storeLocale,
+  clearStoredLocale
 };
