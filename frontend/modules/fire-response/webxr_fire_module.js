@@ -30,6 +30,93 @@ let _placementScreenTap = null;
 let _placementConfirmedHandler = null;
 let _interactionState = null;
 
+// zoom state
+let _zoomScale = 1.0;
+const BASE_EXT_SCALE = 0.35;
+const BASE_FIRE_SCALE = 0.35;
+let _zoomControlsEl = null;
+let _pinchStartDist = null;
+let _pinchStartScale = 1.0;
+let _touchZoomHandler = null;
+
+// apply zoom scale to extinguisher and fire
+function setZoomScaleWebXR(targetScale) {
+  _zoomScale = Math.max(0.6, Math.min(2.5, targetScale));
+  if (_extMesh) {
+    const s = BASE_EXT_SCALE * _zoomScale;
+    _extMesh.scale.set(s, s, s);
+  }
+  if (_fireMesh) {
+    const s = BASE_FIRE_SCALE * _zoomScale;
+    _fireMesh.scale.set(s, s, s);
+  }
+  return _zoomScale;
+}
+
+// read zoom scale
+function getZoomScaleWebXR() {
+  return _zoomScale;
+}
+
+// create floating zoom in/out controls
+function _setupZoomControls() {
+  if (_zoomControlsEl || typeof document === "undefined") return;
+  const zoomDiv = document.createElement("div");
+  zoomDiv.id = "safear-zoom-controls";
+  zoomDiv.style.cssText = "position:fixed;top:64px;right:16px;z-index:150;display:flex;flex-direction:column;gap:6px;pointer-events:auto;";
+
+  const btnIn = document.createElement("button");
+  btnIn.id = "btn-zoom-in";
+  btnIn.title = "Zoom In";
+  btnIn.style.cssText = "background:transparent !important;border:none !important;outline:none !important;box-shadow:none !important;color:#fff;font-size:1.5rem;font-weight:bold;cursor:pointer;padding:6px;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);line-height:1;";
+  btnIn.textContent = "🔍 +";
+  btnIn.addEventListener("click", () => setZoomScaleWebXR(_zoomScale + 0.2));
+
+  const btnOut = document.createElement("button");
+  btnOut.id = "btn-zoom-out";
+  btnOut.title = "Zoom Out";
+  btnOut.style.cssText = "background:transparent !important;border:none !important;outline:none !important;box-shadow:none !important;color:#fff;font-size:1.5rem;font-weight:bold;cursor:pointer;padding:6px;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);line-height:1;";
+  btnOut.textContent = "🔍 −";
+  btnOut.addEventListener("click", () => setZoomScaleWebXR(_zoomScale - 0.2));
+
+  zoomDiv.appendChild(btnIn);
+  zoomDiv.appendChild(btnOut);
+  document.body.appendChild(zoomDiv);
+  _zoomControlsEl = zoomDiv;
+
+  if (typeof window !== "undefined") {
+    _touchZoomHandler = {
+      start: (e) => {
+        if (e.touches && e.touches.length === 2) {
+          const t0 = e.touches[0];
+          const t1 = e.touches[1];
+          _pinchStartDist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+          _pinchStartScale = _zoomScale;
+        }
+      },
+      move: (e) => {
+        if (e.touches && e.touches.length === 2 && _pinchStartDist) {
+          const t0 = e.touches[0];
+          const t1 = e.touches[1];
+          const currentDist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+          if (_pinchStartDist > 10) {
+            const factor = currentDist / _pinchStartDist;
+            setZoomScaleWebXR(_pinchStartScale * factor);
+          }
+        }
+      },
+      end: (e) => {
+        if (!e.touches || e.touches.length < 2) {
+          _pinchStartDist = null;
+        }
+      }
+    };
+    window.addEventListener("touchstart", _touchZoomHandler.start, { passive: true });
+    window.addEventListener("touchmove", _touchZoomHandler.move, { passive: true });
+    window.addEventListener("touchend", _touchZoomHandler.end, { passive: true });
+  }
+}
+
 // read active step number
 function getCurrentStepWebXR() {
   return _currentStep;
@@ -51,12 +138,24 @@ function cleanupWebXRFireModule() {
   }
   if (_placementScreenTap && typeof window !== "undefined") {
     window.removeEventListener("click", _placementScreenTap);
+    window.removeEventListener("pointerdown", _placementScreenTap);
     _placementScreenTap = null;
   }
   if (_placementConfirmedHandler && typeof window !== "undefined") {
     window.removeEventListener("safear:placement_confirmed", _placementConfirmedHandler);
     _placementConfirmedHandler = null;
   }
+  if (_zoomControlsEl && _zoomControlsEl.parentNode) {
+    _zoomControlsEl.parentNode.removeChild(_zoomControlsEl);
+    _zoomControlsEl = null;
+  }
+  if (_touchZoomHandler && typeof window !== "undefined") {
+    window.removeEventListener("touchstart", _touchZoomHandler.start);
+    window.removeEventListener("touchmove", _touchZoomHandler.move);
+    window.removeEventListener("touchend", _touchZoomHandler.end);
+    _touchZoomHandler = null;
+  }
+  _zoomScale = 1.0;
   if (_fireMesh && _controller) {
     _controller.removeFromScene(_fireMesh);
     _fireMesh = null;
@@ -95,13 +194,13 @@ function _createOverlay(container, html) {
 function _renderSubscreen(overlay, { badge, title, desc, buttonText, onNext }) {
   if (!overlay) return;
   overlay.innerHTML = `
-    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${badge}</div>
-    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${title}</div>
-    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${desc}</div>
+    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${badge}</div>
+    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;text-shadow:0 1px 4px #000, 0 2px 8px rgba(0,0,0,0.95);">${title}</div>
+    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${desc}</div>
   `;
   const btnNext = document.createElement("button");
   btnNext.id = "btn-step-next";
-  btnNext.style.cssText = "margin-top:0.4rem;padding:0.75rem 1.4rem;background:#ff6a00;color:#fff;border:none;border-radius:8px;font-size:0.95rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
+  btnNext.style.cssText = "margin-top:0.6rem;padding:0.75rem 0;background:transparent !important;color:#ff6a00;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);";
   btnNext.textContent = buttonText || "Next ➜";
   btnNext.addEventListener("click", onNext);
   overlay.appendChild(btnNext);
@@ -157,10 +256,10 @@ function _setupStep1WebXR(container) {
     }
 
     overlay.innerHTML = `
-      <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${t("fire.place_badge", "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (4/4)")}</div>
-      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("fire.place_title", "Place Extinguisher on Ground")}</div>
-      <div id="placement-status-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("fire.place_desc", "Point your tablet at the floor or table. Tap the green button below (or tap anywhere on screen) to place the extinguisher.")}</div>
-      <button id="btn-place-extinguisher" style="display:block;width:100%;max-width:340px;padding:14px 20px;border-radius:10px;border:2px solid #00e676;background:#0f172a;color:#00e676;font-size:1rem;font-weight:bold;cursor:pointer;margin:0.5rem 0;box-shadow:0 0 15px rgba(0,230,118,0.35);pointer-events:auto !important;text-align:center;">${t("fire.place_btn", "🎯 TAP TO PLACE EXTINGUISHER ON FLOOR")}</button>
+      <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.place_badge", "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (4/4)")}</div>
+      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;text-shadow:0 1px 4px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.place_title", "Place Extinguisher on Ground")}</div>
+      <div id="placement-status-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.place_desc", "Point your tablet at the floor or table. Tap the green button below (or tap anywhere on screen) to place the extinguisher.")}</div>
+      <button id="btn-place-extinguisher" style="display:block;width:100%;max-width:340px;padding:12px 0;border:none !important;outline:none !important;background:transparent !important;box-shadow:none !important;color:#00e676;font-size:1.05rem;font-weight:bold;cursor:pointer;margin:0.5rem 0;pointer-events:auto !important;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.place_btn", "🎯 TAP TO PLACE EXTINGUISHER ON FLOOR")}</button>
     `;
 
     let placed = false;
@@ -195,7 +294,8 @@ function _setupStep1WebXR(container) {
       }
       if (_extMesh) {
         _extMesh.position.set(finalPos.x, finalPos.y, finalPos.z);
-        _extMesh.scale.set(0.35, 0.35, 0.35);
+        const s = BASE_EXT_SCALE * _zoomScale;
+        _extMesh.scale.set(s, s, s);
       }
 
       // spawn fire 1.8m in front
@@ -213,9 +313,13 @@ function _setupStep1WebXR(container) {
       _fireMesh = createFireMesh();
       if (_fireMesh && _controller) {
         _fireMesh.position.set(firePos.x, firePos.y, firePos.z);
-        _fireMesh.scale.set(0.35, 0.35, 0.35);
+        const s = BASE_FIRE_SCALE * _zoomScale;
+        _fireMesh.scale.set(s, s, s);
         _controller.addToScene(_fireMesh);
       }
+
+      // setup zoom controls now that objects are anchored in scene
+      _setupZoomControls();
 
       // start animation frame handler
       _frameHandler = ({ deltaMs }) => {
@@ -229,9 +333,9 @@ function _setupStep1WebXR(container) {
 
       if (overlay) {
         overlay.innerHTML = `
-          <div style="font-size:1.05rem;font-weight:bold;color:#00e676;">✔ Extinguisher Placed on Ground!</div>
-          <div style="margin:0.4rem 0 0.6rem 0;font-size:0.92rem;color:#f1f5f9;">The 3D fire extinguisher is anchored to the surface. Tap below to begin PASS training.</div>
-          <button id="btn-proceed-step2" style="margin-top:0.4rem;padding:0.85rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;">✔ Begin PASS Training ➜</button>
+          <div style="font-size:1.05rem;font-weight:bold;color:#00e676;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">✔ Extinguisher Placed on Ground!</div>
+          <div style="margin:0.4rem 0 0.6rem 0;font-size:0.92rem;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">The 3D fire extinguisher is anchored to the surface. Tap below to begin PASS training.</div>
+          <button id="btn-proceed-step2" style="margin-top:0.6rem;padding:0.75rem 0;background:transparent !important;color:#00e676;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">✔ Begin PASS Training ➜</button>
         `;
         const btnProceed = overlay.querySelector("#btn-proceed-step2");
         if (btnProceed) {
@@ -358,50 +462,95 @@ function _setupStep2WebXR(container) {
   _showPinPhase(overlay, container);
 }
 
-// pin pull phase: tap to select pin, drag to pull
+// pin pull phase: tap or swipe to pull pin
 function _showPinPhase(overlay, container) {
   if (!overlay) return;
   overlay.innerHTML = `
-    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${t("fire.pass_pull_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (1/4)")}</div>
-    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("fire.pass_pull_title", "P — Pull the Pin")}</div>
-    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("fire.pass_pull_desc", "Tap anywhere to select the pin, then swipe right to pull it out.")}</div>
+    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.pass_pull_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (1/4)")}</div>
+    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;text-shadow:0 1px 4px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.pass_pull_title", "P — Pull the Pin")}</div>
+    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.pass_pull_desc", "Tap anywhere to select the pin, then swipe right to pull it out.")}</div>
   `;
   const btn = document.createElement("button");
   btn.id = "btn-webxr-pin-pull";
-  btn.style.cssText = "padding:0.8rem 1.5rem;background:#00b8d4;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
+  btn.style.cssText = "padding:0.75rem 0;background:transparent !important;color:#00e5ff;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);";
   btn.textContent = t("fire.pass_pull_badge_btn", "👉 SWIPE RIGHT OR TAP TO PULL PIN");
 
-  let dragStart = null;
+  let pinPulled = false;
+  const _cleanPinListeners = () => {
+    if (typeof window !== "undefined") {
+      window.removeEventListener("touchstart", onScreenTouchStart);
+      window.removeEventListener("touchend", onScreenTouchEnd);
+      window.removeEventListener("mousedown", onScreenTouchStart);
+      window.removeEventListener("mouseup", onScreenTouchEnd);
+    }
+  };
 
+  const doPull = () => {
+    if (pinPulled) return;
+    pinPulled = true;
+    _cleanPinListeners();
+    _onPinPulled(overlay, container);
+  };
+
+  let dragStart = null;
+  btn.addEventListener("click", () => doPull());
   btn.addEventListener("touchstart", (e) => {
     const touch = e.touches[0];
     if (touch) dragStart = { x: touch.clientX, y: touch.clientY };
+  }, { passive: true });
+  btn.addEventListener("touchend", (e) => {
+    const touch = e.changedTouches ? e.changedTouches[0] : null;
+    if (touch && dragStart) {
+      const dx = touch.clientX - dragStart.x;
+      const dist = calcDragDistance(dragStart, { x: touch.clientX, y: touch.clientY });
+      if (dx > 25 || dist < 20 || isPinPullComplete(dist)) {
+        doPull();
+        return;
+      }
+    }
+    doPull();
   });
   btn.addEventListener("mousedown", (e) => {
     dragStart = { x: e.clientX, y: e.clientY };
   });
+  btn.addEventListener("mouseup", (e) => {
+    if (dragStart) {
+      const dx = e.clientX - dragStart.x;
+      const dist = calcDragDistance(dragStart, { x: e.clientX, y: e.clientY });
+      if (dx > 25 || dist < 20 || isPinPullComplete(dist)) {
+        doPull();
+        return;
+      }
+    }
+    doPull();
+  });
 
-  const checkPull = (endPos) => {
-    if (!dragStart) {
-      // simple tap — treat as pull
-      _onPinPulled(overlay, container);
-      return;
+  // screen swipe / tap detection on window
+  let windowTouchStart = null;
+  const onScreenTouchStart = (e) => {
+    const touch = e.touches ? e.touches[0] : e;
+    if (touch) {
+      windowTouchStart = { x: touch.clientX, y: touch.clientY };
     }
-    const dist = calcDragDistance(dragStart, endPos);
-    if (isPinPullComplete(dist)) {
-      _onPinPulled(overlay, container);
+  };
+  const onScreenTouchEnd = (e) => {
+    const touch = e.changedTouches ? e.changedTouches[0] : (e.clientX ? e : null);
+    if (touch && windowTouchStart) {
+      const dx = touch.clientX - windowTouchStart.x;
+      const dist = calcDragDistance(windowTouchStart, { x: touch.clientX, y: touch.clientY });
+      if (dx > 25 || dist < 20) {
+        doPull();
+      }
     }
-    dragStart = null;
+    windowTouchStart = null;
   };
 
-  btn.addEventListener("touchend", (e) => {
-    const touch = e.changedTouches[0];
-    if (touch) checkPull({ x: touch.clientX, y: touch.clientY });
-    else _onPinPulled(overlay, container);
-  });
-  btn.addEventListener("mouseup", (e) => {
-    checkPull({ x: e.clientX, y: e.clientY });
-  });
+  if (typeof window !== "undefined") {
+    window.addEventListener("touchstart", onScreenTouchStart, { passive: true });
+    window.addEventListener("touchend", onScreenTouchEnd, { passive: true });
+    window.addEventListener("mousedown", onScreenTouchStart);
+    window.addEventListener("mouseup", onScreenTouchEnd);
+  }
 
   overlay.appendChild(btn);
 }
@@ -414,6 +563,10 @@ function _onPinPulled(overlay, container) {
   if (_extMesh && _extMesh.userData) {
     const pin = _extMesh.getObjectByName("extinguisher-pin");
     if (pin) pin.visible = false;
+    const arrow = _extMesh.getObjectByName("extinguisher-guide-arrow");
+    if (arrow) arrow.visible = false;
+    const ring = _extMesh.getObjectByName("ext-pin-ring");
+    if (ring) ring.visible = false;
     _extMesh.userData._pinPulled = true;
   }
 
@@ -429,10 +582,10 @@ function _showAimPhase(overlay, container) {
   let aimActive = false;
 
   overlay.innerHTML = `
-    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${t("fire.pass_aim_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (2/4)")}</div>
-    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("fire.pass_aim_title", "A — Aim at Base of Fire")}</div>
-    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("fire.pass_aim_desc", "Point your device directly at the base of the fire. Hold steady for 0.8 seconds.")}</div>
-    <div id="aim-progress-bar" style="width:100%;max-width:320px;height:8px;background:#1e293b;border-radius:4px;overflow:hidden;margin-top:0.5rem;">
+    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.pass_aim_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (2/4)")}</div>
+    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;text-shadow:0 1px 4px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.pass_aim_title", "A — Aim at Base of Fire")}</div>
+    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.pass_aim_desc", "Point your device directly at the base of the fire. Hold steady for 0.8 seconds.")}</div>
+    <div id="aim-progress-bar" style="width:100%;max-width:320px;height:8px;background:rgba(30,41,59,0.7);border-radius:4px;overflow:hidden;margin-top:0.5rem;">
       <div id="aim-progress-fill" style="width:0%;height:100%;background:#00e676;transition:width 0.1s;"></div>
     </div>
   `;
@@ -440,7 +593,6 @@ function _showAimPhase(overlay, container) {
   // raycaster for aim detection against fire mesh
   const THREE = typeof window !== "undefined" && window.THREE;
   if (!THREE || !_fireMesh || !_controller) {
-    // fallback: skip to button-based aim
     _showAimFallback(overlay, container);
     return;
   }
@@ -463,7 +615,6 @@ function _showAimPhase(overlay, container) {
     let hitDistance = null;
 
     if (intersects.length > 0) {
-      // compute distance to fire base center in world space
       const hitPoint = intersects[0].point;
       const baseWorldPos = new THREE.Vector3();
       if (targetBase) {
@@ -511,7 +662,7 @@ function _showAimFallback(overlay, container) {
   if (!overlay) return;
   const btn = document.createElement("button");
   btn.id = "btn-webxr-aim-confirm";
-  btn.style.cssText = "margin-top:0.6rem;padding:0.8rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
+  btn.style.cssText = "margin-top:0.6rem;padding:0.75rem 0;background:transparent !important;color:#00e676;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);";
   btn.textContent = t("fire.pass_aim_btn", "🎯 I'm aiming at the base");
   btn.addEventListener("click", () => {
     if (_controller && _aimFrameHandler) {
@@ -541,20 +692,23 @@ function _showSqueezePhase(overlay, container, aimAccuracy) {
   let squeezeStart = null;
 
   overlay.innerHTML = `
-    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${t("fire.pass_squeeze_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (3/4)")}</div>
-    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("fire.pass_squeeze_title", "S — Squeeze the Handle")}</div>
-    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("fire.pass_squeeze_desc", "Press and hold the button below for 1.5 seconds to discharge the extinguisher.")}</div>
-    <div id="squeeze-progress-bar" style="width:100%;max-width:320px;height:8px;background:#1e293b;border-radius:4px;overflow:hidden;margin-top:0.5rem;">
+    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.pass_squeeze_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (3/4)")}</div>
+    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;text-shadow:0 1px 4px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.pass_squeeze_title", "S — Squeeze the Handle")}</div>
+    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.pass_squeeze_desc", "Press and hold the button below for 1.5 seconds to discharge the extinguisher.")}</div>
+    <div id="squeeze-progress-bar" style="width:100%;max-width:320px;height:8px;background:rgba(30,41,59,0.7);border-radius:4px;overflow:hidden;margin-top:0.5rem;">
       <div id="squeeze-progress-fill" style="width:0%;height:100%;background:#f59e0b;transition:width 0.05s;"></div>
     </div>
   `;
 
   const btn = document.createElement("button");
   btn.id = "btn-webxr-squeeze";
-  btn.style.cssText = "margin-top:0.8rem;padding:0.9rem 1.5rem;background:#f59e0b;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;user-select:none;";
+  btn.style.cssText = "margin-top:0.6rem;padding:0.75rem 0;background:transparent !important;color:#f59e0b;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;user-select:none;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);";
   btn.textContent = t("fire.pass_squeeze_btn", "👇 HOLD TO SQUEEZE (1.5s)");
 
   const startHold = () => {
+    if (_extMesh && _extMesh.userData) {
+      _extMesh.userData._discharging = true;
+    }
     squeezeStart = Date.now();
     squeezeTimer = setInterval(() => {
       const elapsed = Date.now() - squeezeStart;
@@ -565,6 +719,9 @@ function _showSqueezePhase(overlay, container, aimAccuracy) {
       if (isSqueezeComplete(elapsed, 1500)) {
         clearInterval(squeezeTimer);
         squeezeTimer = null;
+        if (_extMesh && _extMesh.userData) {
+          _extMesh.userData._discharging = false;
+        }
         logger.info({ event: "webxr_squeeze_complete", elapsed }, "Squeeze done (WebXR)");
         _onSqueezeComplete(overlay, container, aimAccuracy);
       }
@@ -575,6 +732,9 @@ function _showSqueezePhase(overlay, container, aimAccuracy) {
     if (squeezeTimer) {
       clearInterval(squeezeTimer);
       squeezeTimer = null;
+    }
+    if (_extMesh && _extMesh.userData) {
+      _extMesh.userData._discharging = false;
     }
     const fill = document.getElementById("squeeze-progress-fill");
     if (fill) fill.style.width = "0%";
@@ -604,7 +764,7 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
       <div class="hud-badge">${t("fire.pass_sweep_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (4/4)")}</div>
       <div class="hud-title">${t("fire.pass_sweep_title", "S — Sweep Side to Side")}</div>
       <div class="hud-desc">${t("fire.pass_sweep_desc", "Move your device left and right to sweep the fire base. Cover at least 75% of the fire width.")}</div>
-      <div id="sweep-progress-bar" style="width:100%;height:8px;background:#1e293b;border-radius:4px;overflow:hidden;margin-top:0.5rem;">
+      <div id="sweep-progress-bar" style="width:100%;height:8px;background:rgba(30,41,59,0.7);border-radius:4px;overflow:hidden;margin-top:0.5rem;">
         <div id="sweep-progress-fill" style="width:0%;height:100%;background:#06b6d4;transition:width 0.1s;"></div>
       </div>
     </div>
@@ -612,12 +772,21 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
 
   const sweepSamples = [];
 
-  // use webxr camera pose x-position for sweep tracking (real 6DOF motion)
-  _sweepFrameHandler = ({ pose }) => {
-    if (!pose || !pose.transform) return;
-    const cameraX = pose.transform.position.x;
-    sweepSamples.push(cameraX);
+  // discharge white gas particles during sweeping
+  if (_extMesh && _extMesh.userData) {
+    _extMesh.userData._discharging = true;
+  }
 
+  let touchSweepHandler = null;
+  const cleanupSweepTouch = () => {
+    if (touchSweepHandler && typeof window !== "undefined") {
+      window.removeEventListener("touchmove", touchSweepHandler);
+      window.removeEventListener("pointermove", touchSweepHandler);
+      touchSweepHandler = null;
+    }
+  };
+
+  const processSweep = () => {
     const coverage = calcMotionSweepCoverage(sweepSamples);
     if (_fireMesh && _fireMesh.userData) {
       _fireMesh.userData.extinguishProgress = coverage;
@@ -630,9 +799,15 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
         _controller.offFrame(_sweepFrameHandler);
         _sweepFrameHandler = null;
       }
+      cleanupSweepTouch();
+      if (_extMesh && _extMesh.userData) {
+        _extMesh.userData._discharging = false;
+      }
+      if (_fireMesh && _fireMesh.userData) {
+        _fireMesh.userData.extinguishProgress = 1.0;
+      }
       logger.info({ event: "webxr_sweep_complete", coverage, sampleCount: sweepSamples.length }, "Sweep done (WebXR)");
 
-      // fire step 2 checkpoint with aim accuracy
       const passed = aimAccuracy >= AIM_PASS_THRESHOLD;
       fireCheckpointResult(CP_EXTINGUISHER_ID, passed, {
         method: "webxr_pass_technique",
@@ -646,19 +821,72 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
     }
   };
 
+  // 1. WebXR camera pose tracking combining 6DOF translation and yaw rotation
+  const THREE = typeof window !== "undefined" && window.THREE;
+  let prevYaw = null;
+  let accumYaw = 0;
+
+  _sweepFrameHandler = ({ pose }) => {
+    if (!pose || !pose.transform) return;
+    const cameraX = pose.transform.position.x;
+
+    let yawDelta = 0;
+    if (THREE && pose.transform.orientation) {
+      const q = new THREE.Quaternion(
+        pose.transform.orientation.x,
+        pose.transform.orientation.y,
+        pose.transform.orientation.z,
+        pose.transform.orientation.w
+      );
+      const euler = new THREE.Euler().setFromQuaternion(q, "YXZ");
+      if (prevYaw !== null) {
+        let diff = euler.y - prevYaw;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        accumYaw += diff;
+      }
+      prevYaw = euler.y;
+      yawDelta = accumYaw * 0.45;
+    }
+
+    const combinedSample = cameraX + yawDelta;
+    sweepSamples.push(combinedSample);
+    processSweep();
+  };
+
   if (_controller) {
     _controller.onFrame(_sweepFrameHandler);
   }
 
-  // fallback button in case motion tracking isn't working
+  // 2. Touch screen sweep fallback
+  if (typeof window !== "undefined") {
+    touchSweepHandler = (e) => {
+      const touch = e.touches ? e.touches[0] : e;
+      if (!touch) return;
+      const screenSpan = ((touch.clientX / window.innerWidth) - 0.5) * 0.6;
+      sweepSamples.push(screenSpan);
+      processSweep();
+    };
+    window.addEventListener("touchmove", touchSweepHandler, { passive: true });
+    window.addEventListener("pointermove", touchSweepHandler, { passive: true });
+  }
+
+  // fallback skip button
   const btn = document.createElement("button");
   btn.id = "btn-webxr-sweep-skip";
-  btn.style.cssText = "margin-top:1rem;padding:0.6rem 1rem;background:#334155;color:#94a3b8;border:1px solid #475569;border-radius:8px;font-size:0.85rem;cursor:pointer;display:block;width:100%;max-width:320px;";
+  btn.style.cssText = "margin-top:0.8rem;padding:0.5rem 0;background:transparent !important;color:#94a3b8;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:0.85rem;cursor:pointer;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000;";
   btn.textContent = "Skip (if motion not detected)";
   btn.addEventListener("click", () => {
     if (_controller && _sweepFrameHandler) {
       _controller.offFrame(_sweepFrameHandler);
       _sweepFrameHandler = null;
+    }
+    cleanupSweepTouch();
+    if (_extMesh && _extMesh.userData) {
+      _extMesh.userData._discharging = false;
+    }
+    if (_fireMesh && _fireMesh.userData) {
+      _fireMesh.userData.extinguishProgress = 1.0;
     }
     const passed = aimAccuracy >= AIM_PASS_THRESHOLD;
     fireCheckpointResult(CP_EXTINGUISHER_ID, passed, {
@@ -723,10 +951,11 @@ function _setupStep3WebXR(container, _step2Passed) {
     btn.id = `evacuation-opt-${id}`;
     btn.dataset.optionId = id;
     btn.style.cssText = [
-      "padding:0.75rem 0.6rem", "border-radius:10px",
-      "border:2px solid #ff6a00", "background:#1e293b",
-      "color:#fff", "cursor:pointer", "font-size:0.88rem",
-      "font-weight:600", "line-height:1.3", "box-shadow:0 2px 8px rgba(0,0,0,0.4)"
+      "padding:0.65rem 0", "border-radius:0",
+      "border:none !important", "outline:none !important", "background:transparent !important",
+      "color:#ff9800", "cursor:pointer", "font-size:0.92rem",
+      "font-weight:600", "line-height:1.3", "box-shadow:none !important",
+      "text-align:left", "text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95)"
     ].join(";");
     btn.textContent = label;
     btn.addEventListener("click", () => onSelect(id, id === CORRECT));
@@ -740,17 +969,17 @@ function _setupStep3WebXR(container, _step2Passed) {
 function _showCompletionWebXR(overlay, container, passed) {
   if (!overlay) return;
   overlay.innerHTML = `
-    <div style="font-size:1.15rem;font-weight:bold;color:${passed ? "#00e676" : "#ff1744"};margin-bottom:0.5rem;">
+    <div style="font-size:1.15rem;font-weight:bold;color:${passed ? "#00e676" : "#ff1744"};margin-bottom:0.5rem;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">
       ${passed ? t("cert.passed", "✔ Module Complete — All Steps Passed") : t("cert.review_needed", "✖ Module Complete — Review Needed")}
     </div>
-    <div style="font-size:0.92rem;color:#f1f5f9;margin-bottom:0.8rem;">
+    <div style="font-size:0.92rem;color:#f1f5f9;margin-bottom:0.8rem;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">
       ${passed ? t("fire.complete_pass_desc", "Excellent work! You completed the PASS fire extinguisher technique correctly.") : t("fire.complete_fail_desc", "Some steps need improvement. Review the PASS technique and try again.")}
     </div>
   `;
 
   const btnExit = document.createElement("button");
   btnExit.id = "btn-exit-module";
-  btnExit.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.5rem;background:#ff6a00;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;";
+  btnExit.style.cssText = "margin-top:0.6rem;padding:0.75rem 0;background:transparent !important;color:#ff6a00;border:none !important;outline:none !important;box-shadow:none !important;font-size:1.05rem;cursor:pointer;font-weight:bold;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);";
   btnExit.textContent = t("app.exit_module", "✖ Exit Module");
   btnExit.addEventListener("click", () => {
     cleanupWebXRFireModule();
@@ -777,5 +1006,7 @@ function startFireModuleWebXR(container, controller) {
 export {
   startFireModuleWebXR,
   cleanupWebXRFireModule,
-  getCurrentStepWebXR
+  getCurrentStepWebXR,
+  setZoomScaleWebXR,
+  getZoomScaleWebXR
 };

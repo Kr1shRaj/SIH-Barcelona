@@ -359,16 +359,55 @@ canvas.a-canvas {
 #gas-module-overlay a,
 #pin-status-badge,
 #squeeze-status-badge,
-#aim-status-badge {
+#aim-status-badge,
+#safear-zoom-controls button {
   touch-action: manipulation !important;
   pointer-events: auto !important;
   cursor: pointer !important;
 }
 
-#btn-place-extinguisher:active {
-  transform: scale(0.97);
+/* all fire module elements transparent without border or outline */
+#fire-module-overlay,
+#fire-module-overlay *,
+#fire-module-overlay button,
+#btn-place-extinguisher,
+#btn-proceed-step2,
+#btn-webxr-pin-pull,
+#btn-webxr-squeeze,
+#btn-webxr-aim-confirm,
+#btn-webxr-sweep-skip,
+#btn-exit-module,
+#btn-step-next,
+[id^="evacuation-opt-"],
+#safear-zoom-controls button {
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 1), 0 2px 8px rgba(0, 0, 0, 0.95), 0 0 12px rgba(0, 0, 0, 0.9) !important;
+}
+
+#fire-module-overlay [id$="-progress-bar"] {
+  background: rgba(30, 41, 59, 0.7) !important;
+  border-radius: 4px !important;
+}
+
+#fire-module-overlay #aim-progress-fill {
   background: #00e676 !important;
-  color: #000 !important;
+}
+
+#fire-module-overlay #squeeze-progress-fill {
+  background: #f59e0b !important;
+}
+
+#fire-module-overlay #sweep-progress-fill {
+  background: #06b6d4 !important;
+}
+
+#fire-module-overlay button:active,
+#safear-zoom-controls button:active {
+  opacity: 0.75 !important;
+  transform: scale(0.97) !important;
 }
 
 .unsupported-screen {

@@ -156,7 +156,7 @@ function createFireMesh() {
   return group;
 }
 
-// animate fire flames (call each frame with delta)
+// animate fire flames and dustbin burn reduction
 function animateFireMesh(fireGroup, deltaMs) {
   if (!fireGroup || !fireGroup.userData) return;
   fireGroup.userData._animTime = (fireGroup.userData._animTime || 0) + deltaMs;
@@ -165,7 +165,7 @@ function animateFireMesh(fireGroup, deltaMs) {
   const extProgress = typeof fireGroup.userData.extinguishProgress === "number"
     ? fireGroup.userData.extinguishProgress
     : 0;
-  const flameFactor = Math.max(0.01, 1.0 - extProgress * 0.96);
+  const flameFactor = Math.max(0, 1.0 - extProgress * 1.0);
 
   const outer = fireGroup.getObjectByName("fire-outer-cone");
   const inner = fireGroup.getObjectByName("fire-inner-cone");
@@ -174,33 +174,51 @@ function animateFireMesh(fireGroup, deltaMs) {
   const light = fireGroup.getObjectByName("fire-light");
   const ember = fireGroup.getObjectByName("fire-embers");
 
+  if (flameFactor <= 0.02) {
+    if (outer) outer.visible = false;
+    if (inner) inner.visible = false;
+    if (tongueL) tongueL.visible = false;
+    if (tongueR) tongueR.visible = false;
+    if (light) light.intensity = 0;
+    if (ember && ember.material) ember.material.color.setRGB(0.08, 0.08, 0.10);
+    return;
+  }
+
   if (outer) {
+    outer.visible = true;
     const s = (0.92 + 0.16 * Math.sin(t * 0.0285)) * flameFactor;
     const sy = (0.85 + 0.33 * Math.sin(t * 0.0285)) * flameFactor;
     outer.scale.set(s, sy, s);
+    outer.position.y = 0.84 + 0.90 * sy;
   }
   if (inner) {
+    inner.visible = true;
     const s = (0.85 + 0.30 * Math.sin(t * 0.037)) * flameFactor;
     const sy = (0.80 + 0.45 * Math.sin(t * 0.037)) * flameFactor;
     inner.scale.set(s, sy, s);
+    inner.position.y = 0.84 + 0.65 * sy;
   }
   if (tongueL) {
+    tongueL.visible = true;
     tongueL.rotation.z = -0.21 + 0.14 * Math.sin(t * 0.025);
     tongueL.scale.set(flameFactor, flameFactor, flameFactor);
+    tongueL.position.y = 0.84 + 0.70 * flameFactor;
   }
   if (tongueR) {
+    tongueR.visible = true;
     tongueR.rotation.z = 0.17 - 0.14 * Math.sin(t * 0.033);
     tongueR.scale.set(flameFactor, flameFactor, flameFactor);
+    tongueR.position.y = 0.84 + 0.72 * flameFactor;
   }
   if (light) {
     light.intensity = (1.5 + 1.1 * Math.sin(t * 0.045)) * flameFactor;
   }
   if (ember && ember.material) {
-    if (extProgress >= 0.95) {
-      ember.material.color.setRGB(0.12, 0.16, 0.23);
+    if (extProgress >= 0.85) {
+      ember.material.color.setRGB(0.12, 0.14, 0.18);
     } else {
-      const r = 0.27 + 0.13 * Math.sin(t * 0.031);
-      ember.material.color.setRGB(1.0, r, 0.0);
+      const r = (0.27 + 0.13 * Math.sin(t * 0.031)) * flameFactor;
+      ember.material.color.setRGB(1.0 * flameFactor, r, 0.0);
     }
   }
 }
@@ -319,15 +337,155 @@ function createExtinguisherMesh() {
 
   group.add(arrowGroup);
 
+  // discharge hose
+  const hoseGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.70, 8);
+  const hoseMat = new THREE.MeshBasicMaterial({ color: 0x0f172a });
+  const hose = new THREE.Mesh(hoseGeo, hoseMat);
+  hose.position.set(0.26, 1.15, -0.10);
+  hose.rotation.set(0.35, 0, -0.42);
+  hose.name = "ext-hose";
+  group.add(hose);
+
+  // discharge nozzle horn pointing toward fire (-Z)
+  const nozzleGroup = new THREE.Group();
+  nozzleGroup.name = "extinguisher-nozzle";
+  nozzleGroup.position.set(0.40, 0.88, -0.28);
+  nozzleGroup.rotation.set(-0.15, 0.10, 0);
+
+  const hornGeo = new THREE.ConeGeometry(0.11, 0.34, 12);
+  const hornMat = new THREE.MeshBasicMaterial({ color: 0x1e293b });
+  const horn = new THREE.Mesh(hornGeo, hornMat);
+  horn.rotation.x = -Math.PI / 2;
+  horn.position.set(0, 0, -0.17);
+  horn.name = "ext-nozzle-horn";
+  nozzleGroup.add(horn);
+
+  // attach white chemical powder spray at tip of horn
+  const spray = createPowderSprayMesh();
+  if (spray) {
+    spray.position.set(0, 0, -0.34);
+    nozzleGroup.add(spray);
+  }
+  group.add(nozzleGroup);
+
   // store animation state
   group.userData._animTime = 0;
   group.userData._pinPulled = false;
+  group.userData._discharging = false;
 
   return group;
 }
 
-// animate extinguisher guide arrow bounce (call each frame)
-function animateExtinguisherMesh(extGroup, deltaMs) {
+// build white chemical powder gas spray stream
+function createPowderSprayMesh() {
+  const THREE = getTHREE();
+  if (!THREE) return null;
+
+  const sprayGroup = new THREE.Group();
+  sprayGroup.name = "powder-spray";
+  sprayGroup.visible = false;
+
+  // expanding white translucent plume cone
+  const coneGeo = new THREE.ConeGeometry(0.55, 2.2, 16, 1, true);
+  const coneMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.65,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  });
+  const cone = new THREE.Mesh(coneGeo, coneMat);
+  cone.rotation.x = Math.PI / 2;
+  cone.position.set(0, 0, -1.1);
+  cone.name = "powder-spray-cone";
+  sprayGroup.add(cone);
+
+  // dense inner core cone
+  const coreGeo = new THREE.ConeGeometry(0.24, 1.6, 12, 1, true);
+  const coreMat = new THREE.MeshBasicMaterial({
+    color: 0xf8fafc,
+    transparent: true,
+    opacity: 0.85,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  });
+  const core = new THREE.Mesh(coreGeo, coreMat);
+  core.rotation.x = Math.PI / 2;
+  core.position.set(0, 0, -0.8);
+  core.name = "powder-spray-core";
+  sprayGroup.add(core);
+
+  // individual high-speed powder particle puffs
+  const puffGeo = new THREE.SphereGeometry(0.08, 8, 8);
+  const particles = [];
+  for (let i = 0; i < 20; i++) {
+    const puffMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.75,
+      depthWrite: false
+    });
+    const puff = new THREE.Mesh(puffGeo, puffMat);
+    puff.userData = {
+      offsetZ: -(i * 0.11 + Math.random() * 0.08),
+      speed: 2.2 + Math.random() * 1.5,
+      spreadX: (Math.random() - 0.5) * 0.28,
+      spreadY: (Math.random() - 0.5) * 0.28,
+      baseScale: 0.8 + Math.random() * 0.6
+    };
+    puff.position.set(puff.userData.spreadX, puff.userData.spreadY, puff.userData.offsetZ);
+    sprayGroup.add(puff);
+    particles.push(puff);
+  }
+  sprayGroup.userData.particles = particles;
+  sprayGroup.userData._animTime = 0;
+
+  return sprayGroup;
+}
+
+// animate powder spray particles
+function animatePowderSpray(sprayGroup, active, deltaMs) {
+  if (!sprayGroup || !sprayGroup.userData) return;
+  sprayGroup.visible = Boolean(active);
+  if (!active) return;
+
+  sprayGroup.userData._animTime = (sprayGroup.userData._animTime || 0) + deltaMs;
+  const t = sprayGroup.userData._animTime;
+
+  const cone = sprayGroup.getObjectByName("powder-spray-cone");
+  if (cone && cone.material) {
+    cone.material.opacity = 0.45 + 0.25 * Math.sin(t * 0.04);
+    const s = 1.0 + 0.12 * Math.sin(t * 0.05);
+    cone.scale.set(s, 1.0, s);
+  }
+
+  const core = sprayGroup.getObjectByName("powder-spray-core");
+  if (core && core.material) {
+    core.material.opacity = 0.70 + 0.20 * Math.sin(t * 0.06);
+  }
+
+  const particles = sprayGroup.userData.particles || [];
+  const dt = Math.min(0.05, deltaMs / 1000);
+  particles.forEach((p) => {
+    p.position.z -= p.userData.speed * dt;
+    const progress = Math.min(1.0, Math.abs(p.position.z) / 2.2);
+    const s = p.userData.baseScale * (1.0 + progress * 2.8);
+    p.scale.set(s, s, s);
+    p.position.x = p.userData.spreadX * (1.0 + progress * 2.2);
+    p.position.y = p.userData.spreadY * (1.0 + progress * 2.2);
+    if (p.material) {
+      p.material.opacity = Math.max(0, 0.85 * (1.0 - progress));
+    }
+    if (p.position.z < -2.2) {
+      p.position.z = 0;
+      p.position.x = (Math.random() - 0.5) * 0.05;
+      p.position.y = (Math.random() - 0.5) * 0.05;
+    }
+  });
+}
+
+// animate extinguisher parts and gas spray
+function animateExtinguisherMesh(extGroup, deltaMs, discharging = false) {
   if (!extGroup || !extGroup.userData) return;
   extGroup.userData._animTime = (extGroup.userData._animTime || 0) + deltaMs;
   const t = extGroup.userData._animTime;
@@ -341,6 +499,12 @@ function animateExtinguisherMesh(extGroup, deltaMs) {
   if (ring && !extGroup.userData._pinPulled) {
     const s = 1.0 + 0.25 * Math.sin(t * 0.009);
     ring.scale.set(s, s, s);
+  }
+
+  const spray = extGroup.getObjectByName("powder-spray");
+  if (spray) {
+    const isDischarging = discharging || Boolean(extGroup.userData._discharging);
+    animatePowderSpray(spray, isDischarging, deltaMs);
   }
 }
 
@@ -372,5 +536,7 @@ export {
   animateFireMesh,
   createExtinguisherMesh,
   animateExtinguisherMesh,
+  createPowderSprayMesh,
+  animatePowderSpray,
   calcFireOffsetPosition
 };

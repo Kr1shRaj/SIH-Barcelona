@@ -86,13 +86,50 @@ class MockQuaternion {
 class MockRingGeometry {
   rotateX() {}
 }
-class MockMeshBasicMaterial {}
+class MockConeGeometry {}
+class MockCylinderGeometry {}
+class MockSphereGeometry {}
+class MockMeshBasicMaterial {
+  constructor(opt = {}) {
+    this.color = {
+      setRGB(r, g, b) { this.r = r; this.g = g; this.b = b; }
+    };
+    this.opacity = opt.opacity ?? 1;
+  }
+}
 class MockMesh {
   constructor(geo, mat) {
     this.geometry = geo;
-    this.material = mat;
+    this.material = mat || new MockMeshBasicMaterial();
     this.matrix = { fromArray() {} };
     this.visible = true;
+    this.position = new MockVector3();
+    this.rotation = new MockVector3();
+    this.scale = new MockVector3(1, 1, 1);
+    this.userData = {};
+  }
+}
+class MockGroup {
+  constructor() {
+    this.children = [];
+    this.position = new MockVector3();
+    this.rotation = new MockVector3();
+    this.scale = new MockVector3(1, 1, 1);
+    this.visible = true;
+    this.userData = {};
+  }
+  add(obj) { this.children.push(obj); }
+  remove(obj) { this.children = this.children.filter(c => c !== obj); }
+  getObjectByName(name) {
+    if (this.name === name) return this;
+    for (const child of this.children) {
+      if (child.name === name) return child;
+      if (child.getObjectByName) {
+        const found = child.getObjectByName(name);
+        if (found) return found;
+      }
+    }
+    return null;
   }
 }
 class MockScene {
@@ -124,6 +161,7 @@ class MockWebGLRenderer {
 class MockLight {
   constructor() {
     this.position = new MockVector3();
+    this.intensity = 1;
   }
 }
 
@@ -131,20 +169,34 @@ const mockTHREE = {
   Vector3: MockVector3,
   Quaternion: MockQuaternion,
   RingGeometry: MockRingGeometry,
+  ConeGeometry: MockConeGeometry,
+  CylinderGeometry: MockCylinderGeometry,
+  SphereGeometry: MockSphereGeometry,
   MeshBasicMaterial: MockMeshBasicMaterial,
+  MeshStandardMaterial: MockMeshBasicMaterial,
   Mesh: MockMesh,
+  Group: MockGroup,
   Scene: MockScene,
   PerspectiveCamera: MockCamera,
   WebGLRenderer: MockWebGLRenderer,
   AmbientLight: MockLight,
   DirectionalLight: MockLight,
+  PointLight: MockLight,
   DoubleSide: 2
 };
 
 import {
   calcFireOffsetPosition,
-  createPlacementReticle
+  createPlacementReticle,
+  createPowderSprayMesh,
+  animatePowderSpray,
+  animateFireMesh
 } from "../ar/webxr_render.js";
+
+import {
+  setZoomScaleWebXR,
+  getZoomScaleWebXR
+} from "../modules/fire-response/webxr_fire_module.js";
 
 import {
   WebXRPlacementController,
@@ -373,5 +425,66 @@ describe("WebXR Placement and Tracking", () => {
     controller.confirmPlacement();
     assert.strictEqual(events.length, 2, "must dispatch confirmed event on re-trigger");
     assert.strictEqual(events[1].position.x, 0.1);
+  });
+
+  it("createPowderSprayMesh creates spray cone and particles when THREE present", () => {
+    globalThis.window.THREE = mockTHREE;
+    const spray = createPowderSprayMesh();
+    assert.notStrictEqual(spray, null);
+    assert.strictEqual(spray.name, "powder-spray");
+    assert.strictEqual(spray.visible, false);
+    assert.ok(spray.userData.particles && spray.userData.particles.length >= 15);
+  });
+
+  it("animatePowderSpray toggles visibility and animates particles", () => {
+    globalThis.window.THREE = mockTHREE;
+    const spray = createPowderSprayMesh();
+    animatePowderSpray(spray, true, 16);
+    assert.strictEqual(spray.visible, true);
+    animatePowderSpray(spray, false, 16);
+    assert.strictEqual(spray.visible, false);
+  });
+
+  it("animateFireMesh reduces flames and hides them when extinguished", () => {
+    globalThis.window.THREE = mockTHREE;
+    const fireGroup = new mockTHREE.Group();
+    const outer = new mockTHREE.Mesh();
+    outer.name = "fire-outer-cone";
+    const inner = new mockTHREE.Mesh();
+    inner.name = "fire-inner-cone";
+    const light = new mockTHREE.PointLight();
+    light.name = "fire-light";
+    fireGroup.add(outer);
+    fireGroup.add(inner);
+    fireGroup.add(light);
+
+    // active fire
+    fireGroup.userData.extinguishProgress = 0;
+    animateFireMesh(fireGroup, 16);
+    assert.strictEqual(outer.visible, true);
+    assert.strictEqual(inner.visible, true);
+
+    // 100% extinguished fire in dustbin
+    fireGroup.userData.extinguishProgress = 1.0;
+    animateFireMesh(fireGroup, 16);
+    assert.strictEqual(outer.visible, false);
+    assert.strictEqual(inner.visible, false);
+    assert.strictEqual(light.intensity, 0);
+  });
+
+  it("setZoomScaleWebXR clamps zoom factor between 0.6 and 2.5", () => {
+    assert.strictEqual(setZoomScaleWebXR(1.5), 1.5);
+    assert.strictEqual(getZoomScaleWebXR(), 1.5);
+
+    // clamped at lower bound
+    assert.strictEqual(setZoomScaleWebXR(0.2), 0.6);
+    assert.strictEqual(getZoomScaleWebXR(), 0.6);
+
+    // clamped at upper bound
+    assert.strictEqual(setZoomScaleWebXR(4.0), 2.5);
+    assert.strictEqual(getZoomScaleWebXR(), 2.5);
+
+    // reset
+    setZoomScaleWebXR(1.0);
   });
 });
