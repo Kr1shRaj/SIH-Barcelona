@@ -85,6 +85,17 @@ import {
   CORRECT_BUDDY_PROCEDURE
 } from "../modules/gas-leak/gas-leak.js";
 
+// helper: click next button until action screen reached
+function clickThroughSubscreens(maxSteps = 10) {
+  let count = 0;
+  while (_elements["btn-step-next"] && count < maxSteps) {
+    const btn = _elements["btn-step-next"];
+    delete _elements["btn-step-next"];
+    btn.click();
+    count++;
+  }
+}
+
 // helper: collect safear:checkpoint events during execution
 function collectCheckpointEvents(fn) {
   const events = [];
@@ -161,6 +172,7 @@ describe("Gas Leak & Confined Space Protocol module", () => {
 
   it("completing step 1 fires proximity event and registers step 2", () => {
     startGasLeakModule(document.getElementById("ar-viewport"));
+    clickThroughSubscreens();
 
     const events = collectCheckpointEvents(() => {
       _elements["btn-hazard-found"]?.click();
@@ -179,7 +191,9 @@ describe("Gas Leak & Confined Space Protocol module", () => {
 
   it("step 2 correct PPE selection fires passed:true and registers step 3", () => {
     startGasLeakModule(document.getElementById("ar-viewport"));
+    clickThroughSubscreens();
     _elements["btn-hazard-found"]?.click();
+    clickThroughSubscreens();
 
     // toggle required PPE items
     _elements["ppe-opt-scba_respirator"]?.click();
@@ -204,7 +218,9 @@ describe("Gas Leak & Confined Space Protocol module", () => {
 
   it("step 2 wrong PPE selection fires passed:false and advances to step 3", () => {
     startGasLeakModule(document.getElementById("ar-viewport"));
+    clickThroughSubscreens();
     _elements["btn-hazard-found"]?.click();
+    clickThroughSubscreens();
 
     // select dust mask only
     _elements["ppe-opt-dust_mask"]?.click();
@@ -225,11 +241,14 @@ describe("Gas Leak & Confined Space Protocol module", () => {
 
   it("step 3 correct buddy role fires passed:true and renders completion exit button", () => {
     startGasLeakModule(document.getElementById("ar-viewport"));
+    clickThroughSubscreens();
     _elements["btn-hazard-found"]?.click();
+    clickThroughSubscreens();
     _elements["ppe-opt-scba_respirator"]?.click();
     _elements["ppe-opt-multi_gas_detector"]?.click();
     _elements["ppe-opt-safety_harness"]?.click();
     _elements["btn-confirm-ppe"]?.click();
+    clickThroughSubscreens();
 
     const events = collectCheckpointEvents(() => {
       _elements[`buddy-opt-${CORRECT_BUDDY_PROCEDURE}`]?.click();
@@ -252,8 +271,11 @@ describe("Gas Leak & Confined Space Protocol module", () => {
 
   it("step 3 wrong buddy option fires passed:false", () => {
     startGasLeakModule(document.getElementById("ar-viewport"));
+    clickThroughSubscreens();
     _elements["btn-hazard-found"]?.click();
+    clickThroughSubscreens();
     _elements["btn-confirm-ppe"]?.click();
+    clickThroughSubscreens();
 
     const events = collectCheckpointEvents(() => {
       _elements["buddy-opt-both_enter_together"]?.click();

@@ -13,7 +13,14 @@ export default [
         console: "readonly",
         caches: "readonly",
         fetch: "readonly",
-        URL: "readonly"
+        URL: "readonly",
+        setTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
+        Date: "readonly",
+        Math: "readonly",
+        URLSearchParams: "readonly",
+        globalThis: "readonly"
       }
     },
     rules: {

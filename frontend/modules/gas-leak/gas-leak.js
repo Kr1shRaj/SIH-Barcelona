@@ -213,7 +213,23 @@ function _renderBuddyOptions(container, onSelect) {
   return wrapper;
 }
 
-// step 1: proximity — user acknowledges 3d gas hazard zone
+// render subscreen with educational text and next navigation button
+function _renderSubscreen(overlay, { badge, title, desc, buttonText, onNext }) {
+  if (!overlay) return;
+  overlay.innerHTML = `
+    <div style="font-size:0.95rem;font-weight:bold;color:#f59e0b;letter-spacing:0.5px;">${badge}</div>
+    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${title}</div>
+    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${desc}</div>
+  `;
+  const btnNext = document.createElement("button");
+  btnNext.id = "btn-step-next";
+  btnNext.style.cssText = "margin-top:0.4rem;padding:0.75rem 1.4rem;background:#f59e0b;color:#000;border:none;border-radius:8px;font-size:0.95rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
+  btnNext.textContent = buttonText || "Next ➜";
+  btnNext.addEventListener("click", onNext);
+  overlay.appendChild(btnNext);
+}
+
+// step 1: proximity — user learns atmospheric hazards before acknowledging 3D hazard zone
 function _setupStep1(container, tierInfo) {
   _currentStep = 1;
   logger.info({ event: "gas_step_start", step: 1, tier: tierInfo && tierInfo.tier }, "Hazard zone recognition");
@@ -230,28 +246,62 @@ function _setupStep1(container, tierInfo) {
   _renderHazardZoneGraphic(container);
 
   const overlay = document.getElementById("gas-module-overlay");
-  if (overlay) {
-    const stepLabel = t("app.step_indicator", { current: 1, total: 3 }, "STEP 1 / 3");
-    const title = t("modules.gas_leak.step_hazard", {}, "RECOGNIZE THE HAZARD ZONE");
-    const desc = t("modules.gas_leak.step_hazard_desc", {}, "Identify marked toxic/confined gas perimeter in AR space.");
-    overlay.innerHTML = `
-      <div style="font-size:1.1rem;font-weight:bold;color:#f59e0b">☣ ${stepLabel} — ${title}</div>
-      <div style="margin:0.5rem 0">${desc}</div>
-    `;
+  playNarration({ moduleId: "gas-leak", stepKey: "step_1_hazard" });
+
+  const screens = [
+    {
+      badge: t("gas.step1_badge_1", "☣ STEP 1 / 3 — HAZARD ZONE RECOGNITION (1/3)"),
+      title: t("gas.step1_title_1", "Confined Space Atmospheric Hazards"),
+      desc: t("gas.step1_desc_1", "Confined spaces (tanks, sumps, silos, underground pits) trap invisible lethal gases like H₂S, methane, or CO. Low oxygen (<19.5%) causes sudden loss of consciousness without warning."),
+      buttonText: t("gas.step1_next_1", "Next: Testing & Permits ➜")
+    },
+    {
+      badge: t("gas.step1_badge_2", "☣ STEP 1 / 3 — HAZARD ZONE RECOGNITION (2/3)"),
+      title: t("gas.step1_title_2", "Atmospheric Testing & Entry Permits"),
+      desc: t("gas.step1_desc_2", "Never enter without a signed Confined Space Entry Permit. Calibrated gas detectors must sample the atmosphere at top (light gases), middle, and bottom (heavy gases) levels before entry."),
+      buttonText: t("gas.step1_next_2", "Next: Confirm Hazard in AR ➜")
+    }
+  ];
+
+  function showActionScreen() {
+    if (overlay) {
+      overlay.innerHTML = `
+        <div style="font-size:0.95rem;font-weight:bold;color:#f59e0b;letter-spacing:0.5px;">☣ STEP 1 / 3 — HAZARD ZONE RECOGNITION (3/3)</div>
+        <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">Identify Confined Hazard Perimeter</div>
+        <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Identify marked toxic/confined gas perimeter in AR space. Confirm you recognize the hazard boundary.</div>
+      `;
+
+      const btn = document.createElement("button");
+      btn.id = "btn-hazard-found";
+      btn.style.cssText = "margin-top:0.4rem;padding:0.8rem 1.5rem;background:#10b981;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
+      btn.textContent = t("modules.gas_leak.btn_hazard", {}, "✔ Hazard Zone Acknowledged");
+      btn.addEventListener("click", () => {
+        fireCheckpointResult(CP_HAZARD_ZONE_ID, true, { method: "button_confirm" });
+        _setupStep2(container, tierInfo);
+      });
+      overlay.appendChild(btn);
+    }
   }
 
-  const btn = document.createElement("button");
-  btn.id = "btn-hazard-found";
-  btn.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.5rem;background:#10b981;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;";
-  btn.textContent = t("modules.gas_leak.btn_hazard", {}, "✔ Hazard Zone Acknowledged");
-  btn.addEventListener("click", () => {
-    fireCheckpointResult(CP_HAZARD_ZONE_ID, true, { method: "button_confirm" });
-    _setupStep2(container, tierInfo);
-  });
-  if (overlay) overlay.appendChild(btn);
+  let subIndex = 0;
+  function renderCurrentSubscreen() {
+    if (subIndex < screens.length) {
+      _renderSubscreen(overlay, {
+        ...screens[subIndex],
+        onNext: () => {
+          subIndex++;
+          renderCurrentSubscreen();
+        }
+      });
+    } else {
+      showActionScreen();
+    }
+  }
+
+  renderCurrentSubscreen();
 }
 
-// step 2: select — user chooses correct ppe bundle for toxic atmosphere
+// step 2: select — user learns PPE equipment purposes before selecting bundle
 function _setupStep2(container, tierInfo) {
   _currentStep = 2;
   logger.info({ event: "gas_step_start", step: 2, tier: tierInfo && tierInfo.tier }, "PPE selection");
@@ -268,29 +318,62 @@ function _setupStep2(container, tierInfo) {
   _renderPpeGraphic(container);
 
   const overlay = document.getElementById("gas-module-overlay");
-  if (overlay) {
-    const stepLabel = t("app.step_indicator", { current: 2, total: 3 }, "STEP 2 / 3");
-    const title = t("modules.gas_leak.step_ppe", {}, "SELECT REQUIRED PPE");
-    const desc = t("modules.gas_leak.step_ppe_desc", {}, "Select all required PPE for hazardous gas entry:");
-    overlay.innerHTML = `
-      <div style="font-size:1.1rem;font-weight:bold;color:#f59e0b">☣ ${stepLabel} — ${title}</div>
-      <div style="margin:0.4rem 0;font-size:0.9rem">${desc}</div>
-    `;
+
+  const screens = [
+    {
+      badge: t("gas.step2_badge_1", "☣ STEP 2 / 3 — PPE SELECTION (1/3)"),
+      title: t("gas.step2_title_1", "Respiratory Protection for Toxic Gas"),
+      desc: t("gas.step2_desc_1", "In oxygen-deficient (<19.5% O₂) or unknown toxic gas atmospheres, only a Self-Contained Breathing Apparatus (SCBA) provides clean air. Cloth or dust masks offer zero protection against gases."),
+      buttonText: t("gas.step2_next_1", "Next: Gas Monitoring & Retrieval ➜")
+    },
+    {
+      badge: t("gas.step2_badge_2", "☣ STEP 2 / 3 — PPE SELECTION (2/3)"),
+      title: t("gas.step2_title_2", "Continuous Monitoring & Retrieval Lifeline"),
+      desc: t("gas.step2_desc_2", "A multi-gas monitor must continuously alert the entrant to rising toxic levels. A full-body harness and retrieval lifeline allow non-entry rescue if a worker collapses inside."),
+      buttonText: t("gas.step2_next_2", "Next: Select Required PPE ➜")
+    }
+  ];
+
+  function showActionScreen() {
+    if (overlay) {
+      overlay.innerHTML = `
+        <div style="font-size:0.95rem;font-weight:bold;color:#f59e0b;letter-spacing:0.5px;">☣ STEP 2 / 3 — PPE SELECTION (3/3)</div>
+        <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">Select Required Gas Entry PPE</div>
+        <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Select all required PPE for hazardous gas entry (select all that apply):</div>
+      `;
+
+      _renderPpeOptions(overlay, (selectedList) => {
+        const result = evaluatePpeSelection(selectedList);
+        fireCheckpointResult(CP_PPE_SELECTION_ID, result.passed, {
+          selected: selectedList,
+          score: result.score,
+          missing: result.missing,
+          forbidden: result.forbidden
+        });
+        _setupStep3(container);
+      });
+    }
   }
 
-  _renderPpeOptions(overlay, (selectedList) => {
-    const result = evaluatePpeSelection(selectedList);
-    fireCheckpointResult(CP_PPE_SELECTION_ID, result.passed, {
-      selected: selectedList,
-      score: result.score,
-      missing: result.missing,
-      forbidden: result.forbidden
-    });
-    _setupStep3(container);
-  });
+  let subIndex = 0;
+  function renderCurrentSubscreen() {
+    if (subIndex < screens.length) {
+      _renderSubscreen(overlay, {
+        ...screens[subIndex],
+        onNext: () => {
+          subIndex++;
+          renderCurrentSubscreen();
+        }
+      });
+    } else {
+      showActionScreen();
+    }
+  }
+
+  renderCurrentSubscreen();
 }
 
-// step 3: select — user chooses correct buddy system protocol
+// step 3: select — user learns buddy system expectations before choosing protocol
 function _setupStep3(_container) {
   _currentStep = 3;
   logger.info({ event: "gas_step_start", step: 3 }, "Buddy procedure");
@@ -305,23 +388,56 @@ function _setupStep3(_container) {
   });
 
   const overlay = document.getElementById("gas-module-overlay");
-  if (overlay) {
-    const stepLabel = t("app.step_indicator", { current: 3, total: 3 }, "STEP 3 / 3");
-    const title = t("modules.gas_leak.step_buddy", {}, "FOLLOW BUDDY SYSTEM PROTOCOL");
-    const desc = t("modules.gas_leak.step_buddy_desc", {}, "What is the safety attendant role outside the confined opening?");
-    overlay.innerHTML = `
-      <div style="font-size:1.1rem;font-weight:bold;color:#f59e0b">☣ ${stepLabel} — ${title}</div>
-      <div style="margin:0.5rem 0;font-size:0.9rem">${desc}</div>
-    `;
+
+  const screens = [
+    {
+      badge: t("gas.step3_badge_1", "☣ STEP 3 / 3 — BUDDY SYSTEM PROTOCOL (1/3)"),
+      title: t("gas.step3_title_1", "The Standby Buddy Role"),
+      desc: t("gas.step3_desc_1", "The safety attendant (buddy) remains stationed strictly outside the entrance opening. Over 60% of confined space fatalities are would-be rescuers entering without protection."),
+      buttonText: t("gas.step3_next_1", "Next: Communication & Emergency Rescue ➜")
+    },
+    {
+      badge: t("gas.step3_badge_2", "☣ STEP 3 / 3 — BUDDY SYSTEM PROTOCOL (2/3)"),
+      title: t("gas.step3_title_2", "Continuous Comms & Non-Entry Rescue"),
+      desc: t("gas.step3_desc_2", "The attendant maintains unbroken visual or radio communication at fixed intervals. If an entrant becomes unresponsive, the attendant immediately initiates external winch retrieval and summons emergency response."),
+      buttonText: t("gas.step3_next_2", "Next: Select Buddy Procedure ➜")
+    }
+  ];
+
+  function showActionScreen() {
+    if (overlay) {
+      overlay.innerHTML = `
+        <div style="font-size:0.95rem;font-weight:bold;color:#f59e0b;letter-spacing:0.5px;">☣ STEP 3 / 3 — BUDDY SYSTEM PROTOCOL (3/3)</div>
+        <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">Buddy System Protocol Choice</div>
+        <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">What is the safety attendant role outside the confined opening?</div>
+      `;
+
+      _renderBuddyOptions(overlay, (selectedOption, passed) => {
+        fireCheckpointResult(CP_BUDDY_PROCEDURE_ID, passed, {
+          selected: selectedOption,
+          correct: CORRECT_BUDDY_PROCEDURE
+        });
+        _showComplete(passed);
+      });
+    }
   }
 
-  _renderBuddyOptions(overlay, (selectedOption, passed) => {
-    fireCheckpointResult(CP_BUDDY_PROCEDURE_ID, passed, {
-      selected: selectedOption,
-      correct: CORRECT_BUDDY_PROCEDURE
-    });
-    _showComplete(passed);
-  });
+  let subIndex = 0;
+  function renderCurrentSubscreen() {
+    if (subIndex < screens.length) {
+      _renderSubscreen(overlay, {
+        ...screens[subIndex],
+        onNext: () => {
+          subIndex++;
+          renderCurrentSubscreen();
+        }
+      });
+    } else {
+      showActionScreen();
+    }
+  }
+
+  renderCurrentSubscreen();
 }
 
 // clean up all gas module visuals and overlay from DOM and a-marker

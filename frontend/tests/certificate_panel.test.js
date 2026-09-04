@@ -142,7 +142,7 @@ describe("Certificate completion panel", () => {
 
       assert.strictEqual(state, "passed");
       const text = textOf(overlay);
-      assert.match(text, /Training Passed/);
+      assert.match(text, /Training Complete/);
       assert.match(text, /91\.67%/);
     });
 
@@ -296,7 +296,7 @@ describe("Certificate completion panel", () => {
       // not the module result
       const { state, overlay } = render(passedAttempt({ percentage: 89 }));
       assert.strictEqual(state, "passed");
-      assert.match(textOf(overlay), /Training Passed/);
+      assert.match(textOf(overlay), /Training Complete/);
     });
 
     it("19. a failing aggregate reads as failed", () => {
