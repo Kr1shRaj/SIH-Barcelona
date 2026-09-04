@@ -236,7 +236,32 @@ canvas.a-canvas {
 }
 
 /* module floating hud overlay panels */
-#fire-module-overlay,
+#fire-module-overlay {
+  position: fixed !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
+  left: 12px !important;
+  right: auto !important;
+  bottom: auto !important;
+  width: min(320px, calc(100vw - 24px)) !important;
+  max-width: 320px !important;
+  max-height: 85dvh !important;
+  max-height: 85vh !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  padding: 8px 4px !important;
+  background: transparent !important;
+  border: none !important;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 1), 0 2px 8px rgba(0, 0, 0, 0.95), 0 0 12px rgba(0, 0, 0, 0.9) !important;
+  box-sizing: border-box !important;
+  z-index: 100 !important;
+  pointer-events: none !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  justify-content: center !important;
+}
+
 #gas-module-overlay {
   position: fixed !important;
   bottom: 0 !important;
@@ -260,8 +285,25 @@ canvas.a-canvas {
   justify-content: flex-end !important;
 }
 
-/* modern unified bottom glassmorphic hud card */
-.fire-hud-card,
+/* transparent text-shadow-only hud card for fire response */
+.fire-hud-card {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-radius: 0 !important;
+  padding: 4px 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  pointer-events: auto !important;
+  margin: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  text-align: left !important;
+}
+
+/* modern unified bottom glassmorphic hud card for gas module */
 .gas-hud-card {
   width: 100% !important;
   max-width: 480px !important;
@@ -279,28 +321,34 @@ canvas.a-canvas {
   flex-direction: column !important;
 }
 
-.fire-hud-card .hud-badge {
-  font-size: 0.85rem;
+.fire-hud-card .hud-badge,
+.gas-hud-card .hud-badge {
+  font-size: 0.82rem;
   font-weight: 700;
   color: #ff6a00;
   letter-spacing: 0.5px;
   text-transform: uppercase;
-  margin-bottom: 2px;
+  margin-bottom: 3px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 1), 0 2px 6px rgba(0, 0, 0, 0.9) !important;
 }
 
-.fire-hud-card .hud-title {
-  font-size: 1.12rem;
+.fire-hud-card .hud-title,
+.gas-hud-card .hud-title {
+  font-size: 1.10rem;
   font-weight: 700;
   color: #ffffff;
   margin-bottom: 4px;
-  line-height: 1.3;
+  line-height: 1.25;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 1), 0 2px 8px rgba(0, 0, 0, 0.95) !important;
 }
 
-.fire-hud-card .hud-desc {
-  font-size: 0.88rem;
+.fire-hud-card .hud-desc,
+.gas-hud-card .hud-desc {
+  font-size: 0.85rem;
   line-height: 1.4;
   color: #f1f5f9;
   margin-bottom: 8px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 1), 0 2px 6px rgba(0, 0, 0, 0.9) !important;
 }
 
 #fire-module-overlay button,

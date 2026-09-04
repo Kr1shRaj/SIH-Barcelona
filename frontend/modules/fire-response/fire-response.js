@@ -206,7 +206,7 @@ function _renderEvacuationOptions(container, onSelect) {
 
   const wrapper = document.createElement("div");
   wrapper.id = "evacuation-options";
-  wrapper.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-top:0.6rem;width:100%;";
+  wrapper.style.cssText = "display:flex;flex-direction:column;gap:0.45rem;margin-top:0.4rem;width:100%;";
 
   options.forEach(({ id, label }) => {
     const btn = document.createElement("button");
