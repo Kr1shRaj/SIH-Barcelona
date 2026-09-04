@@ -353,6 +353,8 @@ canvas.a-canvas {
 
 #fire-module-overlay button,
 #gas-module-overlay button,
+#btn-place-extinguisher,
+#btn-proceed-step2,
 #fire-module-overlay a,
 #gas-module-overlay a,
 #pin-status-badge,
@@ -360,6 +362,13 @@ canvas.a-canvas {
 #aim-status-badge {
   touch-action: manipulation !important;
   pointer-events: auto !important;
+  cursor: pointer !important;
+}
+
+#btn-place-extinguisher:active {
+  transform: scale(0.97);
+  background: #00e676 !important;
+  color: #000 !important;
 }
 
 .unsupported-screen {

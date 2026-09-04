@@ -347,4 +347,31 @@ describe("WebXR Placement and Tracking", () => {
       await loadModule3DScene("unknown-module", mockController);
     }, /not implemented/);
   });
+
+  it("confirmPlacement dispatches placement_confirmed even if called multiple times or already placed", () => {
+    globalThis.window.THREE = mockTHREE;
+    const mockSession = { addEventListener() {}, removeEventListener() {}, end: async () => {} };
+    const controller = new WebXRPlacementController({
+      session: mockSession,
+      gl: { canvas: {} },
+      referenceSpace: {},
+      hitTestSource: {},
+      viewerSpace: {}
+    });
+
+    const events = [];
+    globalThis.window.addEventListener("safear:placement_confirmed", (e) => {
+      events.push(e.detail);
+    });
+
+    // first placement
+    controller.confirmPlacement({ x: 0.1, y: -0.5, z: -1.2 });
+    assert.strictEqual(events.length, 1);
+    assert.strictEqual(controller.state, PLACEMENT_STATES.PLACED);
+
+    // second confirmation (e.g. from explicit TAP TO PLACE button)
+    controller.confirmPlacement();
+    assert.strictEqual(events.length, 2, "must dispatch confirmed event on re-trigger");
+    assert.strictEqual(events[1].position.x, 0.1);
+  });
 });

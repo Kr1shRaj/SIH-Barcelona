@@ -164,6 +164,7 @@ function _setupStep1WebXR(container) {
     `;
 
     let placed = false;
+    let sessionSelectHandler = null;
 
     // placement execution function
     const doPlace = (pos, viewerQuat) => {
@@ -172,7 +173,12 @@ function _setupStep1WebXR(container) {
 
       if (_placementScreenTap && typeof window !== "undefined") {
         window.removeEventListener("click", _placementScreenTap);
+        window.removeEventListener("pointerdown", _placementScreenTap);
         _placementScreenTap = null;
+      }
+      if (sessionSelectHandler && _controller && _controller.session && typeof _controller.session.removeEventListener === "function") {
+        _controller.session.removeEventListener("select", sessionSelectHandler);
+        sessionSelectHandler = null;
       }
       if (_placementConfirmedHandler && typeof window !== "undefined") {
         window.removeEventListener("safear:placement_confirmed", _placementConfirmedHandler);
@@ -236,33 +242,68 @@ function _setupStep1WebXR(container) {
       }
     };
 
-    // 1. Hook up action button
     const btnPlace = overlay.querySelector("#btn-place-extinguisher");
-    if (btnPlace) {
-      btnPlace.addEventListener("click", () => {
-        if (_controller && typeof _controller.confirmPlacement === "function") {
+
+    const triggerPlacement = (e) => {
+      if (e) {
+        if (typeof e.preventDefault === "function") e.preventDefault();
+        if (typeof e.stopPropagation === "function") e.stopPropagation();
+      }
+      if (placed) return;
+
+      if (btnPlace) {
+        btnPlace.style.opacity = "0.7";
+        btnPlace.disabled = true;
+      }
+
+      let currentPos = null;
+      let viewerQuat = null;
+
+      if (_controller) {
+        if (typeof _controller.confirmPlacement === "function") {
           _controller.confirmPlacement();
-        } else {
-          doPlace({ x: 0, y: -0.45, z: -1.20 });
         }
-      });
+        currentPos = _controller._placedTransform || (_controller._lastHitPose && {
+          x: _controller._lastHitPose.transform.position.x,
+          y: _controller._lastHitPose.transform.position.y,
+          z: _controller._lastHitPose.transform.position.z
+        });
+        viewerQuat = _controller._viewerQuaternionAtPlacement || (_controller._lastViewerPose && {
+          x: _controller._lastViewerPose.transform.orientation.x,
+          y: _controller._lastViewerPose.transform.orientation.y,
+          z: _controller._lastViewerPose.transform.orientation.z,
+          w: _controller._lastViewerPose.transform.orientation.w
+        });
+      }
+
+      doPlace(currentPos || { x: 0, y: -0.45, z: -1.20 }, viewerQuat);
+    };
+
+    // 1. Hook up action button with click, pointerdown, and touchstart
+    if (btnPlace) {
+      btnPlace.addEventListener("click", triggerPlacement);
+      btnPlace.addEventListener("pointerdown", triggerPlacement);
+      btnPlace.addEventListener("touchstart", triggerPlacement, { passive: false });
     }
 
     // 2. Hook up screen tap fallback
-    _placementScreenTap = () => {
-      if (!placed) {
-        if (_controller && typeof _controller.confirmPlacement === "function") {
-          _controller.confirmPlacement();
-        } else {
-          doPlace({ x: 0, y: -0.45, z: -1.20 });
-        }
-      }
+    _placementScreenTap = (e) => {
+      triggerPlacement(e);
     };
     window.addEventListener("click", _placementScreenTap, { once: true });
+    window.addEventListener("pointerdown", _placementScreenTap, { once: true });
 
-    // 3. Listen for placement confirmation from controller
+    // 3. Listen for WebXR session select event directly
+    if (_controller && _controller.session && typeof _controller.session.addEventListener === "function") {
+      sessionSelectHandler = () => {
+        triggerPlacement();
+      };
+      _controller.session.addEventListener("select", sessionSelectHandler, { once: true });
+    }
+
+    // 4. Listen for placement confirmation from controller
     _placementConfirmedHandler = (e) => {
-      const { position, viewerQuaternion } = e.detail;
+      const { position, viewerQuaternion } = (e && e.detail) || {};
       doPlace(position, viewerQuaternion);
     };
     window.addEventListener("safear:placement_confirmed", _placementConfirmedHandler, { once: true });
