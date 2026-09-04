@@ -70,17 +70,88 @@ function clearAdminKey() {
   }
 }
 
+// hosts that cannot carry data off this machine, so a key sent there is not leaked
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+
+// the dev pairing: dashboard on 5174, backend on 3000 of the same host
+const DEV_DASHBOARD_PORT = "5174";
+const DEV_BACKEND_PORT = "3000";
+
+// where this page is served from, null outside a browser
+function _pageOrigin() {
+  if (typeof window === "undefined" || !window.location) return null;
+  const { protocol, hostname, port } = window.location;
+  if (!protocol || !hostname) return null;
+  return port ? `${protocol}//${hostname}:${port}` : `${protocol}//${hostname}`;
+}
+
+// the one backend the 5174 dev server is allowed to imply, same host every time
+function _devBackendOrigin() {
+  if (typeof window === "undefined" || !window.location) return null;
+  const { protocol, hostname, port } = window.location;
+  if (port !== DEV_DASHBOARD_PORT || !hostname) return null;
+  return `${protocol}//${hostname}:${DEV_BACKEND_PORT}`;
+}
+
+// strip trailing slashes so "http://h:3000/" and "http://h:3000" compare equal
+function _normalizeBase(value) {
+  return typeof value === "string" ? value.trim().replace(/\/+$/, "") : "";
+}
+
+// The single trust decision for the admin key. Everything that sends the key asks
+// this and nothing else, because ?api= is attacker-reachable: a crafted link on an
+// authenticated dashboard would otherwise hand x-admin-key, and with it every
+// worker's name, mine, scores and certificates, to whatever host the link names.
+//
+// Origins are compared whole, parsed by URL. No substring or startsWith matching —
+// "https://safear.example.attacker.tld" must never pass for "safear.example".
+function isTrustedApiOrigin(candidate) {
+  const base = _normalizeBase(candidate);
+
+  // "" is same origin, which is the default and always ours
+  if (base === "") return true;
+
+  let parsed;
+  try {
+    parsed = new URL(base);
+  } catch (_e) {
+    return false;
+  }
+
+  // only real web schemes, never javascript: or data:
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+
+  // exactly this page's origin, scheme and port included
+  const pageOrigin = _pageOrigin();
+  if (pageOrigin && parsed.origin === pageOrigin) return true;
+
+  // the 5174 -> 3000 dev pairing, derived from location so the host is never
+  // attacker supplied
+  const devOrigin = _devBackendOrigin();
+  if (devOrigin && parsed.origin === devOrigin) return true;
+
+  // a loopback address reaches only this machine, so it cannot exfiltrate. this is
+  // what keeps ?api=http://localhost:3100 usable while developing.
+  if (LOOPBACK_HOSTS.has(parsed.hostname)) return true;
+
+  return false;
+}
+
 // determine backend api base url
 function getApiBaseUrl() {
   if (typeof window !== "undefined" && window.location) {
     const params = new URLSearchParams(window.location.search);
-    const fromParam = params.get("api");
-    if (fromParam) return fromParam.replace(/\/+$/, "");
+    const fromParam = _normalizeBase(params.get("api"));
+
+    // an untrusted ?api= is dropped, never persisted, and we fall through to the
+    // backend this page would have used anyway
+    if (fromParam && isTrustedApiOrigin(fromParam)) {
+      return fromParam;
+    }
 
     // dev server port 5174 -> backend port 3000
-    if (window.location.port === "5174") {
-      return `${window.location.protocol}//${window.location.hostname}:3000`;
-    }
+    const devOrigin = _devBackendOrigin();
+    if (devOrigin) return devOrigin;
   }
   return "";
 }
@@ -122,8 +193,12 @@ async function fetchComplianceMetrics({ baseUrl = getApiBaseUrl(), timeoutMs = 8
     const headers = { Accept: "application/json" };
 
     // the key travels in a header, never in the url, so it stays out of browser
-    // history, proxy logs and the backend access log
-    if (adminKey) {
+    // history, proxy logs and the backend access log.
+    //
+    // the trust check is repeated here on purpose. getApiBaseUrl already refuses an
+    // untrusted ?api=, but this is the line that actually attaches the credential,
+    // so it is the line that must be impossible to get wrong however baseUrl arrived.
+    if (adminKey && isTrustedApiOrigin(baseUrl)) {
       headers["x-admin-key"] = adminKey;
     }
 
@@ -616,6 +691,7 @@ if (typeof window !== "undefined" && typeof document !== "undefined") {
 
 export {
   getApiBaseUrl,
+  isTrustedApiOrigin,
   formatTimestamp,
   fetchComplianceMetrics,
   renderLoading,
