@@ -85,7 +85,7 @@ function createApp({ db, config, logger, keys }) {
   app.use("/api/modules", createModulesRouter({ db }));
   app.use("/api/sync", createSyncRouter({ db }));
   app.use("/api/certs", createCertRouter({ db, keys }));
-  app.use("/api/dashboard", createDashboardRouter({ db }));
+  app.use("/api/dashboard", createDashboardRouter({ db, config }));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

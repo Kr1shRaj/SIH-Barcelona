@@ -26,8 +26,17 @@ function createMockContainer() {
     },
     setAttribute(k, v) { attributes.set(k, v); },
     getAttribute(k) { return attributes.get(k) || ""; },
+    value: "",
     querySelector(selector) {
-      if (selector === "#retry-fetch-btn" || selector === "#refresh-dashboard-btn" || selector === "#roster-search") {
+      const known = [
+        "#retry-fetch-btn",
+        "#refresh-dashboard-btn",
+        "#roster-search",
+        "#admin-key-form",
+        "#admin-key-input",
+        "#admin-key-submit"
+      ];
+      if (known.indexOf(selector) !== -1) {
         if (!children.has(selector)) {
           children.set(selector, createMockContainer());
         }
@@ -53,7 +62,7 @@ const SAMPLE_METRICS = {
     totalAttempts: 5,
     expiringSoonCertificates: 0,
     expiredCertificates: 0,
-    certificateSystemStatus: { isImplemented: false }
+    certificateSystemStatus: { isImplemented: true, algo: "Ed25519" }
   },
   modules: [
     {

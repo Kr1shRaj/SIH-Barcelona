@@ -25,10 +25,14 @@ function getComplianceMetrics(db, { now = new Date().toISOString() } = {}) {
     ORDER BY completed_at DESC
   `).all();
 
+  // oldest first, so the plain overwrite below lands on the newest. the order is
+  // spelled out because sqlite makes no promise without it, and this query already
+  // runs off an index rather than in insert order.
   const certificates = db.prepare(`
     SELECT cert_id, worker_id, module_id, attempt_id, score, issued_at, expires_at, revoked
     FROM certificate
     WHERE revoked = 0
+    ORDER BY issued_at ASC, cert_id ASC
   `).all();
 
   // 2. build worker attempt & cert lookups
@@ -65,11 +69,26 @@ function getComplianceMetrics(db, { now = new Date().toISOString() } = {}) {
   });
 
   const certMap = new Map(); // workerId -> moduleId -> cert
+
+  // a worker can hold several certificates for one module, one per passed attempt,
+  // so the roster has to pick. newest issue date wins, cert id settles a tie.
+  function _isNewer(candidate, current) {
+    if (!current) return true;
+    if (candidate.issued_at !== current.issued_at) {
+      return candidate.issued_at > current.issued_at;
+    }
+    return candidate.cert_id > current.cert_id;
+  }
+
   certificates.forEach((cert) => {
     if (!certMap.has(cert.worker_id)) {
       certMap.set(cert.worker_id, new Map());
     }
-    certMap.get(cert.worker_id).set(cert.module_id, cert);
+    const byModule = certMap.get(cert.worker_id);
+    // the comparison stands on its own, so the answer does not depend on row order
+    if (_isNewer(cert, byModule.get(cert.module_id))) {
+      byModule.set(cert.module_id, cert);
+    }
   });
 
   // 3. calculate worker compliance states
@@ -281,9 +300,12 @@ function getComplianceMetrics(db, { now = new Date().toISOString() } = {}) {
       totalAttempts: attempts.length,
       expiringSoonCertificates: expiringSoonCount,
       expiredCertificates: expiredCount,
+      // the app refuses to boot without a valid ed25519 pair, so if this response
+      // exists at all, signing and issuance are live
       certificateSystemStatus: {
-        isImplemented: false,
-        note: "Certificate cryptographic signing service is pending backend signing key rollout. Completed training passes are tracked authoritatively in the attempt ledger."
+        isImplemented: true,
+        algo: "Ed25519",
+        note: "Certificates are signed with Ed25519 and issued as verifiable QR credentials. Training passes remain authoritatively tracked in the attempt ledger."
       }
     },
     modules: moduleBreakdown,

@@ -1,7 +1,7 @@
 const { describe, it, before, after } = require("node:test");
 const assert = require("node:assert");
 const request = require("supertest");
-const { buildTestApp } = require("./helpers/app");
+const { buildTestApp, TEST_CONFIG } = require("./helpers/app");
 
 let ctx = null;
 
@@ -12,18 +12,18 @@ describe("GET /api/dashboard/compliance", () => {
   after(() => ctx.cleanup());
 
   it("serves compliance summary on /api/dashboard/compliance and /api/dashboard", async () => {
-    const res1 = await request(ctx.app).get("/api/dashboard/compliance");
+    const res1 = await request(ctx.app).get("/api/dashboard/compliance").set("x-admin-key", TEST_CONFIG.adminApiKey);
     assert.strictEqual(res1.status, 200);
     assert.strictEqual(typeof res1.body.summary, "object");
     assert.strictEqual(res1.body.summary.totalWorkers, 6);
 
-    const res2 = await request(ctx.app).get("/api/dashboard");
+    const res2 = await request(ctx.app).get("/api/dashboard").set("x-admin-key", TEST_CONFIG.adminApiKey);
     assert.strictEqual(res2.status, 200);
     assert.deepStrictEqual(res1.body.summary, res2.body.summary);
   });
 
   it("accurately reports initial seed state with zero attempts", async () => {
-    const res = await request(ctx.app).get("/api/dashboard/compliance");
+    const res = await request(ctx.app).get("/api/dashboard/compliance").set("x-admin-key", TEST_CONFIG.adminApiKey);
     const { summary, modules, mines, contractors, roster } = res.body;
 
     assert.strictEqual(summary.totalWorkers, 6);
@@ -33,7 +33,9 @@ describe("GET /api/dashboard/compliance", () => {
     assert.strictEqual(summary.complianceRate, 0);
     assert.strictEqual(summary.certifiedWorkers, 0);
     assert.strictEqual(summary.totalAttempts, 0);
-    assert.strictEqual(summary.certificateSystemStatus.isImplemented, false);
+    // signing is live: the server cannot start without a valid ed25519 pair
+    assert.strictEqual(summary.certificateSystemStatus.isImplemented, true);
+    assert.strictEqual(summary.certificateSystemStatus.algo, "Ed25519");
 
     assert.strictEqual(modules.length, 2);
     assert.strictEqual(mines.length, 2);
@@ -78,7 +80,7 @@ describe("GET /api/dashboard/compliance", () => {
       )
     `).run(now, now, now);
 
-    const res = await request(ctx.app).get("/api/dashboard/compliance");
+    const res = await request(ctx.app).get("/api/dashboard/compliance").set("x-admin-key", TEST_CONFIG.adminApiKey);
     const { summary, modules, roster } = res.body;
 
     assert.strictEqual(summary.totalAttempts, 1);
@@ -115,7 +117,7 @@ describe("GET /api/dashboard/compliance", () => {
       )
     `).run(now, now, now);
 
-    const res2 = await request(ctx.app).get("/api/dashboard/compliance");
+    const res2 = await request(ctx.app).get("/api/dashboard/compliance").set("x-admin-key", TEST_CONFIG.adminApiKey);
     assert.strictEqual(res2.body.summary.fullyCompliantWorkers, 1);
     assert.strictEqual(res2.body.summary.partiallyCompliantWorkers, 0);
     // 1 / 6 = 16.7%
@@ -141,7 +143,7 @@ describe("GET /api/dashboard/compliance", () => {
       )
     `).run(pastDate, pastDate);
 
-    const res = await request(ctx.app).get("/api/dashboard/compliance");
+    const res = await request(ctx.app).get("/api/dashboard/compliance").set("x-admin-key", TEST_CONFIG.adminApiKey);
     assert.strictEqual(res.body.summary.certifiedWorkers, 1);
     assert.strictEqual(res.body.summary.expiredCertificates, 1);
 

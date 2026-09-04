@@ -27,12 +27,18 @@ const SETTLED_ISSUE_STATUSES = ["issued", "already_issued"];
 // 422 is attempt_not_passed, 400 is a malformed request. both are terminal.
 const TERMINAL_ISSUE_HTTP = [400, 422];
 
+// reaching for localStorage can itself throw, not just using it. an android webview
+// with site data switched off raises on the property access.
 function _getStorage() {
-  if (typeof window !== "undefined" && window.localStorage) {
-    return window.localStorage;
-  }
-  if (typeof globalThis !== "undefined" && globalThis.localStorage) {
-    return globalThis.localStorage;
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      return window.localStorage;
+    }
+    if (typeof globalThis !== "undefined" && globalThis.localStorage) {
+      return globalThis.localStorage;
+    }
+  } catch (_err) {
+    return null;
   }
   return null;
 }
@@ -50,12 +56,17 @@ function _readList(key) {
   }
 }
 
+// true only when the write actually landed. quota and locked storage both throw,
+// and a caller that assumes success would tell a worker their record is safe.
 function _writeList(key, list) {
   const storage = _getStorage();
-  if (storage) {
+  if (!storage) return false;
+  try {
     storage.setItem(key, JSON.stringify(list));
+    return true;
+  } catch (_err) {
+    return false;
   }
-  return list;
 }
 
 function getPendingCertificates() {
@@ -78,15 +89,25 @@ function getCertificateByCertId(certId) {
   return getCertificates().find((cert) => cert.certId === certId) || null;
 }
 
-function clearPendingCertificates() {
+// removeItem throws in the same places setItem does
+function _removeKey(key) {
   const storage = _getStorage();
-  if (storage) storage.removeItem(PENDING_CERT_STORAGE_KEY);
+  if (!storage) return false;
+  try {
+    storage.removeItem(key);
+    return true;
+  } catch (_err) {
+    return false;
+  }
+}
+
+function clearPendingCertificates() {
+  _removeKey(PENDING_CERT_STORAGE_KEY);
   return [];
 }
 
 function clearCertificates() {
-  const storage = _getStorage();
-  if (storage) storage.removeItem(CERTIFICATE_STORAGE_KEY);
+  _removeKey(CERTIFICATE_STORAGE_KEY);
   return [];
 }
 
@@ -131,7 +152,10 @@ function _storeCertificate(body, pendingEntry) {
 
   const existing = getCertificates().filter((cert) => cert.attemptId !== certificate.attemptId);
   existing.push(certificate);
-  _writeList(CERTIFICATE_STORAGE_KEY, existing);
+  // null means the server minted it but this phone could not keep it
+  if (!_writeList(CERTIFICATE_STORAGE_KEY, existing)) {
+    return null;
+  }
   return certificate;
 }
 
@@ -191,7 +215,13 @@ function queueEligibleCertificates(syncResponse) {
   });
 
   if (queued > 0) {
-    _writeList(PENDING_CERT_STORAGE_KEY, pending);
+    if (!_writeList(PENDING_CERT_STORAGE_KEY, pending)) {
+      logger.warn(
+        { event: "certificates_queue_not_persisted", queued },
+        "Certificate queue could not be saved, nothing was queued"
+      );
+      return { queued: 0, skipped: skipped + queued, results: results.length };
+    }
     logger.info({ event: "certificates_queued", queued }, "Certificates queued for issuance");
   }
 
@@ -231,7 +261,17 @@ function requestCertificateForAttempt(evaluated) {
     queuedAt: new Date().toISOString(),
     lastError: null
   });
-  _writeList(PENDING_CERT_STORAGE_KEY, pending);
+  // never report a pending certificate the storage refused to keep. the completion
+  // panel reads this store, so a false "queued" would promise a worker a credential
+  // that nothing is tracking.
+  if (!_writeList(PENDING_CERT_STORAGE_KEY, pending)) {
+    logger.warn(
+      { event: "certificate_request_not_persisted", attemptId: evaluated.attemptId },
+      "Certificate request could not be saved"
+    );
+    return { queued: 0, reason: "storage_failed" };
+  }
+
   logger.info({ event: "certificate_requested", attemptId: evaluated.attemptId }, "Certificate requested for finished attempt");
 
   return { queued: 1, reason: "queued" };
@@ -280,6 +320,28 @@ async function flushPendingCertificates(options = {}) {
     if (response.ok && response.data && response.data.certId
       && SETTLED_ISSUE_STATUSES.indexOf(response.data.status) !== -1) {
       const certificate = _storeCertificate(response.data, entry);
+
+      // the server has minted it, but this phone could not write it down. clearing
+      // the pending item now would lose the certificate for good, so keep it and
+      // ask again later: a repeat call answers 200 already_issued, which settles.
+      if (!certificate) {
+        _markPendingError(entry.attemptId, {
+          code: "storage_failed",
+          message: "certificate issued by the server but could not be saved on this device"
+        });
+        results.push({
+          attemptId: entry.attemptId,
+          outcome: "pending",
+          reason: "storage_failed",
+          certId: response.data.certId
+        });
+        logger.warn(
+          { event: "certificate_not_persisted", attemptId: entry.attemptId, certId: response.data.certId, result: "pending" },
+          "Certificate issued but could not be stored, kept pending for retry"
+        );
+        continue;
+      }
+
       _removePending(entry.attemptId);
       issued += 1;
       results.push({ attemptId: entry.attemptId, outcome: "issued", certId: certificate.certId, status: response.data.status });

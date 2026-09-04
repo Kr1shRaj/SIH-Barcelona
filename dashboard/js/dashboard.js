@@ -1,6 +1,75 @@
 // SafeAR Admin Compliance Dashboard Client
 // Minimalist, mobile-first industrial compliance reporting
 
+const ADMIN_KEY_STORAGE_KEY = "safear_admin_key";
+
+const HTML_ESCAPES = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  "\"": "&quot;",
+  "'": "&#39;"
+};
+
+// escape everything the api hands us before it becomes markup. every attribute in
+// this file is double quoted, so one helper covers text and attribute context both.
+function esc(value) {
+  if (value === null || value === undefined) return "";
+  return String(value).replace(/[&<>"']/g, (ch) => HTML_ESCAPES[ch]);
+}
+
+// numbers are the only values allowed into markup unescaped, so prove it is one
+function num(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+// session storage only. the key dies with the tab, never reaches local storage,
+// never reaches the url, and is never written into this file.
+function _sessionStore() {
+  try {
+    if (typeof window !== "undefined" && window.sessionStorage) return window.sessionStorage;
+    if (typeof globalThis !== "undefined" && globalThis.sessionStorage) return globalThis.sessionStorage;
+  } catch (_e) {
+    return null;
+  }
+  return null;
+}
+
+// read the admin key for this tab, null when nobody has entered one yet
+function getAdminKey() {
+  try {
+    const store = _sessionStore();
+    const key = store ? store.getItem(ADMIN_KEY_STORAGE_KEY) : null;
+    return key && key.length > 0 ? key : null;
+  } catch (_e) {
+    return null;
+  }
+}
+
+// keep the key for this tab only, and report whether it stuck
+function setAdminKey(key) {
+  if (typeof key !== "string" || key.trim().length === 0) return false;
+  try {
+    const store = _sessionStore();
+    if (!store) return false;
+    store.setItem(ADMIN_KEY_STORAGE_KEY, key.trim());
+    return true;
+  } catch (_e) {
+    return false;
+  }
+}
+
+// forget the key, used whenever the server says it is not good
+function clearAdminKey() {
+  try {
+    const store = _sessionStore();
+    if (store) store.removeItem(ADMIN_KEY_STORAGE_KEY);
+  } catch (_e) {
+    // nothing to forget
+  }
+}
+
 // determine backend api base url
 function getApiBaseUrl() {
   if (typeof window !== "undefined" && window.location) {
@@ -33,7 +102,7 @@ function formatTimestamp(isoStr) {
 }
 
 // fetch compliance metrics from backend
-async function fetchComplianceMetrics({ baseUrl = getApiBaseUrl(), timeoutMs = 8000 } = {}) {
+async function fetchComplianceMetrics({ baseUrl = getApiBaseUrl(), timeoutMs = 8000, adminKey = getAdminKey() } = {}) {
   const fetchHandle = (typeof window !== "undefined" && window.fetch)
     ? window.fetch
     : (typeof globalThis !== "undefined" ? globalThis.fetch : null);
@@ -50,12 +119,27 @@ async function fetchComplianceMetrics({ baseUrl = getApiBaseUrl(), timeoutMs = 8
 
   try {
     const url = `${baseUrl}/api/dashboard/compliance`;
+    const headers = { Accept: "application/json" };
+
+    // the key travels in a header, never in the url, so it stays out of browser
+    // history, proxy logs and the backend access log
+    if (adminKey) {
+      headers["x-admin-key"] = adminKey;
+    }
+
     const res = await fetchHandle(url, {
       signal: controller ? controller.signal : undefined,
-      headers: { Accept: "application/json" }
+      headers
     });
 
     if (timer && typeof clearTimeout === "function") clearTimeout(timer);
+
+    // 401 is not a generic failure. the caller has to re-prompt, so mark it.
+    if (res.status === 401) {
+      const authErr = new Error("Admin key missing or not accepted");
+      authErr.code = "unauthorized";
+      throw authErr;
+    }
 
     if (!res.ok) {
       throw new Error(`Server returned HTTP ${res.status}`);
@@ -102,7 +186,7 @@ function renderError(container, error, onRetry) {
       <div class="state-card">
         <div class="state-icon">⚠️</div>
         <div class="state-title">Compliance Data Unavailable</div>
-        <div class="state-desc">${msg}. Ensure the SafeAR backend server is running on port 3000.</div>
+        <div class="state-desc">${esc(msg)}. Ensure the SafeAR backend server is running on port 3000.</div>
         <button id="retry-fetch-btn" class="refresh-btn" style="margin-top:0.75rem;">🔄 Retry Connection</button>
       </div>
     </div>
@@ -112,6 +196,51 @@ function renderError(container, error, onRetry) {
   if (btn && typeof onRetry === "function") {
     btn.addEventListener("click", onRetry);
   }
+}
+
+// ask for the admin key. same state-card shell as every other non-data view.
+function renderAuthRequired(container, { onSubmit, message } = {}) {
+  if (!container) return;
+  container.innerHTML = `
+    <div class="dashboard-container">
+      <header class="dashboard-header">
+        <div class="brand-title">🛡️ SafeAR <span class="brand-badge">Compliance</span></div>
+      </header>
+      <div class="state-card">
+        <div class="state-icon">🔒</div>
+        <div class="state-title">Admin Key Required</div>
+        <div class="state-desc">${esc(message || "This ledger holds worker records. Enter the admin key to continue.")}</div>
+        <form id="admin-key-form" autocomplete="off" style="margin-top:0.9rem;display:flex;gap:0.5rem;flex-wrap:wrap;justify-content:center;">
+          <input
+            type="password"
+            id="admin-key-input"
+            class="filter-input"
+            placeholder="Admin key"
+            aria-label="Admin key"
+            autocomplete="off"
+            spellcheck="false">
+          <button type="submit" id="admin-key-submit" class="refresh-btn">Unlock</button>
+        </form>
+      </div>
+    </div>
+  `;
+
+  const form = container.querySelector("#admin-key-form");
+  const input = container.querySelector("#admin-key-input");
+  const submit = container.querySelector("#admin-key-submit");
+
+  // the value is read straight out of the field and handed on. it is never logged,
+  // never put in the dom, and never added to the url.
+  const hand = (ev) => {
+    if (ev && typeof ev.preventDefault === "function") ev.preventDefault();
+    const entered = input && typeof input.value === "string" ? input.value.trim() : "";
+    if (entered.length === 0) return;
+    if (input) input.value = "";
+    if (typeof onSubmit === "function") onSubmit(entered);
+  };
+
+  if (form && typeof form.addEventListener === "function") form.addEventListener("submit", hand);
+  if (submit && typeof submit.addEventListener === "function") submit.addEventListener("click", hand);
 }
 
 // render empty state when 0 workers exist
@@ -147,23 +276,23 @@ function renderDashboard(container, data, { onRefresh } = {}) {
     <div class="kpi-grid">
       <div class="kpi-card">
         <span class="kpi-label">Workforce Total</span>
-        <span class="kpi-value">${summary.totalWorkers}</span>
+        <span class="kpi-value">${num(summary.totalWorkers)}</span>
         <span class="kpi-subtext">Registered mine workers</span>
       </div>
       <div class="kpi-card">
         <span class="kpi-label">Fully Compliant</span>
-        <span class="kpi-value success">${summary.fullyCompliantWorkers}</span>
+        <span class="kpi-value success">${num(summary.fullyCompliantWorkers)}</span>
         <span class="kpi-subtext">Passed all required modules</span>
       </div>
       <div class="kpi-card">
         <span class="kpi-label">Compliance Rate</span>
-        <span class="kpi-value accent">${summary.complianceRate}%</span>
-        <span class="kpi-subtext">${summary.partiallyCompliantWorkers} in progress, ${summary.nonCompliantWorkers} pending</span>
+        <span class="kpi-value accent">${num(summary.complianceRate)}%</span>
+        <span class="kpi-subtext">${num(summary.partiallyCompliantWorkers)} in progress, ${num(summary.nonCompliantWorkers)} pending</span>
       </div>
       <div class="kpi-card">
         <span class="kpi-label">Certifications</span>
-        <span class="kpi-value ${summary.certifiedWorkers > 0 ? "success" : "warning"}">${summary.certifiedWorkers}</span>
-        <span class="kpi-subtext">${summary.expiringSoonCertificates} expiring soon</span>
+        <span class="kpi-value ${summary.certifiedWorkers > 0 ? "success" : "warning"}">${num(summary.certifiedWorkers)}</span>
+        <span class="kpi-subtext">${num(summary.expiringSoonCertificates)} expiring soon</span>
       </div>
     </div>
   `;
@@ -177,21 +306,21 @@ function renderDashboard(container, data, { onRefresh } = {}) {
       </div>
       <div class="module-grid">
         ${modules.map((m) => {
-          const rate = m.completionRate || 0;
+          const rate = num(m.completionRate);
           const isHigh = rate >= 70;
           return `
             <div class="module-card">
               <div class="module-card-header">
-                <span class="module-card-title">${m.title}</span>
+                <span class="module-card-title">${esc(m.title)}</span>
                 <span class="status-badge ${isHigh ? "status-compliant" : "status-progress"}">${rate}% Pass</span>
               </div>
               <div class="progress-bar-container">
                 <div class="progress-bar-fill ${isHigh ? "high" : ""}" style="width: ${Math.min(100, rate)}%;"></div>
               </div>
               <div class="module-stats-row">
-                <span>Unique Passed: <strong>${m.uniqueWorkersPassed} / ${summary.totalWorkers}</strong></span>
-                <span>Total Attempts: <strong>${m.totalAttempts}</strong></span>
-                <span>Avg Score: <strong>${m.averageScore !== null ? m.averageScore + "%" : "N/A"}</strong></span>
+                <span>Unique Passed: <strong>${num(m.uniqueWorkersPassed)} / ${num(summary.totalWorkers)}</strong></span>
+                <span>Total Attempts: <strong>${num(m.totalAttempts)}</strong></span>
+                <span>Avg Score: <strong>${m.averageScore !== null && m.averageScore !== undefined ? num(m.averageScore) + "%" : "N/A"}</strong></span>
               </div>
             </div>
           `;
@@ -228,10 +357,10 @@ function renderDashboard(container, data, { onRefresh } = {}) {
 
               const renderModPill = (mod) => {
                 if (mod.passed) {
-                  return `<span class="status-badge status-compliant">✔ ${mod.bestScore || 100}%</span>`;
+                  return `<span class="status-badge status-compliant">✔ ${num(mod.bestScore || 100)}%</span>`;
                 }
                 if (mod.attemptsCount > 0) {
-                  return `<span class="status-badge status-noncompliant">✖ Failed (${mod.bestScore || 0}%)</span>`;
+                  return `<span class="status-badge status-noncompliant">✖ Failed (${num(mod.bestScore || 0)}%)</span>`;
                 }
                 return `<span class="status-badge status-neutral">— None</span>`;
               };
@@ -244,10 +373,10 @@ function renderDashboard(container, data, { onRefresh } = {}) {
               }
 
               return `
-                <tr class="roster-row" data-search="${(w.workerId + " " + w.name + " " + w.mineName + " " + w.contractorName).toLowerCase()}">
-                  <td data-label="Worker"><strong>${w.name}</strong> <span style="font-size:0.75rem;color:var(--color-text-dim);">(${w.workerId})</span></td>
-                  <td data-label="Mine">${w.mineName}</td>
-                  <td data-label="Contractor">${w.contractorName}</td>
+                <tr class="roster-row" data-search="${esc(String(w.workerId) + " " + String(w.name) + " " + String(w.mineName) + " " + String(w.contractorName)).toLowerCase()}">
+                  <td data-label="Worker"><strong>${esc(w.name)}</strong> <span style="font-size:0.75rem;color:var(--color-text-dim);">(${esc(w.workerId)})</span></td>
+                  <td data-label="Mine">${esc(w.mineName)}</td>
+                  <td data-label="Contractor">${esc(w.contractorName)}</td>
                   <td data-label="Fire Response">${renderModPill(fire)}</td>
                   <td data-label="Gas Protocol">${renderModPill(gas)}</td>
                   <td data-label="Status">${statusBadge}</td>
@@ -282,11 +411,11 @@ function renderDashboard(container, data, { onRefresh } = {}) {
             <tbody>
               ${mines.map((m) => `
                 <tr>
-                  <td data-label="Mine"><strong>${m.name}</strong></td>
-                  <td data-label="District">${m.district}</td>
-                  <td data-label="Workforce">${m.totalWorkers} workers</td>
+                  <td data-label="Mine"><strong>${esc(m.name)}</strong></td>
+                  <td data-label="District">${esc(m.district)}</td>
+                  <td data-label="Workforce">${num(m.totalWorkers)} workers</td>
                   <td data-label="Compliance">
-                    <span class="status-badge ${m.complianceRate >= 50 ? "status-compliant" : "status-progress"}">${m.complianceRate}%</span>
+                    <span class="status-badge ${m.complianceRate >= 50 ? "status-compliant" : "status-progress"}">${num(m.complianceRate)}%</span>
                   </td>
                 </tr>
               `).join("")}
@@ -314,11 +443,11 @@ function renderDashboard(container, data, { onRefresh } = {}) {
             <tbody>
               ${contractors.map((c) => `
                 <tr>
-                  <td data-label="Contractor"><strong>${c.name}</strong></td>
-                  <td data-label="Workforce">${c.totalWorkers}</td>
-                  <td data-label="Compliant">${c.compliantWorkers}</td>
+                  <td data-label="Contractor"><strong>${esc(c.name)}</strong></td>
+                  <td data-label="Workforce">${num(c.totalWorkers)}</td>
+                  <td data-label="Compliant">${num(c.compliantWorkers)}</td>
                   <td data-label="Rate">
-                    <span class="status-badge ${c.complianceRate >= 50 ? "status-compliant" : "status-progress"}">${c.complianceRate}%</span>
+                    <span class="status-badge ${c.complianceRate >= 50 ? "status-compliant" : "status-progress"}">${num(c.complianceRate)}%</span>
                   </td>
                 </tr>
               `).join("")}
@@ -339,8 +468,8 @@ function renderDashboard(container, data, { onRefresh } = {}) {
       <div class="attention-list">
         ${attentionItems.map((item) => `
           <div class="attention-item ${item.severity === "danger" ? "danger" : ""}">
-            <span><strong>${item.workerName}</strong> (${item.workerId}) — ${item.message}</span>
-            <span class="attention-meta">${item.mineName || ""}</span>
+            <span><strong>${esc(item.workerName)}</strong> (${esc(item.workerId)}) — ${esc(item.message)}</span>
+            <span class="attention-meta">${esc(item.mineName || "")}</span>
           </div>
         `).join("")}
       </div>
@@ -369,16 +498,16 @@ function renderDashboard(container, data, { onRefresh } = {}) {
           <tbody>
             ${recentActivity.map((act) => `
               <tr>
-                <td data-label="Timestamp">${formatTimestamp(act.completedAt)}</td>
-                <td data-label="Worker"><strong>${act.workerName}</strong></td>
-                <td data-label="Module">${act.moduleTitle}</td>
-                <td data-label="Score">${act.serverPercentage}%</td>
+                <td data-label="Timestamp">${esc(formatTimestamp(act.completedAt))}</td>
+                <td data-label="Worker"><strong>${esc(act.workerName)}</strong></td>
+                <td data-label="Module">${esc(act.moduleTitle)}</td>
+                <td data-label="Score">${num(act.serverPercentage)}%</td>
                 <td data-label="Outcome">
                   <span class="status-badge ${act.serverPassed ? "status-compliant" : "status-noncompliant"}">
                     ${act.serverPassed ? "Passed" : "Failed"}
                   </span>
                 </td>
-                <td data-label="AR Mode">Tier ${act.arTier || 2}</td>
+                <td data-label="AR Mode">Tier ${num(act.arTier || 2, 2)}</td>
               </tr>
             `).join("")}
           </tbody>
@@ -397,12 +526,12 @@ function renderDashboard(container, data, { onRefresh } = {}) {
         </div>
         <div class="header-meta">
           <span>DGMS Industrial Safety Audit Ledger</span>
-          <span>Last Synced: <strong>${formatTimestamp(generatedAt)}</strong></span>
+          <span>Last Synced: <strong>${esc(formatTimestamp(generatedAt))}</strong></span>
         </div>
       </header>
 
       <div class="notice-banner notice-info">
-        <strong>ℹ Compliance Note:</strong> Training pass marks and checkpoint evidence are authoritatively logged in SQLite. Certificate cryptographic QR issuance is pending backend signing key rollout.
+        <strong>ℹ Compliance Note:</strong> Training pass marks and checkpoint evidence are authoritatively logged in SQLite. Certificates are signed with Ed25519 and issued as verifiable QR credentials.
       </div>
 
       ${kpiMarkup}
@@ -442,14 +571,36 @@ async function loadComplianceMetrics(containerId = "dashboard-app", options = {}
 
   if (!container) return;
 
-  renderLoading(container);
-
   const reload = () => loadComplianceMetrics(container, options);
+
+  // whoever enters a key gets it kept for this tab, then we retry straight away
+  const useKey = (entered) => {
+    setAdminKey(entered);
+    return loadComplianceMetrics(container, options);
+  };
+
+  // nothing is fetched before there is a key to send, so an unauthenticated
+  // visitor is asked rather than shown a failed request
+  if (!options.adminKey && !getAdminKey()) {
+    renderAuthRequired(container, { onSubmit: useKey });
+    return;
+  }
+
+  renderLoading(container);
 
   try {
     const data = await fetchComplianceMetrics(options);
     renderDashboard(container, data, { onRefresh: reload });
   } catch (err) {
+    // a rejected key is worthless, so drop it and ask again rather than looping
+    if (err && err.code === "unauthorized") {
+      clearAdminKey();
+      renderAuthRequired(container, {
+        onSubmit: useKey,
+        message: "That key was not accepted. Check it and try again."
+      });
+      return;
+    }
     renderError(container, err, reload);
   }
 }
@@ -470,6 +621,13 @@ export {
   renderLoading,
   renderError,
   renderEmpty,
+  renderAuthRequired,
   renderDashboard,
-  loadComplianceMetrics
+  loadComplianceMetrics,
+  getAdminKey,
+  setAdminKey,
+  clearAdminKey,
+  esc,
+  num,
+  ADMIN_KEY_STORAGE_KEY
 };
