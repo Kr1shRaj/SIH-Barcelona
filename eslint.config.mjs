@@ -1,5 +1,9 @@
 export default [
   {
+    // third party ar runtime, shipped as built files. not ours to lint.
+    ignores: ["frontend/vendor/**"]
+  },
+  {
     files: ["frontend/**/*.js"],
     languageOptions: {
       ecmaVersion: "latest",

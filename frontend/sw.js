@@ -1,19 +1,31 @@
 // SafeAR Service Worker — Offline Training & Audio Cache
 // Enables full AR training and audio playback in connectivity-deprived underground mines
 
-const CACHE_NAME = "safear-offline-v1";
+// bump this whenever STATIC_ASSETS changes, or installed phones keep the old list
+const CACHE_NAME = "safear-offline-v3";
 
 const STATIC_ASSETS = [
   "./",
   "./index.html",
   "./css/style.css",
+  // the whole ar runtime, vendored so a mine with no signal still renders scenes
+  "./vendor/aframe.min.js",
+  "./vendor/aframe-ar.js",
+  // marker tracking reads these three at startup. without them tier 2 never boots.
+  "./vendor/arjs-data/camera_para.dat",
+  "./vendor/arjs-data/pattern-hiro.patt",
+  "./vendor/arjs-data/pattern-kanji.patt",
   "./js/app.js",
   "./js/logger.js",
   "./js/i18n.js",
   "./js/audio.js",
   "./js/module-loader.js",
+  "./js/api.js",
+  "./js/certificates.js",
+  "./js/certificate-panel.js",
   "./ar/tier.js",
   "./ar/webxr.js",
+  "./ar/webxr_render.js",
   "./ar/marker.js",
   "./ar/interactions.js",
   "./assessment/engine.js",
@@ -22,6 +34,7 @@ const STATIC_ASSETS = [
   "./locales/sat.json",
   "./modules/fire-response/fire-response.js",
   "./modules/fire-response/graphics.js",
+  "./modules/fire-response/webxr_fire_module.js",
   "./modules/fire-response/index.html",
   "./modules/gas-leak/gas-leak.js",
   "./modules/gas-leak/graphics.js",

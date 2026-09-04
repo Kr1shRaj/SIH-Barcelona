@@ -112,9 +112,11 @@ function renderArShell(container, tierResult) {
 
   const tierMarkup = tierResult.tier === 1
     ? '<canvas id="xr-canvas" class="ar-canvas"></canvas>'
-    : `<a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3;" vr-mode-ui="enabled: false" renderer="logarithmicDepthBuffer: true;">
-        <a-marker preset="hiro" id="hiro-marker"></a-marker>
-        <a-marker preset="kanji" id="kanji-marker"></a-marker>
+    // calibration and both patterns come from ./vendor, never ar-js-org.github.io.
+    // preset="hiro" would fetch them off the internet, which a mine does not have.
+    : `<a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3; cameraParametersUrl: ./vendor/arjs-data/camera_para.dat;" vr-mode-ui="enabled: false" renderer="logarithmicDepthBuffer: true;">
+        <a-marker type="pattern" url="./vendor/arjs-data/pattern-hiro.patt" id="hiro-marker"></a-marker>
+        <a-marker type="pattern" url="./vendor/arjs-data/pattern-kanji.patt" id="kanji-marker"></a-marker>
         <a-light type="ambient" color="#ffffff" intensity="1.2"></a-light>
         <a-light type="directional" position="1 4 2" intensity="1.0"></a-light>
         <a-entity id="main-camera" camera cursor="rayOrigin: mouse" raycaster="objects: .clickable, [data-raycast-target]">
