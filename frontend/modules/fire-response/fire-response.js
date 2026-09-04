@@ -160,7 +160,7 @@ function _renderExitGraphic(container) {
   return el;
 }
 
-// render 3D fire extinguisher directly in front of trainee (markerless/world AR)
+// render extinguisher in front of trainee without edge cropping
 function _renderExtinguisherGraphic(container) {
   const camera = typeof document !== "undefined" && typeof document.querySelector === "function"
     ? (document.querySelector("#main-camera") || document.querySelector("[camera]"))
@@ -174,16 +174,16 @@ function _renderExtinguisherGraphic(container) {
 
   const el = buildExtinguisherGraphic();
 
-  // anchor extinguisher to first-person view (SENAR trainee hands look)
+  // anchor extinguisher to camera comfortably within frame
   if (camera) {
-    el.setAttribute("position", "0.28 -0.22 -0.80");
-    el.setAttribute("rotation", "0 -15 0");
-    el.setAttribute("scale", "0.24 0.24 0.24");
+    el.setAttribute("position", "0.10 -0.25 -0.88");
+    el.setAttribute("rotation", "0 -10 0");
+    el.setAttribute("scale", "0.26 0.26 0.26");
     camera.appendChild(el);
   } else if (scene) {
-    el.setAttribute("position", "0 0.05 -1.5");
-    el.setAttribute("rotation", "0 0 0");
-    el.setAttribute("scale", "0.60 0.60 0.60");
+    el.setAttribute("position", "0.18 -0.28 -1.5");
+    el.setAttribute("rotation", "0 -10 0");
+    el.setAttribute("scale", "0.45 0.45 0.45");
     scene.appendChild(el);
   } else {
     const parent = hiroMarker || container;
