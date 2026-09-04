@@ -766,7 +766,14 @@ describe("Attempt Synchronization — /api/sync", () => {
       return {
         ok: true,
         status: 200,
-        json: async () => ({ batchId: sentBody.batchId, status: "accepted", processed: 1 })
+        json: async () => ({
+          batchId: sentBody.batchId,
+          received: 1,
+          accepted: 1,
+          duplicates: 0,
+          rejected: 0,
+          results: sentBody.attempts.map((a) => ({ attemptId: a.attemptId, status: "accepted" }))
+        })
       };
     };
 

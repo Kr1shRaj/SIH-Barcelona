@@ -1,6 +1,0 @@
-{
-  "appId": "org.safear.app",
-  "appName": "SafeAR",
-  "webDir": "../frontend",
-  "bundledWebRuntime": false
-}

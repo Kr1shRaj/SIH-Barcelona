@@ -396,5 +396,3 @@ export {
   buildExitGraphic,
   buildExtinguisherGraphic
 };
-
-

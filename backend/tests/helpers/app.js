@@ -12,6 +12,10 @@ const { testKeys } = require("../fixtures/certs");
 // config the app needs, without touching a real .env
 const TEST_CONFIG = Object.freeze({
   nodeEnv: "test",
+  // a real value on purpose. leaving it undefined would let the admin gate compare
+  // undefined against undefined and wave every unauthenticated request through,
+  // so the suite would pass while the routes were wide open.
+  adminApiKey: "test_admin_key_not_a_real_secret",
   allowedOrigins: Object.freeze([
     "http://localhost:5173",
     "http://localhost:5174",

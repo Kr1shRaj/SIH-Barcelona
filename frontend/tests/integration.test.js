@@ -360,7 +360,14 @@ describe("End-to-End Runtime Integration", () => {
       return {
         ok: true,
         status: 200,
-        json: async () => ({ batchId: sentEnvelope.batchId, status: "accepted", processed: 1 })
+        json: async () => ({
+          batchId: sentEnvelope.batchId,
+          received: 1,
+          accepted: 1,
+          duplicates: 0,
+          rejected: 0,
+          results: sentEnvelope.attempts.map((a) => ({ attemptId: a.attemptId, status: "accepted" }))
+        })
       };
     };
 

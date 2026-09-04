@@ -4,6 +4,7 @@ import { initWebXRSession, loadModule3DScene, WebXRPlacementController } from ".
 import { initMarkerTracking, loadMarkerModuleScene } from "../ar/marker.js";
 import { setTierLoaders, loadModule, unloadModule } from "./module-loader.js";
 import { t, loadLocale } from "./i18n.js";
+import { queueEligibleCertificates, flushPendingCertificates } from "./certificates.js";
 import {
   bindAssessmentSessionListeners,
   getEffectiveWorkerId,
@@ -296,15 +297,37 @@ async function initApp() {
       return null;
     }
 
-    // load active locale and bind assessment engine
+    // bootstrap default and fallback locales and bind assessment listeners.
+    // loadLocale needs a locale name: called bare it throws and no dictionary
+    // registers, which leaves every t() call rendering its raw key.
     try {
-      await loadLocale();
-    } catch (_) {}
+      await Promise.allSettled([
+        loadLocale("hi"),
+        loadLocale("en")
+      ]);
+    } catch (err) {
+      logger.warn({ event: "locale_bootstrap_error", error: err.message }, "Locale bootstrap warning");
+    }
 
     bindAssessmentSessionListeners();
     const workerId = getEffectiveWorkerId();
+    logger.info({ event: "worker_identified", workerId }, "Worker identity active");
     fetchModuleManifests().catch(() => {});
-    syncQueuedAttempts(workerId).catch(() => {});
+
+    // initial sync attempt for offline records, then certificates.
+    // order matters: a certificate can only be minted from an attempt the server
+    // already holds, so the sync has to land first.
+    syncAttemptsThenCertificates();
+
+    if (typeof window !== "undefined" && typeof window.addEventListener === "function") {
+      window.addEventListener("online", () => {
+        logger.info({ event: "network_online" }, "Device online, syncing queued attempts");
+        syncAttemptsThenCertificates();
+      });
+    }
+
+    // register service worker for offline use in mines
+    registerServiceWorker().catch(() => {});
 
     // probe device hardware caps
     const caps = await detectDeviceCaps(window);
@@ -387,6 +410,35 @@ function _bindScaffoldButton(container, onBeforeLoad) {
 }
 
 
+// push queued attempts, then mint certificates for whatever the server accepted.
+// never allowed to break boot or the online handler, so every failure is swallowed.
+function syncAttemptsThenCertificates(options = {}) {
+  return syncQueuedAttempts(options)
+    .then((syncResult) => {
+      queueEligibleCertificates(syncResult);
+      return flushPendingCertificates(options);
+    })
+    .catch((err) => {
+      logger.warn({ event: "sync_certificate_cycle_error", error: err.message }, "Sync or certificate flush failed");
+      return null;
+    });
+}
+
+// register service worker for offline use in mines
+async function registerServiceWorker(nav = (typeof navigator !== "undefined" ? navigator : null)) {
+  if (nav && "serviceWorker" in nav && typeof nav.serviceWorker.register === "function") {
+    try {
+      const reg = await nav.serviceWorker.register("./sw.js");
+      logger.info({ event: "sw_registered", scope: reg ? reg.scope : "" }, "Service worker registered");
+      return reg;
+    } catch (err) {
+      logger.warn({ event: "sw_registration_error", error: err.message }, "Service worker registration warning");
+      return null;
+    }
+  }
+  return null;
+}
+
 if (typeof window !== "undefined" && typeof document !== "undefined") {
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", initApp);
@@ -400,6 +452,8 @@ export {
   renderUnsupportedView,
   renderArShell,
   bindModuleLifecycleUI,
+  registerServiceWorker,
+  syncAttemptsThenCertificates,
   bootTier1,
   bootTier2,
   handleWebXRFallback,

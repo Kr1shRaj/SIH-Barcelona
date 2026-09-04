@@ -1,6 +1,15 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { renderUnsupportedView, renderArShell, bindModuleLifecycleUI, bootTier1, handleWebXRFallback, bootTier2, buildWebXRDiagnosticMessage } from "../js/app.js";
+import {
+  renderUnsupportedView,
+  renderArShell,
+  bindModuleLifecycleUI,
+  registerServiceWorker,
+  bootTier1,
+  bootTier2,
+  handleWebXRFallback,
+  buildWebXRDiagnosticMessage
+} from "../js/app.js";
 
 // mock minimal dom element
 function createMockElement() {
@@ -75,6 +84,43 @@ describe("App UI Shell and Error States", () => {
     // simulate module unloaded
     listeners["safear:module_unloaded"]();
     assert.strictEqual(mockStatusCard.style.display, "block", "status card must be restored when module unloads");
+  });
+
+  it("registerServiceWorker gracefully handles unsupported navigator", async () => {
+    const res = await registerServiceWorker(null);
+    assert.strictEqual(res, null);
+
+    const res2 = await registerServiceWorker({});
+    assert.strictEqual(res2, null);
+  });
+
+  it("registerServiceWorker registers sw.js when supported", async () => {
+    let registeredPath = null;
+    const mockNav = {
+      serviceWorker: {
+        register: async (path) => {
+          registeredPath = path;
+          return { scope: "./" };
+        }
+      }
+    };
+
+    const reg = await registerServiceWorker(mockNav);
+    assert.strictEqual(registeredPath, "./sw.js");
+    assert.strictEqual(reg.scope, "./");
+  });
+
+  it("registerServiceWorker returns null without throwing when register rejects", async () => {
+    const mockNav = {
+      serviceWorker: {
+        register: async () => {
+          throw new Error("SecurityError: Insecure context");
+        }
+      }
+    };
+
+    const reg = await registerServiceWorker(mockNav);
+    assert.strictEqual(reg, null);
   });
 
   it("handleWebXRFallback automatically falls back to Tier 2 marker shell and logs structured error", async () => {
@@ -271,3 +317,4 @@ describe("App UI Shell and Error States", () => {
     assert.ok(typeof res.activateWebXR === "function");
   });
 });
+
