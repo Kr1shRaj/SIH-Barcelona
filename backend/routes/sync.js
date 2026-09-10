@@ -4,6 +4,7 @@ const { checkAgainstManifest } = require("../models/attempt");
 const { ValidationError, REFERENTIAL, makeIssue } = require("../models/errors");
 const { getModule, getCheckpointDefinitions } = require("../services/modules");
 const { ingestAttempt, recordSyncBatch } = require("../services/attempts");
+const { GradingError } = require("../services/grading");
 const { createChildLogger } = require("../logger");
 
 const log = createChildLogger({ component: "sync" });
@@ -99,7 +100,38 @@ function createSyncRouter({ db }) {
         });
         results.push({ attemptId: attempt.attemptId, ...outcome });
       } catch (err) {
+        // an observation the shipped ui cannot produce is refused, not scored zero.
+        // rejecting one attempt never stops the rest of the batch landing.
+        if (err instanceof GradingError) {
+          log.warn(
+            {
+              event: "observation_rejected",
+              attemptId: attempt.attemptId,
+              deviceId: envelope.deviceId,
+              checkpointId: err.checkpointId,
+              reason: err.code
+            },
+            "Observation refused by the grader"
+          );
+          results.push(_rejection(attempt.attemptId, err.code, err.message));
+          return;
+        }
         if (err.code && String(err.code).startsWith("SQLITE_CONSTRAINT")) {
+          // the caller gets a plain rejection, but this is the database refusing a
+          // write the validators already passed. log it loud or a schema bug hides
+          // here forever looking like an ordinary bad attempt.
+          log.error(
+            {
+              event: "attempt_constraint_violation",
+              attemptId: attempt.attemptId,
+              moduleId: attempt.moduleId,
+              workerId: attempt.workerId,
+              batchId: envelope.batchId,
+              sqliteCode: err.code,
+              err
+            },
+            "Database refused an attempt that passed validation"
+          );
           results.push(_rejection(attempt.attemptId, "constraint_violation", "the server could not store this attempt"));
           return;
         }

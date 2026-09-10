@@ -1,5 +1,7 @@
 import { createLogger } from "../../js/logger.js";
 import { registerCheckpoint, fireCheckpointResult } from "../../ar/interactions.js";
+import { startAlignmentSampler } from "../../ar/alignment.js";
+import { selectionSingle, aimDwell, spatialAlignment, trackingSourceForTier } from "../../assessment/observations.js";
 import { unloadModule } from "../../js/module-loader.js";
 import { requestCertificateForAttempt, flushPendingCertificates } from "../../js/certificates.js";
 import { renderCompletionPanel } from "../../js/certificate-panel.js";
@@ -23,7 +25,16 @@ function addCleanup(fn) {
 // checkpoint ids — stable identifiers for assessment engine to key on
 const CP_EXIT_ID = "fire_exit_identification";
 const CP_EXTINGUISHER_ID = "fire_extinguisher_aim";
-const CP_EVACUATION_ID = "fire_evacuation_sequence";
+// tier 2 asks the marker variant of the evacuation question. tier 1 asks its own,
+// so the server holds a separate answer key for each and they must not be mixed.
+const CP_EVACUATION_ID = "fire_evacuation_sequence_marker";
+const CP_EVACUATION_WEBXR_ID = "fire_evacuation_sequence_webxr";
+
+// anchor id must match checkpoint_definition.anchor_id on the server
+const EXIT_ANCHOR_ID = "fire_exit_sign";
+
+// running alignment sampler for step 1, stopped when the trainee confirms
+let _exitSampler = null;
 
 // aim must score >= 0.6 to pass: within 40% of max-miss radius counts as good aim
 const AIM_PASS_THRESHOLD = 0.6;
@@ -260,7 +271,12 @@ function _setupStep1(container, tierInfo) {
     }
   });
 
-  _renderExitGraphic(container);
+  const exitGraphic = _renderExitGraphic(container);
+  // sample how well the phone stays pointed at the exit sign while the trainee
+  // reads the briefing. the sign is camera anchored in this build, so the scene
+  // usually cannot answer — the sampler then reports nothing measured rather than
+  // inventing an angle, and the server refuses to certify on it.
+  _exitSampler = startAlignmentSampler({ targetEl: exitGraphic, anchorId: EXIT_ANCHOR_ID });
 
   const overlay = document.getElementById("fire-module-overlay");
   playNarration({ moduleId: "fire-response", stepKey: "step_1_exit" });
@@ -298,7 +314,20 @@ function _setupStep1(container, tierInfo) {
       btn.style.cssText = "margin-top:0.4rem;padding:0.8rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
       btn.textContent = t("modules.fire_response.btn_exit", {}, "✔ I see the exit");
       btn.addEventListener("click", () => {
-        fireCheckpointResult(CP_EXIT_ID, true, { method: "button_confirm" });
+        const sampled = _exitSampler ? _exitSampler.stop() : { angularErrorRad: null, dwellMs: 0, frameCount: 0 };
+        _exitSampler = null;
+        fireCheckpointResult(
+          CP_EXIT_ID,
+          true,
+          { method: "button_confirm", measured: sampled.angularErrorRad !== null },
+          spatialAlignment({
+            anchorId: EXIT_ANCHOR_ID,
+            angularErrorRad: sampled.angularErrorRad,
+            dwellMs: sampled.dwellMs,
+            frameCount: sampled.frameCount,
+            trackingSource: trackingSourceForTier(tierInfo && tierInfo.tier)
+          })
+        );
         _setupStep2(container, tierInfo);
       });
       overlay.appendChild(btn);
@@ -487,6 +516,12 @@ function _setupStep2(container, tierInfo) {
 
   let _recordedAccuracy = null;
   let _recordedDistance = null;
+  // a tapped button is not a measurement. only a real raycast hit sets this, and
+  // only a real raycast hit may travel to the server as a distance.
+  let _distanceFromRaycast = false;
+  let _recordedSweepCoverage = null;
+  let _aimFrameCount = 0;
+  let _aimStartedMs = null;
 
   // pass sub-step 1: P — Pull pin tap-to-select then drag gesture on 3D extinguisher
   function _renderPullPin() {
@@ -933,6 +968,11 @@ function _setupStep2(container, tierInfo) {
         : (ev && ev.detail && ev.detail.intersection ? ev.detail.intersection.point : null);
       const distance = point ? calcIntersectionDistance(point, { x: 0, y: 0.16, z: 0 }) : 0.12;
       const accuracy = calcRaycastAimAccuracy(distance);
+      if (point) {
+        _distanceFromRaycast = true;
+        _aimFrameCount += 1;
+        if (_aimStartedMs === null) _aimStartedMs = Date.now();
+      }
       startHold(accuracy, distance);
     };
 
@@ -942,6 +982,9 @@ function _setupStep2(container, tierInfo) {
       gazeLaser.simulateIntersection = (point = { x: 0, y: 0.16, z: 0 }) => {
         const distance = calcIntersectionDistance(point, { x: 0, y: 0.16, z: 0 });
         const accuracy = calcRaycastAimAccuracy(distance);
+        _distanceFromRaycast = true;
+        _aimFrameCount += 1;
+        if (_aimStartedMs === null) _aimStartedMs = Date.now();
         handleAimSuccess(accuracy, distance, true);
       };
     }
@@ -1298,13 +1341,28 @@ function _setupStep2(container, tierInfo) {
         tier: tierInfo && tierInfo.tier
       }, "PASS technique completed");
 
-      fireCheckpointResult(CP_EXTINGUISHER_ID, passed, {
-        method: sync ? "button_fallback" : "physical_motion_sweep",
-        accuracy: finalAccuracy,
-        distance: finalDistance,
-        target: passed ? "base" : "missed",
-        tier: tierInfo && tierInfo.tier
-      });
+      // the server grades the raw hit distance. a tapped fallback measured nothing,
+      // so it reports null and the server scores it zero rather than guessing.
+      const measuredDistanceM = _distanceFromRaycast ? finalDistance : null;
+
+      fireCheckpointResult(
+        CP_EXTINGUISHER_ID,
+        passed,
+        {
+          method: sync ? "button_fallback" : "physical_motion_sweep",
+          accuracy: finalAccuracy,
+          distance: finalDistance,
+          target: passed ? "base" : "missed",
+          tier: tierInfo && tierInfo.tier
+        },
+        aimDwell({
+          hitDistanceM: measuredDistanceM,
+          dwellMs: _aimStartedMs === null ? 0 : Date.now() - _aimStartedMs,
+          sweepCoverage: typeof _recordedSweepCoverage === "number" ? _recordedSweepCoverage : null,
+          frameCount: _aimFrameCount,
+          trackingSource: trackingSourceForTier(tierInfo && tierInfo.tier)
+        })
+      );
 
       if (sync) {
         _setupStep3(container);
@@ -1324,6 +1382,7 @@ function _setupStep2(container, tierInfo) {
       const coverage = maxVal > 5
         ? calcSweepCoverage(positions, 220)
         : calcMotionSweepCoverage(positions);
+      _recordedSweepCoverage = coverage;
       if (isSweepComplete(coverage)) {
         handleSweepFinish(true);
       }
@@ -1348,6 +1407,7 @@ function _setupStep2(container, tierInfo) {
             statusText.textContent = `↔ SWEEPING... (${Math.round(coverage * 100)}% COVERED)`;
           }
 
+          _recordedSweepCoverage = coverage;
           if (isSweepComplete(coverage, SWEEP_MIN_COVERAGE)) {
             handleSweepFinish(false);
             return;
@@ -1416,10 +1476,12 @@ function _setupStep3(_container) {
       `;
 
       _renderEvacuationOptions(overlay, (selectedId, passed) => {
-        fireCheckpointResult(CP_EVACUATION_ID, passed, {
-          selected: selectedId,
-          correct: "sound_alarm_then_evacuate"
-        });
+        fireCheckpointResult(
+          CP_EVACUATION_ID,
+          passed,
+          { selected: selectedId, correct: "sound_alarm_then_evacuate" },
+          selectionSingle(selectedId)
+        );
         _showComplete(passed);
       });
     }
@@ -1447,6 +1509,12 @@ function _setupStep3(_container) {
 function cleanupFireModule() {
   _currentStep = 0;
   stopNarration();
+  // a sampler left running holds a requestAnimationFrame loop against a scene
+  // that is about to be torn down
+  if (_exitSampler) {
+    _exitSampler.stop();
+    _exitSampler = null;
+  }
   if (getActiveSession()) {
     abortAssessmentSession();
   }
@@ -1590,6 +1658,8 @@ export {
   CP_EXIT_ID,
   CP_EXTINGUISHER_ID,
   CP_EVACUATION_ID,
+  CP_EVACUATION_WEBXR_ID,
+  EXIT_ANCHOR_ID,
   calcMarkerDistance,
   isSafeStandoffDistance
 };

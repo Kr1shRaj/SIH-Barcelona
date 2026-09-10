@@ -21,6 +21,9 @@ import { validateAttemptContract } from "../../backend/models/attempt.js";
 import { validateSyncPayload } from "../../backend/models/sync.js";
 import { initDatabase, closeDatabase } from "../../backend/db/index.js";
 import { seedDatabase } from "../../backend/db/seed.js";
+import { getModule, getCheckpointDefinitions } from "../../backend/services/modules.js";
+import { ingestAttempt, recordSyncBatch } from "../../backend/services/attempts.js";
+import { checkAgainstManifest } from "../../backend/models/attempt.js";
 
 // mock storage
 let store = {};
@@ -228,14 +231,18 @@ describe("End-to-End Runtime Integration", () => {
     assert.strictEqual(attempt.workerId, "WRK-0001", "workerId must be valid provisioned worker WRK-0001");
     assert.notStrictEqual(attempt.workerId, "WRK-DEFAULT", "workerId must NEVER be WRK-DEFAULT");
     assert.strictEqual(attempt.status, "completed");
-    assert.strictEqual(attempt.passed, true);
+    assert.strictEqual(attempt.contractVersion, "2.0");
+    assert.strictEqual(attempt.clientClaimedPassed, true);
+    assert.strictEqual(typeof attempt.clientClaimedPercentage, "number");
     assert.strictEqual(attempt.checkpoints.length, 3);
-    assert.strictEqual(attempt.totalScore, 2.85);
+    // the phone's own score never rides on the wire
+    assert.ok(!("passed" in attempt) && !("totalScore" in attempt) && !("percentage" in attempt));
 
-    // contract validation against backend schema
-    const validation = validateAttemptContract(attempt);
-    assert.ok(validation, "queued attempt must strictly pass backend contract schema");
-    assert.strictEqual(validation.attemptId, attempt.attemptId);
+    // the migration's whole point: a payload the real modules built, accepted by
+    // the real backend validator
+    const validatedFire = validateAttemptContract(attempt);
+    assert.strictEqual(validatedFire.attemptId, attempt.attemptId);
+    assert.ok(attempt.checkpoints.every((cp) => cp.observedAt && cp.observation));
 
     // exit module — must not discard queued attempt
     _elements["btn-module-exit"]?.click();
@@ -270,13 +277,13 @@ describe("End-to-End Runtime Integration", () => {
     assert.strictEqual(attempt.workerId, "WRK-0001", "workerId must be valid provisioned worker WRK-0001");
     assert.notStrictEqual(attempt.workerId, "WRK-DEFAULT", "workerId must NEVER be WRK-DEFAULT");
     assert.strictEqual(attempt.status, "completed");
-    assert.strictEqual(attempt.passed, true);
+    assert.strictEqual(attempt.contractVersion, "2.0");
+    assert.strictEqual(attempt.clientClaimedPassed, true);
     assert.strictEqual(attempt.checkpoints.length, 3);
-    assert.strictEqual(attempt.totalScore, 3);
 
-    const validation = validateAttemptContract(attempt);
-    assert.ok(validation);
-    assert.strictEqual(validation.attemptId, attempt.attemptId);
+    const validatedGas = validateAttemptContract(attempt);
+    assert.strictEqual(validatedGas.moduleId, "gas-leak");
+    assert.ok(attempt.checkpoints.every((cp) => cp.observedAt && cp.observation));
 
     _elements["btn-module-exit"]?.click();
     assert.strictEqual(getQueuedAttempts().length, 1);
@@ -377,57 +384,41 @@ describe("End-to-End Runtime Integration", () => {
       assert.strictEqual(syncResult.synced, 1);
       assert.strictEqual(getQueuedAttempts().length, 0);
 
-      // validate backend envelope model
+      assert.strictEqual(sentEnvelope.workerId, "WRK-0001");
+
       const validatedEnvelope = validateSyncPayload(sentEnvelope, { now: Date.now() });
-      assert.strictEqual(validatedEnvelope.workerId, "WRK-0001");
+      assert.strictEqual(validatedEnvelope.attempts.length, 1);
+      assert.strictEqual(validatedEnvelope.attempts[0].contractVersion, "2.0");
 
       // test real SQLite insertion with seed database and foreign keys enabled
       const db = initDatabase(":memory:");
       try {
         seedDatabase(db);
 
-        // insert sync_batch referencing worker_id
-        db.prepare(
-          `INSERT INTO sync_batch (batch_id, worker_id, device_id, received_at, attempt_count, status)
-           VALUES (?, ?, ?, ?, ?, ?)`
-        ).run(validatedEnvelope.batchId, validatedEnvelope.workerId, validatedEnvelope.deviceId, validatedEnvelope.sentAt, 1, "accepted");
+        recordSyncBatch(db, {
+          batchId: sentEnvelope.batchId,
+          workerId: sentEnvelope.workerId,
+          deviceId: sentEnvelope.deviceId,
+          receivedAt: sentEnvelope.sentAt,
+          attemptCount: 1
+        });
 
-        // insert attempt referencing worker_id and module_id
-        db.prepare(
-          `INSERT INTO attempt (
-             attempt_id, worker_id, module_id, module_version, contract_version,
-             engine_version, device_id, ar_tier, locale, started_at, completed_at,
-             duration_ms, status, server_total_score, server_max_score, server_percentage,
-             server_passed, threshold_applied, client_percentage, client_passed,
-             sync_batch_id, server_received_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
-          attempt.attemptId,
-          attempt.workerId,
-          attempt.moduleId,
-          attempt.moduleVersion,
-          attempt.contractVersion,
-          attempt.engineVersion,
-          attempt.deviceId,
-          attempt.arTier,
-          attempt.locale,
-          attempt.startedAt,
-          attempt.completedAt,
-          attempt.durationMs,
-          attempt.status,
-          attempt.totalScore,
-          attempt.maxScore,
-          attempt.percentage,
-          attempt.passed ? 1 : 0,
-          attempt.passThresholdUsed,
-          attempt.percentage,
-          attempt.passed ? 1 : 0,
-          validatedEnvelope.batchId,
-          validatedEnvelope.sentAt
-        );
+        // the real referential check and the real grader, not a hand-rolled insert
+        const definitions = getCheckpointDefinitions(db, attempt.moduleId);
+        checkAgainstManifest(validatedEnvelope.attempts[0], definitions);
+
+        const outcome = ingestAttempt(db, {
+          attempt: validatedEnvelope.attempts[0],
+          definitions,
+          moduleRow: getModule(db, attempt.moduleId),
+          batchId: sentEnvelope.batchId,
+          receivedAt: sentEnvelope.sentAt
+        });
+        assert.strictEqual(outcome.status, "accepted", "the server must accept what the modules built");
 
         const row = db.prepare("SELECT * FROM attempt WHERE attempt_id = ?").get(attempt.attemptId);
         assert.ok(row, "attempt must be successfully inserted in database");
+        assert.strictEqual(row.contract_version, "2.0");
         assert.strictEqual(row.worker_id, "WRK-0001");
       } finally {
         closeDatabase();

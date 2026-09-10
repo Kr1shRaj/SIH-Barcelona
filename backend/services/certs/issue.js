@@ -10,8 +10,14 @@ const ISSUE_ERRORS = Object.freeze({
   ATTEMPT_NOT_FOUND: "attempt_not_found",
   ATTEMPT_NOT_PASSED: "attempt_not_passed",
   ALREADY_ISSUED: "already_issued",
-  MODULE_NOT_FOUND: "module_not_found"
+  MODULE_NOT_FOUND: "module_not_found",
+  LEGACY_CONTRACT: "legacy_contract",
+  ATTEMPT_NOT_GRADED: "attempt_not_graded"
 });
+
+// only a run graded by this server under Contract v2.0 can earn a certificate.
+// v1.0 rows carry a score the client handed them, so they never qualify.
+const CERTIFIABLE_CONTRACT_VERSIONS = new Set(["2.0"]);
 
 // refusing to issue is a normal outcome, not a crash, so it carries a code
 class CertificateIssueError extends Error {
@@ -75,19 +81,27 @@ function issueCertificateForAttempt(db, { attemptId, keys, now, certId }) {
     );
   }
 
+  // a v1 run was scored from what the phone claimed. it can never become eligible.
+  if (!CERTIFIABLE_CONTRACT_VERSIONS.has(attempt.contract_version)) {
+    throw new CertificateIssueError(
+      ISSUE_ERRORS.LEGACY_CONTRACT,
+      `attempt ${attemptId} is contract ${attempt.contract_version}, only ${Array.from(CERTIFIABLE_CONTRACT_VERSIONS).join(", ")} can certify`
+    );
+  }
+
+  // one unconfigured checkpoint rule means nobody graded part of this run
+  if (attempt.grading_status !== "graded") {
+    throw new CertificateIssueError(
+      ISSUE_ERRORS.ATTEMPT_NOT_GRADED,
+      `attempt ${attemptId} is ${attempt.grading_status}, so it has no server grade to certify`
+    );
+  }
+
   // a failed run never earns a certificate, whatever the client thought
   if (attempt.server_passed !== 1) {
     throw new CertificateIssueError(
       ISSUE_ERRORS.ATTEMPT_NOT_PASSED,
       `attempt ${attemptId} did not pass, server scored it ${attempt.server_percentage} percent`
-    );
-  }
-
-  const existing = db.prepare("SELECT cert_id FROM certificate WHERE attempt_id = ?").get(attemptId);
-  if (existing) {
-    throw new CertificateIssueError(
-      ISSUE_ERRORS.ALREADY_ISSUED,
-      `attempt ${attemptId} already holds certificate ${existing.cert_id}`
     );
   }
 
@@ -110,24 +124,59 @@ function issueCertificateForAttempt(db, { attemptId, keys, now, certId }) {
 
   const signed = signCertificate(payload, keys.privateKey);
 
-  db.prepare(
+  const insert = db.prepare(
     `INSERT INTO certificate
        (cert_id, worker_id, module_id, attempt_id, score, issued_at, expires_at,
         algo, key_id, signature, payload_json)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    payload.c,
-    payload.w,
-    payload.m,
-    attemptId,
-    attempt.server_percentage,
-    new Date(issuedAtMs).toISOString(),
-    payload.e === null ? null : new Date(payload.e * 1000).toISOString(),
-    signed.algo,
-    payload.k,
-    signed.signature.toString("base64url"),
-    signed.canonical.toString("utf8")
   );
+
+  // one run earns one certificate. the read and the write sit in the same
+  // transaction so two callers cannot both find the row missing and both insert,
+  // and UNIQUE(attempt_id) still stands behind it if a second process tries.
+  const claim = db.transaction(() => {
+    const existing = db.prepare("SELECT cert_id FROM certificate WHERE attempt_id = ?").get(attemptId);
+    if (existing) {
+      return existing.cert_id;
+    }
+    insert.run(
+      payload.c,
+      payload.w,
+      payload.m,
+      attemptId,
+      attempt.server_percentage,
+      new Date(issuedAtMs).toISOString(),
+      payload.e === null ? null : new Date(payload.e * 1000).toISOString(),
+      signed.algo,
+      payload.k,
+      signed.signature.toString("base64url"),
+      signed.canonical.toString("utf8")
+    );
+    return null;
+  });
+
+  let alreadyHeldBy = null;
+  try {
+    alreadyHeldBy = claim();
+  } catch (err) {
+    // lost the race to another process. the winner's certificate is the real one,
+    // so answer with the same refusal a sequential caller would have got.
+    if (err.code && String(err.code).startsWith("SQLITE_CONSTRAINT")) {
+      const winner = db.prepare("SELECT cert_id FROM certificate WHERE attempt_id = ?").get(attemptId);
+      throw new CertificateIssueError(
+        ISSUE_ERRORS.ALREADY_ISSUED,
+        `attempt ${attemptId} already holds certificate ${winner ? winner.cert_id : "issued by another writer"}`
+      );
+    }
+    throw err;
+  }
+
+  if (alreadyHeldBy !== null) {
+    throw new CertificateIssueError(
+      ISSUE_ERRORS.ALREADY_ISSUED,
+      `attempt ${attemptId} already holds certificate ${alreadyHeldBy}`
+    );
+  }
 
   log.info(
     {
@@ -165,6 +214,7 @@ function getCertificateByAttempt(db, attemptId) {
 }
 
 module.exports = {
+  CERTIFIABLE_CONTRACT_VERSIONS,
   issueCertificateForAttempt,
   buildCertificatePayload,
   computeExpiry,

@@ -134,9 +134,9 @@ describe("Sync envelope validation", () => {
 
     it("surfaces a leaked answer key against the offending checkpoint", () => {
       const payload = fireAttempt();
-      payload.checkpoints[2].context.correct = "sound_alarm_then_evacuate";
+      payload.checkpoints[2].observation.correctOption = "sound_alarm_then_evacuate";
       const err = failure(syncEnvelope([payload]));
-      assert.ok(hasIssueAt(err, "attempts.0.checkpoints.2.context"));
+      assert.ok(hasIssueAt(err, "attempts.0.checkpoints.2.observation"));
     });
 
     it("applies the injected clock to every attempt in the batch", () => {

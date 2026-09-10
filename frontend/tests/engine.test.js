@@ -2,6 +2,7 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert";
 import {
   evaluateAssessment,
+  toWireAttempt,
   queueAttemptForSync,
   getQueuedAttempts,
   clearAttemptQueue,
@@ -28,6 +29,7 @@ import {
   MANIFEST_STORAGE_KEY
 } from "../assessment/engine.js";
 import { validateSyncPayload } from "../../backend/models/sync.js";
+import { selectionSingle, selectionMulti, aimDwell, spatialAlignment } from "../assessment/observations.js";
 
 // mock local storage for node test runner
 if (typeof globalThis.localStorage === "undefined") {
@@ -61,7 +63,7 @@ if (typeof globalThis.window === "undefined") {
 // sample valid fire response attempt input
 function createValidFireAttempt(overrides = {}) {
   return {
-    contractVersion: "1.0",
+    contractVersion: "2.0",
     attemptId: "a3f1c9e2-5b47-4d18-9e6a-2c8b7f0d4e51",
     workerId: "WRK-0001",
     moduleId: "fire-response",
@@ -82,7 +84,11 @@ function createValidFireAttempt(overrides = {}) {
         score: 1,
         weight: 1,
         timestamp: "2026-09-01T10:14:39.902Z",
-        context: { method: "button_confirm" }
+        context: { method: "button_confirm" },
+        observation: spatialAlignment({
+          anchorId: "fire_exit_sign", angularErrorRad: null, dwellMs: 3000,
+          frameCount: 0, trackingSource: "arjs_marker"
+        })
       },
       {
         checkpointId: "fire_extinguisher_aim",
@@ -91,16 +97,21 @@ function createValidFireAttempt(overrides = {}) {
         score: 0.75,
         weight: 1,
         timestamp: "2026-09-01T10:16:20.410Z",
-        context: { accuracy: 0.75, target: "base", distance: 0.2 }
+        context: { accuracy: 0.75, target: "base", distance: 0.2 },
+        observation: aimDwell({
+          hitDistanceM: 0.2, dwellMs: 900, sweepCoverage: 0.82,
+          frameCount: 54, trackingSource: "arjs_marker"
+        })
       },
       {
-        checkpointId: "fire_evacuation_sequence",
+        checkpointId: "fire_evacuation_sequence_marker",
         type: "select",
         passed: true,
         score: 1,
         weight: 1,
         timestamp: "2026-09-01T10:17:41.556Z",
-        context: { selected: "sound_alarm_then_evacuate", correct: "sound_alarm_then_evacuate" }
+        context: { selected: "sound_alarm_then_evacuate", correct: "sound_alarm_then_evacuate" },
+        observation: selectionSingle("sound_alarm_then_evacuate")
       }
     ],
     ...overrides
@@ -110,7 +121,7 @@ function createValidFireAttempt(overrides = {}) {
 // sample valid gas leak attempt input
 function createValidGasAttempt(overrides = {}) {
   return {
-    contractVersion: "1.0",
+    contractVersion: "2.0",
     attemptId: "7c04b118-2ea9-4f36-b8d2-91a7e3c05d64",
     workerId: "WRK-0004",
     moduleId: "gas-leak",
@@ -131,7 +142,11 @@ function createValidGasAttempt(overrides = {}) {
         score: 1,
         weight: 1,
         timestamp: "2026-09-01T11:03:01.220Z",
-        context: { method: "button_confirm" }
+        context: { method: "button_confirm" },
+        observation: spatialAlignment({
+          anchorId: "gas_hazard_zone", angularErrorRad: 0.2, dwellMs: 2500,
+          frameCount: 60, trackingSource: "arjs_marker"
+        })
       },
       {
         checkpointId: "gas_ppe_selection",
@@ -145,7 +160,8 @@ function createValidGasAttempt(overrides = {}) {
           score: 0.67,
           missing: ["safety_harness"],
           forbidden: []
-        }
+        },
+        observation: selectionMulti(["scba_respirator", "multi_gas_detector"])
       },
       {
         checkpointId: "gas_buddy_procedure",
@@ -154,7 +170,8 @@ function createValidGasAttempt(overrides = {}) {
         score: 1,
         weight: 1,
         timestamp: "2026-09-01T11:06:03.771Z",
-        context: { selected: "standby_outside_with_lifeline", correct: "standby_outside_with_lifeline" }
+        context: { selected: "standby_outside_with_lifeline", correct: "standby_outside_with_lifeline" },
+        observation: selectionSingle("standby_outside_with_lifeline")
       }
     ],
     ...overrides
@@ -172,7 +189,7 @@ describe("Assessment Engine — evaluateAssessment", () => {
       const input = createValidFireAttempt();
       const result = evaluateAssessment(input, 0.7);
 
-      assert.strictEqual(result.contractVersion, "1.0");
+      assert.strictEqual(result.contractVersion, "2.0");
       assert.strictEqual(result.attemptId, "a3f1c9e2-5b47-4d18-9e6a-2c8b7f0d4e51");
       assert.strictEqual(result.workerId, "WRK-0001");
       assert.strictEqual(result.moduleId, "fire-response");
@@ -227,7 +244,11 @@ describe("Assessment Engine — evaluateAssessment", () => {
             score: 0,
             weight: 1,
             timestamp: "2026-09-01T10:14:39.902Z",
-            context: {}
+            context: {},
+            observation: spatialAlignment({
+              anchorId: "fire_exit_sign", angularErrorRad: null, dwellMs: 500,
+              frameCount: 0, trackingSource: "arjs_marker"
+            })
           },
           {
             checkpointId: "fire_extinguisher_aim",
@@ -236,16 +257,21 @@ describe("Assessment Engine — evaluateAssessment", () => {
             score: 0.2,
             weight: 1,
             timestamp: "2026-09-01T10:16:20.410Z",
-            context: { accuracy: 0.2 }
+            context: { accuracy: 0.2 },
+            observation: aimDwell({
+              hitDistanceM: 0.64, dwellMs: 850, sweepCoverage: 0.4,
+              frameCount: 30, trackingSource: "arjs_marker"
+            })
           },
           {
-            checkpointId: "fire_evacuation_sequence",
+            checkpointId: "fire_evacuation_sequence_marker",
             type: "select",
             passed: false,
             score: 0,
             weight: 1,
             timestamp: "2026-09-01T10:17:41.556Z",
-            context: { selected: "gather_belongings" }
+            context: { selected: "gather_belongings" },
+            observation: selectionSingle("gather_belongings")
           }
         ]
       });
@@ -326,7 +352,11 @@ describe("Assessment Engine — evaluateAssessment", () => {
             score: 1,
             weight: 1,
             timestamp: "2026-09-01T10:14:39.902Z",
-            context: {}
+            context: {},
+            observation: spatialAlignment({
+              anchorId: "fire_exit_sign", angularErrorRad: null, dwellMs: 100,
+              frameCount: 0, trackingSource: "arjs_marker"
+            })
           },
           {
             checkpointId: "fire_exit_identification",
@@ -335,7 +365,11 @@ describe("Assessment Engine — evaluateAssessment", () => {
             score: 1,
             weight: 1,
             timestamp: "2026-09-01T10:15:39.902Z",
-            context: {}
+            context: {},
+            observation: spatialAlignment({
+              anchorId: "fire_exit_sign", angularErrorRad: null, dwellMs: 100,
+              frameCount: 0, trackingSource: "arjs_marker"
+            })
           }
         ]
       });
@@ -395,7 +429,12 @@ describe("Offline Queue — queueAttemptForSync", () => {
 
     const retrieved = getQueuedAttempts();
     assert.strictEqual(retrieved.length, 1);
-    assert.deepStrictEqual(retrieved[0], evaluated);
+    // the queue holds the Attempt Contract v2.0 wire payload, not the local
+    // result — the local score stays on the phone as a claim
+    assert.deepStrictEqual(retrieved[0], toWireAttempt(evaluated));
+    assert.strictEqual(retrieved[0].contractVersion, "2.0");
+    assert.strictEqual(retrieved[0].clientClaimedPercentage, evaluated.percentage);
+    assert.ok(!("percentage" in retrieved[0]));
   });
 
   it("queues multiple attempts in correct chronological order", () => {
@@ -508,7 +547,11 @@ describe("Assessment Session Lifecycle", () => {
       type: "proximity",
       passed: true,
       timestamp: "2026-09-01T10:14:39.902Z",
-      context: { method: "button_confirm" }
+      context: { method: "button_confirm" },
+      observation: spatialAlignment({
+        anchorId: "fire_exit_sign", angularErrorRad: null, dwellMs: 3000,
+        frameCount: 0, trackingSource: "arjs_marker"
+      })
     });
 
     recordCheckpointResult({
@@ -516,15 +559,20 @@ describe("Assessment Session Lifecycle", () => {
       type: "aim",
       passed: true,
       timestamp: "2026-09-01T10:16:20.410Z",
-      context: { accuracy: 0.75, target: "base", distance: 0.2 }
+      context: { accuracy: 0.75, target: "base", distance: 0.2 },
+      observation: aimDwell({
+        hitDistanceM: 0.2, dwellMs: 900, sweepCoverage: 0.82,
+        frameCount: 54, trackingSource: "arjs_marker"
+      })
     });
 
     recordCheckpointResult({
-      checkpointId: "fire_evacuation_sequence",
+      checkpointId: "fire_evacuation_sequence_marker",
       type: "select",
       passed: true,
       timestamp: "2026-09-01T10:17:41.556Z",
-      context: { selected: "sound_alarm_then_evacuate", correct: "sound_alarm_then_evacuate" }
+      context: { selected: "sound_alarm_then_evacuate", correct: "sound_alarm_then_evacuate" },
+      observation: selectionSingle("sound_alarm_then_evacuate")
     });
 
     const evaluated = finishAssessmentSession({
@@ -652,7 +700,11 @@ describe("Module Manifest Integration — /api/modules", () => {
     const fire = getCachedOrLocalManifest("fire-response");
     assert.ok(fire !== null);
     assert.strictEqual(fire.moduleId, "fire-response");
-    assert.strictEqual(fire.requiredCheckpoints.length, 3);
+    // four, because the evacuation question is split per AR tier and the offline
+    // manifest has to mirror what /api/modules serves
+    assert.strictEqual(fire.requiredCheckpoints.length, 4);
+    const evacIds = fire.requiredCheckpoints.map((c) => c.checkpointId).filter((id) => id.startsWith("fire_evacuation"));
+    assert.deepStrictEqual(evacIds.sort(), ["fire_evacuation_sequence_marker", "fire_evacuation_sequence_webxr"]);
     assert.strictEqual(fire.passThreshold, 0.7);
 
     const gas = getCachedOrLocalManifest("gas-leak");
@@ -783,12 +835,17 @@ describe("Attempt Synchronization — /api/sync", () => {
       assert.strictEqual(result.synced, 1);
       assert.strictEqual(result.remaining, 0);
 
-      // validate envelope using Krishna's backend validator directly
-      const validatedEnvelope = validateSyncPayload(sentBody, { now: Date.now() });
-      assert.strictEqual(validatedEnvelope.batchId, sentBody.batchId);
-      assert.strictEqual(validatedEnvelope.workerId, "WRK-0001");
-      assert.strictEqual(validatedEnvelope.attempts.length, 1);
-      assert.strictEqual(validatedEnvelope.attempts[0].workerId, "WRK-0001");
+      // the envelope itself is still exactly what the backend expects
+      assert.strictEqual(sentBody.workerId, "WRK-0001");
+      assert.strictEqual(sentBody.attempts.length, 1);
+      assert.strictEqual(sentBody.attempts[0].workerId, "WRK-0001");
+
+      // the whole point of the v2 migration: the payload the phone actually sends
+      // is the payload the backend actually accepts
+      const validated = validateSyncPayload(sentBody, { now: Date.now() });
+      assert.strictEqual(validated.attempts.length, 1);
+      assert.strictEqual(validated.attempts[0].contractVersion, "2.0");
+      assert.strictEqual(validated.attempts[0].workerId, "WRK-0001");
     } finally {
       globalThis.fetch = originalFetch;
     }

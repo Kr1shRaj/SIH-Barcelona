@@ -13,8 +13,9 @@ import {
   evaluateGazeAimProgress,
   isSqueezeComplete, calcMotionSweepCoverage, isSweepComplete,
   AIM_PASS_THRESHOLD, FIRE_BASE_MAX_DISTANCE_3D,
-  CP_EXIT_ID, CP_EXTINGUISHER_ID, CP_EVACUATION_ID
+  CP_EXIT_ID, CP_EXTINGUISHER_ID, CP_EVACUATION_WEBXR_ID, EXIT_ANCHOR_ID
 } from "./fire-response.js";
+import { selectionSingle, aimDwell, spatialAlignment } from "../../assessment/observations.js";
 
 const logger = createLogger("FireModuleWebXR");
 
@@ -219,7 +220,20 @@ function _setupStep1WebXR(container) {
       if (_controller) _controller.onFrame(_frameHandler);
 
       // fire checkpoint and advance
-      fireCheckpointResult(CP_EXIT_ID, true, { method: "webxr_surface_placement" });
+      // tier 1 has no anchored exit sign yet, so there is no angle to measure.
+      // report that honestly — the server refuses to certify an unmeasured checkpoint.
+      fireCheckpointResult(
+        CP_EXIT_ID,
+        true,
+        { method: "webxr_surface_placement", measured: false },
+        spatialAlignment({
+          anchorId: EXIT_ANCHOR_ID,
+          angularErrorRad: null,
+          dwellMs: 0,
+          frameCount: 0,
+          trackingSource: "webxr_pose"
+        })
+      );
 
       if (overlay) {
         overlay.innerHTML = `
@@ -386,6 +400,7 @@ function _showAimPhase(overlay, container) {
 
   let aimStartMs = 0;
   let aimActive = false;
+  let aimFrames = 0;
 
   overlay.innerHTML = `
     <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${t("fire.pass_aim_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (2/4)")}</div>
@@ -438,8 +453,10 @@ function _showAimPhase(overlay, container) {
       if (!aimActive) {
         aimActive = true;
         aimStartMs = 0;
+        aimFrames = 0;
       }
       aimStartMs += deltaMs;
+      aimFrames += 1;
 
       const { progress, isComplete } = evaluateGazeAimProgress(true, aimStartMs, 800);
       const fill = document.getElementById("aim-progress-fill");
@@ -452,11 +469,12 @@ function _showAimPhase(overlay, container) {
         }
         const accuracy = calcRaycastAimAccuracy(hitDistance, FIRE_BASE_MAX_DISTANCE_3D);
         logger.info({ event: "webxr_aim_complete", accuracy, hitDistance }, "Aim complete (WebXR)");
-        _onAimComplete(overlay, container, accuracy);
+        _onAimComplete(overlay, container, accuracy, hitDistance, aimFrames, aimStartMs);
       }
     } else {
       aimActive = false;
       aimStartMs = 0;
+      aimFrames = 0;
       const fill = document.getElementById("aim-progress-fill");
       if (fill) fill.style.width = "0%";
     }
@@ -483,10 +501,15 @@ function _showAimFallback(overlay, container) {
 }
 
 // aim done — advance to squeeze
-function _onAimComplete(overlay, container, accuracy) {
+// hitDistanceM is null unless a real raycast produced it. the fallback button
+// measures nothing, and the server scores a null distance zero.
+function _onAimComplete(overlay, container, accuracy, hitDistanceM = null, frameCount = 0, dwellMs = 0) {
   if (_interactionState) {
     _interactionState.phase = "squeeze";
     _interactionState.aimAccuracy = accuracy;
+    _interactionState.aimHitDistanceM = hitDistanceM;
+    _interactionState.aimFrameCount = frameCount;
+    _interactionState.aimDwellMs = dwellMs;
   }
   logger.info({ event: "webxr_aim_done", accuracy }, "Aim phase done (WebXR)");
   _showSqueezePhase(overlay, container, accuracy);
@@ -588,13 +611,24 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
 
       // fire step 2 checkpoint with aim accuracy
       const passed = aimAccuracy >= AIM_PASS_THRESHOLD;
-      fireCheckpointResult(CP_EXTINGUISHER_ID, passed, {
-        method: "webxr_pass_technique",
-        accuracy: aimAccuracy,
-        sweepCoverage: coverage,
-        target: passed ? "base" : "missed",
-        tier: 1
-      });
+      fireCheckpointResult(
+        CP_EXTINGUISHER_ID,
+        passed,
+        {
+          method: "webxr_pass_technique",
+          accuracy: aimAccuracy,
+          sweepCoverage: coverage,
+          target: passed ? "base" : "missed",
+          tier: 1
+        },
+        aimDwell({
+          hitDistanceM: _interactionState ? _interactionState.aimHitDistanceM : null,
+          dwellMs: _interactionState ? _interactionState.aimDwellMs : 0,
+          sweepCoverage: coverage,
+          frameCount: _interactionState ? _interactionState.aimFrameCount : 0,
+          trackingSource: "webxr_pose"
+        })
+      );
 
       _setupStep3WebXR(container, passed);
     }
@@ -615,13 +649,25 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
       _sweepFrameHandler = null;
     }
     const passed = aimAccuracy >= AIM_PASS_THRESHOLD;
-    fireCheckpointResult(CP_EXTINGUISHER_ID, passed, {
-      method: "webxr_pass_technique_skip_sweep",
-      accuracy: aimAccuracy,
-      sweepCoverage: 1.0,
-      target: passed ? "base" : "missed",
-      tier: 1
-    });
+    // the sweep was skipped, so no coverage was observed. null, not 1.0.
+    fireCheckpointResult(
+      CP_EXTINGUISHER_ID,
+      passed,
+      {
+        method: "webxr_pass_technique_skip_sweep",
+        accuracy: aimAccuracy,
+        sweepCoverage: 1.0,
+        target: passed ? "base" : "missed",
+        tier: 1
+      },
+      aimDwell({
+        hitDistanceM: _interactionState ? _interactionState.aimHitDistanceM : null,
+        dwellMs: _interactionState ? _interactionState.aimDwellMs : 0,
+        sweepCoverage: null,
+        frameCount: _interactionState ? _interactionState.aimFrameCount : 0,
+        trackingSource: "webxr_pose"
+      })
+    );
     _setupStep3WebXR(container, passed);
   });
   overlay.appendChild(btn);
@@ -633,7 +679,7 @@ function _setupStep3WebXR(container, _step2Passed) {
   logger.info({ event: "webxr_fire_step_start", step: 3 }, "Evacuation (WebXR)");
 
   registerCheckpoint({
-    id: CP_EVACUATION_ID,
+    id: CP_EVACUATION_WEBXR_ID,
     type: "select",
     onTrigger: (detail) => {
       logger.info({ event: "checkpoint_cb", id: detail.checkpointId, passed: detail.passed }, "Evac CP (WebXR)");
@@ -661,11 +707,12 @@ function _setupStep3WebXR(container, _step2Passed) {
   wrapper.style.cssText = "display:flex;flex-direction:column;gap:0.5rem;margin-top:0.5rem;";
 
   const onSelect = (id, correct) => {
-    fireCheckpointResult(CP_EVACUATION_ID, correct, {
-      selectedOption: id,
-      correctOption: CORRECT,
-      tier: 1
-    });
+    fireCheckpointResult(
+      CP_EVACUATION_WEBXR_ID,
+      correct,
+      { selected: id, correct: CORRECT, tier: 1 },
+      selectionSingle(id)
+    );
     const allPassed = Boolean(_step2Passed && correct);
     _showCompletionWebXR(overlay, container, allPassed);
   };

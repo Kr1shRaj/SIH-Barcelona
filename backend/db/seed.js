@@ -35,15 +35,133 @@ const DEFAULT_CHECKPOINT_WEIGHT = 1;
 // decided which checkpoints must fail the whole module on their own. 0 keeps today's behaviour.
 const CRITICAL_PENDING = 0;
 
-// checkpoint ids read straight out of the AR modules. these are facts, not choices —
-// they must stay in step with fire-response.js and gas-leak.js.
+// NOT MEASURED YET. the angle a trainee must hold to count as looking at an anchor
+// has never been read off a real device, so it stays null and the grader scores the
+// checkpoint zero. do not fill this in from a guess — it decides who gets certified.
+const ANGULAR_ERROR_UNMEASURED = null;
+
+// same story. no frame count floor has been observed on target hardware.
+const FRAME_COUNT_UNMEASURED = null;
+
+// only these two tracking sources may ever certify. device_orientation is gyro only,
+// drifts, and carries no translation, so it is deliberately absent.
+const CERTIFYING_TRACKING_SOURCES = JSON.stringify(["webxr_pose", "arjs_marker"]);
+
+// lifted from webxr_fire_module.js evaluateGazeAimProgress(..., 800)
+const AIM_DWELL_MS = 800;
+
+// lifted from fire-response.js FIRE_BASE_MAX_DISTANCE_3D
+const AIM_MAX_DISTANCE_M = 0.8;
+
+// lifted from fire-response.js AIM_PASS_THRESHOLD
+const AIM_PASS_THRESHOLD = 0.6;
+
+// lifted from fire-response.js SWEEP_MIN_COVERAGE
+const AIM_MIN_SWEEP_COVERAGE = 0.75;
+
+// checkpoint ids and option lists read straight out of the AR modules. these are
+// facts, not choices — they must stay in step with fire-response.js, gas-leak.js
+// and webxr_fire_module.js. the answer keys live here and nowhere on a phone.
+//
+// gradeable 0 means the rule is not configured yet: the grader scores it zero and
+// the certificate service refuses the whole attempt. that is the honest state until
+// the two spatial checkpoints are genuinely measurable on a device.
 const CHECKPOINT_DEFINITIONS = [
-  { moduleId: "fire-response", checkpointId: "fire_exit_identification", type: "proximity" },
-  { moduleId: "fire-response", checkpointId: "fire_extinguisher_aim", type: "aim" },
-  { moduleId: "fire-response", checkpointId: "fire_evacuation_sequence", type: "select" },
-  { moduleId: "gas-leak", checkpointId: "gas_hazard_zone_recognition", type: "proximity" },
-  { moduleId: "gas-leak", checkpointId: "gas_ppe_selection", type: "select" },
-  { moduleId: "gas-leak", checkpointId: "gas_buddy_procedure", type: "select" }
+  {
+    moduleId: "fire-response",
+    checkpointId: "fire_exit_identification",
+    type: "proximity",
+    observationKind: "spatial_alignment",
+    anchorId: "fire_exit_sign",
+    maxAngularErrorRad: ANGULAR_ERROR_UNMEASURED,
+    minFrameCount: FRAME_COUNT_UNMEASURED,
+    allowedTrackingSources: CERTIFYING_TRACKING_SOURCES,
+    gradeable: 0
+  },
+  {
+    moduleId: "fire-response",
+    checkpointId: "fire_extinguisher_aim",
+    type: "aim",
+    observationKind: "aim_dwell",
+    maxDistanceM: AIM_MAX_DISTANCE_M,
+    passThreshold: AIM_PASS_THRESHOLD,
+    minSweepCoverage: AIM_MIN_SWEEP_COVERAGE,
+    minDwellMs: AIM_DWELL_MS,
+    minFrameCount: FRAME_COUNT_UNMEASURED,
+    allowedTrackingSources: CERTIFYING_TRACKING_SOURCES,
+    gradeable: 1
+  },
+  {
+    moduleId: "fire-response",
+    checkpointId: "fire_evacuation_sequence_marker",
+    type: "select",
+    observationKind: "selection_single",
+    appliesToTier: 2,
+    expectedValue: JSON.stringify("sound_alarm_then_evacuate"),
+    allowedValues: JSON.stringify([
+      "gather_belongings",
+      "sound_alarm_then_evacuate",
+      "use_elevator",
+      "wait_for_instructions"
+    ]),
+    gradeable: 1
+  },
+  {
+    moduleId: "fire-response",
+    checkpointId: "fire_evacuation_sequence_webxr",
+    type: "select",
+    observationKind: "selection_single",
+    appliesToTier: 1,
+    expectedValue: JSON.stringify("wind_based_upwind"),
+    allowedValues: JSON.stringify([
+      "wind_based_upwind",
+      "nearest_door",
+      "elevator",
+      "shelter_in_place"
+    ]),
+    gradeable: 1
+  },
+  {
+    moduleId: "gas-leak",
+    checkpointId: "gas_hazard_zone_recognition",
+    type: "proximity",
+    observationKind: "spatial_alignment",
+    anchorId: "gas_hazard_zone",
+    maxAngularErrorRad: ANGULAR_ERROR_UNMEASURED,
+    minFrameCount: FRAME_COUNT_UNMEASURED,
+    allowedTrackingSources: CERTIFYING_TRACKING_SOURCES,
+    gradeable: 0
+  },
+  {
+    moduleId: "gas-leak",
+    checkpointId: "gas_ppe_selection",
+    type: "select",
+    observationKind: "selection_multi",
+    expectedValue: JSON.stringify(["scba_respirator", "multi_gas_detector", "safety_harness"]),
+    allowedValues: JSON.stringify([
+      "scba_respirator",
+      "multi_gas_detector",
+      "safety_harness",
+      "dust_mask",
+      "welding_shield"
+    ]),
+    forbiddenValues: JSON.stringify(["dust_mask", "welding_shield"]),
+    gradeable: 1
+  },
+  {
+    moduleId: "gas-leak",
+    checkpointId: "gas_buddy_procedure",
+    type: "select",
+    observationKind: "selection_single",
+    expectedValue: JSON.stringify("standby_outside_with_lifeline"),
+    allowedValues: JSON.stringify([
+      "standby_outside_with_lifeline",
+      "both_enter_together",
+      "buddy_leaves_for_tools",
+      "enter_without_communication"
+    ]),
+    gradeable: 1
+  }
 ];
 
 const WORKERS = [
@@ -87,10 +205,35 @@ function seedDatabase(db) {
 
   const insertCheckpointDef = db.prepare(
     `INSERT INTO checkpoint_definition
-       (module_id, checkpoint_id, checkpoint_type, weight, required, critical, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
+       (module_id, checkpoint_id, checkpoint_type, observation_kind, applies_to_tier,
+        expected_value, allowed_values, forbidden_values, allowed_tracking_sources,
+        anchor_id, max_angular_error_rad,
+        max_distance_m, pass_threshold, min_sweep_coverage,
+        min_dwell_ms, min_frame_count,
+        gradeable, weight, required, critical, created_at)
+     VALUES (
+        @module_id, @checkpoint_id, @checkpoint_type, @observation_kind, @applies_to_tier,
+        @expected_value, @allowed_values, @forbidden_values, @allowed_tracking_sources,
+        @anchor_id, @max_angular_error_rad,
+        @max_distance_m, @pass_threshold, @min_sweep_coverage,
+        @min_dwell_ms, @min_frame_count,
+        @gradeable, @weight, @required, @critical, @created_at)
      ON CONFLICT(module_id, checkpoint_id) DO UPDATE SET
-       checkpoint_type = excluded.checkpoint_type, weight = excluded.weight,
+       checkpoint_type = excluded.checkpoint_type,
+       observation_kind = excluded.observation_kind,
+       applies_to_tier = excluded.applies_to_tier,
+       expected_value = excluded.expected_value,
+       allowed_values = excluded.allowed_values,
+       forbidden_values = excluded.forbidden_values,
+       allowed_tracking_sources = excluded.allowed_tracking_sources,
+       anchor_id = excluded.anchor_id,
+       max_angular_error_rad = excluded.max_angular_error_rad,
+       max_distance_m = excluded.max_distance_m,
+       pass_threshold = excluded.pass_threshold,
+       min_sweep_coverage = excluded.min_sweep_coverage,
+       min_dwell_ms = excluded.min_dwell_ms,
+       min_frame_count = excluded.min_frame_count,
+       gradeable = excluded.gradeable, weight = excluded.weight,
        required = excluded.required, critical = excluded.critical,
        created_at = excluded.created_at`
   );
@@ -113,15 +256,30 @@ function seedDatabase(db) {
       insertWorker.run(w.workerId, w.name, w.mineId, w.contractorId, SEED_TIMESTAMP)
     );
     CHECKPOINT_DEFINITIONS.forEach((c) =>
-      insertCheckpointDef.run(
-        c.moduleId,
-        c.checkpointId,
-        c.type,
-        DEFAULT_CHECKPOINT_WEIGHT,
-        1,
-        CRITICAL_PENDING,
-        SEED_TIMESTAMP
-      )
+      insertCheckpointDef.run({
+        module_id: c.moduleId,
+        checkpoint_id: c.checkpointId,
+        checkpoint_type: c.type,
+        observation_kind: c.observationKind,
+        applies_to_tier: c.appliesToTier === undefined ? null : c.appliesToTier,
+        expected_value: c.expectedValue === undefined ? null : c.expectedValue,
+        allowed_values: c.allowedValues === undefined ? null : c.allowedValues,
+        forbidden_values: c.forbiddenValues === undefined ? null : c.forbiddenValues,
+        allowed_tracking_sources:
+          c.allowedTrackingSources === undefined ? null : c.allowedTrackingSources,
+        anchor_id: c.anchorId === undefined ? null : c.anchorId,
+        max_angular_error_rad: c.maxAngularErrorRad === undefined ? null : c.maxAngularErrorRad,
+        max_distance_m: c.maxDistanceM === undefined ? null : c.maxDistanceM,
+        pass_threshold: c.passThreshold === undefined ? null : c.passThreshold,
+        min_sweep_coverage: c.minSweepCoverage === undefined ? null : c.minSweepCoverage,
+        min_dwell_ms: c.minDwellMs === undefined ? null : c.minDwellMs,
+        min_frame_count: c.minFrameCount === undefined ? null : c.minFrameCount,
+        gradeable: c.gradeable,
+        weight: DEFAULT_CHECKPOINT_WEIGHT,
+        required: 1,
+        critical: CRITICAL_PENDING,
+        created_at: SEED_TIMESTAMP
+      })
     );
   });
 
@@ -156,6 +314,13 @@ module.exports = {
   RECERT_MONTHS_PENDING,
   DEFAULT_CHECKPOINT_WEIGHT,
   CRITICAL_PENDING,
+  ANGULAR_ERROR_UNMEASURED,
+  FRAME_COUNT_UNMEASURED,
+  CERTIFYING_TRACKING_SOURCES,
+  AIM_DWELL_MS,
+  AIM_MAX_DISTANCE_M,
+  AIM_PASS_THRESHOLD,
+  AIM_MIN_SWEEP_COVERAGE,
   MINES,
   CONTRACTORS,
   MODULES,

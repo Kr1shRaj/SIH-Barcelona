@@ -33,7 +33,7 @@ const FIRE_MANIFEST = {
   requiredCheckpoints: [
     { checkpointId: "fire_exit_identification", type: "proximity", weight: 1, required: true, critical: false },
     { checkpointId: "fire_extinguisher_aim", type: "aim", weight: 1, required: true, critical: false },
-    { checkpointId: "fire_evacuation_sequence", type: "select", weight: 1, required: true, critical: false }
+    { checkpointId: "fire_evacuation_sequence_marker", type: "select", weight: 1, required: true, critical: false }
   ]
 };
 
@@ -87,7 +87,7 @@ describe("Manifest validation — referential layer", () => {
 
       const err = manifestFailure(payload, manifestRows());
       assert.ok(hasCode(err, "missing_required_checkpoint"));
-      assert.match(err.issues[0].message, /fire_evacuation_sequence/);
+      assert.match(err.issues[0].message, /fire_evacuation_sequence_marker/);
     });
 
     it("reports every missing checkpoint at once, not just the first", () => {
@@ -99,12 +99,55 @@ describe("Manifest validation — referential layer", () => {
       assert.strictEqual(missing.length, 2);
     });
 
-    it("rejects a checkpoint whose type disagrees with the manifest", () => {
+    it("rejects an observation kind that disagrees with the manifest", () => {
       const payload = fireAttempt();
-      payload.checkpoints[0].type = "select";
+      payload.checkpoints[0].observation = { kind: "selection_single", selected: "gather_belongings" };
 
       const err = manifestFailure(payload, manifestRows());
-      assert.ok(hasCode(err, "checkpoint_type_mismatch"));
+      assert.ok(hasCode(err, "observation_kind_mismatch"));
+    });
+
+    // the checkpoint id picks the rule. arTier only narrows, so a client that lies
+    // about its tier cannot reach for the other tier's answer key.
+    it("rejects a tier 1 checkpoint sent by an attempt claiming tier 2", () => {
+      const payload = fireAttempt();
+      payload.checkpoints[2].checkpointId = "fire_evacuation_sequence_webxr";
+      payload.checkpoints[2].observation.selected = "wind_based_upwind";
+
+      const err = manifestFailure(payload, manifestRows());
+      assert.ok(hasCode(err, "checkpoint_tier_mismatch"));
+    });
+
+    it("rejects a tier 2 checkpoint sent by an attempt claiming tier 1", () => {
+      const payload = fireAttempt({ arTier: 1 });
+
+      const err = manifestFailure(payload, manifestRows());
+      assert.ok(hasCode(err, "checkpoint_tier_mismatch"));
+    });
+
+    it("accepts the webxr variant from a genuine tier 1 attempt", () => {
+      const payload = fireAttempt({ arTier: 1 });
+      payload.checkpoints[2].checkpointId = "fire_evacuation_sequence_webxr";
+      payload.checkpoints[2].observation.selected = "wind_based_upwind";
+      payload.checkpoints[0].observation.trackingSource = "webxr_pose";
+      payload.checkpoints[1].observation.trackingSource = "webxr_pose";
+
+      const attempt = validateAttemptContract(payload, AT);
+      assert.doesNotThrow(() => checkAgainstManifest(attempt, manifestRows()));
+    });
+
+    it("does not demand the other tier's variant of a split checkpoint", () => {
+      const payload = fireAttempt();
+      const err = (() => {
+        const attempt = validateAttemptContract(payload, AT);
+        try {
+          checkAgainstManifest(attempt, manifestRows());
+        } catch (e) {
+          return e;
+        }
+        return null;
+      })();
+      assert.strictEqual(err, null, "a tier 2 run must not be failed for skipping the tier 1 question");
     });
 
     it("treats an empty manifest as an unknown module rather than a free pass", () => {
@@ -119,6 +162,8 @@ describe("Manifest validation — referential layer", () => {
         module_id: "fire-response",
         checkpoint_id: "fire_optional_extra",
         checkpoint_type: "select",
+        observation_kind: "selection_single",
+        applies_to_tier: null,
         weight: 1,
         required: 0,
         critical: 0

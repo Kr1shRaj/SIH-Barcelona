@@ -32,11 +32,15 @@ function unregisterCheckpoint(id) {
 // detail: {
 //   checkpointId: string,
 //   type: string,         -- "aim" | "select" | "proximity" | ...
-//   passed: boolean,
-//   context: object,      -- arbitrary key/values from the trigger (selected option, pose, etc.)
+//   passed: boolean,      -- LOCAL only. drives the offline ui, never leaves the phone as a verdict.
+//   context: object,      -- LOCAL only. arbitrary key/values for the ui and the logs.
+//   observation: object,  -- Attempt Contract v2.0 raw observation. this is what syncs.
 //   timestamp: string     -- ISO 8601
 // }
-function fireCheckpointResult(checkpointId, passed, context = {}) {
+//
+// passed and context stay because the trainee needs an answer while offline. only
+// observation reaches the server, and the server grades it from its own rules.
+function fireCheckpointResult(checkpointId, passed, context = {}, observation = null) {
   const entry = _registry.get(checkpointId);
   if (!entry) {
     logger.warn({ event: "checkpoint_fire_unknown", checkpointId }, "Unknown checkpoint — register first");
@@ -48,6 +52,7 @@ function fireCheckpointResult(checkpointId, passed, context = {}) {
     type: entry.type,
     passed: Boolean(passed),
     context,
+    observation,
     timestamp: new Date().toISOString()
   };
 

@@ -388,17 +388,20 @@ describe("Certificate issuance and persistence", () => {
 
   const PASSED_ATTEMPT = "a3f1c9e2-5b47-4d18-9e6a-2c8b7f0d4e51";
   const FAILED_ATTEMPT = "7c04b118-2ea9-4f36-b8d2-91a7e3c05d64";
+  const LEGACY_ATTEMPT = "5e2b7a10-3c4d-4e5f-8a9b-0c1d2e3f4a5b";
 
   function insertAttempt(attemptId, passed, percentage) {
     db.prepare(
       `INSERT INTO attempt (
          attempt_id, worker_id, module_id, module_version, contract_version,
+         grading_status, grader_version, graded_at,
          started_at, completed_at, duration_ms, status,
          server_total_score, server_max_score, server_percentage, server_passed,
          threshold_applied, client_percentage, client_passed, server_received_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
-      attemptId, "WRK-0001", "fire-response", 1, "1.0",
+      attemptId, "WRK-0001", "fire-response", 1, "2.0",
+      "graded", "2.0.0", "2026-09-03T10:05:00.000Z",
       "2026-09-03T10:00:00.000Z", "2026-09-03T10:03:00.000Z", 180000, "completed",
       percentage / 100 * 3, 3, percentage, passed ? 1 : 0,
       0.7, percentage, passed ? 1 : 0, "2026-09-03T10:05:00.000Z"
@@ -461,6 +464,71 @@ describe("Certificate issuance and persistence", () => {
 
     assert.strictEqual(result.valid, true);
     assert.strictEqual(result.payload.c, cert.certId);
+  });
+
+  // v1 rows carry a score the phone handed them. no gate downstream can make that safe.
+  it("refuses a v1 attempt however well it scored", () => {
+    insertAttempt(LEGACY_ATTEMPT, true, 100);
+    db.prepare("UPDATE attempt SET contract_version = '1.0', grading_status = 'legacy_client_graded' WHERE attempt_id = ?").run(LEGACY_ATTEMPT);
+
+    assert.throws(
+      () => issueCertificateForAttempt(db, { attemptId: LEGACY_ATTEMPT, keys: KEYS, now: FIXED_NOW }),
+      (err) => err.code === ISSUE_ERRORS.LEGACY_CONTRACT
+    );
+  });
+
+  it("refuses a v1 attempt relabelled as v2 but never graded", () => {
+    insertAttempt(LEGACY_ATTEMPT, true, 100);
+    db.prepare("UPDATE attempt SET grading_status = 'legacy_client_graded' WHERE attempt_id = ?").run(LEGACY_ATTEMPT);
+
+    assert.throws(
+      () => issueCertificateForAttempt(db, { attemptId: LEGACY_ATTEMPT, keys: KEYS, now: FIXED_NOW }),
+      (err) => err.code === ISSUE_ERRORS.ATTEMPT_NOT_GRADED
+    );
+  });
+
+  it("refuses an attempt whose checkpoint rules are not configured", () => {
+    insertAttempt(LEGACY_ATTEMPT, true, 100);
+    db.prepare("UPDATE attempt SET grading_status = 'ungradeable' WHERE attempt_id = ?").run(LEGACY_ATTEMPT);
+
+    assert.throws(
+      () => issueCertificateForAttempt(db, { attemptId: LEGACY_ATTEMPT, keys: KEYS, now: FIXED_NOW }),
+      (err) => err.code === ISSUE_ERRORS.ATTEMPT_NOT_GRADED
+    );
+  });
+
+  it("writes no certificate row when it refuses a legacy attempt", () => {
+    insertAttempt(LEGACY_ATTEMPT, true, 100);
+    db.prepare("UPDATE attempt SET contract_version = '1.0' WHERE attempt_id = ?").run(LEGACY_ATTEMPT);
+
+    try {
+      issueCertificateForAttempt(db, { attemptId: LEGACY_ATTEMPT, keys: KEYS, now: FIXED_NOW });
+    } catch (err) {
+      // expected
+    }
+    const n = db.prepare("SELECT COUNT(*) AS n FROM certificate WHERE attempt_id = ?").get(LEGACY_ATTEMPT).n;
+    assert.strictEqual(n, 0);
+  });
+
+  // the db, not just the service, must refuse a second certificate for one run
+  it("lets the database refuse a second certificate for the same attempt", () => {
+    const cert = issueCertificateForAttempt(db, { attemptId: PASSED_ATTEMPT, keys: KEYS, now: FIXED_NOW });
+    const row = db.prepare("SELECT * FROM certificate WHERE cert_id = ?").get(cert.certId);
+
+    assert.throws(
+      () =>
+        db
+          .prepare(
+            `INSERT INTO certificate
+               (cert_id, worker_id, module_id, attempt_id, score, issued_at, algo, key_id, signature, payload_json)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          )
+          .run(
+            "SAFEAR-DEADBEEFDEADBEEF", row.worker_id, row.module_id, PASSED_ATTEMPT,
+            row.score, row.issued_at, row.algo, row.key_id, row.signature, row.payload_json
+          ),
+      /UNIQUE constraint failed/
+    );
   });
 
   it("refuses a failed attempt", () => {
@@ -547,5 +615,111 @@ describe("Payload helpers", () => {
     const qr = signed().qr;
     assert.ok(qr.length < 300, `qr string was ${qr.length} chars`);
     assert.ok(toBase64Url(Buffer.from("x")).length > 0);
+  });
+});
+
+// The check and the insert now share one transaction, and a UNIQUE(attempt_id)
+// collision from a second writer maps onto the same refusal a sequential caller
+// would have seen. A fake database is the only way to force that collision:
+// better-sqlite3 is synchronous, so two requests in one process cannot interleave.
+describe("Certificate issuance is race safe", () => {
+  const ATTEMPT_ROW = {
+    attempt_id: "a3f1c9e2-5b47-4d18-9e6a-2c8b7f0d4e51",
+    worker_id: "WRK-0001",
+    module_id: "fire-response",
+    contract_version: "2.0",
+    grading_status: "graded",
+    server_passed: 1,
+    server_percentage: 91.67
+  };
+  const MODULE_ROW = { module_id: "fire-response", recert_months: null };
+
+  // a database that finds no certificate, then refuses the insert the way sqlite
+  // does when another writer got there first
+  function racingDb({ winnerCertId }) {
+    let insertAttempted = false;
+    return {
+      transactionsRun: 0,
+      get insertAttempted() { return insertAttempted; },
+      prepare(sql) {
+        if (sql.includes("FROM attempt")) return { get: () => ATTEMPT_ROW };
+        if (sql.includes("FROM module")) return { get: () => MODULE_ROW };
+        if (sql.includes("FROM certificate")) {
+          // empty before the insert, the winner's row afterwards
+          return { get: () => (insertAttempted && winnerCertId ? { cert_id: winnerCertId } : undefined) };
+        }
+        if (sql.includes("INSERT INTO certificate")) {
+          return {
+            run: () => {
+              insertAttempted = true;
+              const err = new Error("UNIQUE constraint failed: certificate.attempt_id");
+              err.code = "SQLITE_CONSTRAINT_UNIQUE";
+              throw err;
+            }
+          };
+        }
+        throw new Error("unexpected sql in racing fake: " + sql);
+      },
+      transaction(fn) {
+        return (...args) => {
+          this.transactionsRun += 1;
+          return fn(...args);
+        };
+      }
+    };
+  }
+
+  it("turns a lost race into already_issued, never a raw database error", () => {
+    const db = racingDb({ winnerCertId: "SAFEAR-AAAABBBBCCCCDDDD" });
+
+    assert.throws(
+      () => issueCertificateForAttempt(db, { attemptId: ATTEMPT_ROW.attempt_id, keys: KEYS, now: FIXED_NOW }),
+      (err) => err instanceof CertificateIssueError && err.code === ISSUE_ERRORS.ALREADY_ISSUED
+    );
+  });
+
+  it("names the certificate the winner actually stored", () => {
+    const db = racingDb({ winnerCertId: "SAFEAR-AAAABBBBCCCCDDDD" });
+    try {
+      issueCertificateForAttempt(db, { attemptId: ATTEMPT_ROW.attempt_id, keys: KEYS, now: FIXED_NOW });
+      assert.fail("expected the issuance to be refused");
+    } catch (err) {
+      assert.match(err.message, /SAFEAR-AAAABBBBCCCCDDDD/);
+    }
+  });
+
+  it("still refuses cleanly when the winner's row cannot be read back", () => {
+    const db = racingDb({ winnerCertId: null });
+    assert.throws(
+      () => issueCertificateForAttempt(db, { attemptId: ATTEMPT_ROW.attempt_id, keys: KEYS, now: FIXED_NOW }),
+      (err) => err.code === ISSUE_ERRORS.ALREADY_ISSUED
+    );
+  });
+
+  it("does the check and the insert inside one transaction", () => {
+    const db = racingDb({ winnerCertId: "SAFEAR-AAAABBBBCCCCDDDD" });
+    try {
+      issueCertificateForAttempt(db, { attemptId: ATTEMPT_ROW.attempt_id, keys: KEYS, now: FIXED_NOW });
+    } catch (e) {
+      // expected
+    }
+    assert.strictEqual(db.transactionsRun, 1, "the claim must be transactional");
+    assert.ok(db.insertAttempted, "the insert must have been tried inside it");
+  });
+
+  it("lets a database error that is not a constraint clash through untouched", () => {
+    const db = racingDb({ winnerCertId: null });
+    const original = db.prepare.bind(db);
+    db.prepare = (sql) => {
+      if (sql.includes("INSERT INTO certificate")) {
+        return { run: () => { const e = new Error("disk I/O error"); e.code = "SQLITE_IOERR"; throw e; } };
+      }
+      return original(sql);
+    };
+
+    assert.throws(
+      () => issueCertificateForAttempt(db, { attemptId: ATTEMPT_ROW.attempt_id, keys: KEYS, now: FIXED_NOW }),
+      (err) => err.code === "SQLITE_IOERR" && !(err instanceof CertificateIssueError)
+    );
   });
 });
