@@ -5,7 +5,7 @@ import { selectionSingle, aimDwell, spatialAlignment, trackingSourceForTier } fr
 import { unloadModule } from "../../js/module-loader.js";
 import { requestCertificateForAttempt, flushPendingCertificates } from "../../js/certificates.js";
 import { renderCompletionPanel } from "../../js/certificate-panel.js";
-import { buildFireGraphic, buildExitGraphic, buildExtinguisherGraphic } from "./graphics.js";
+import { buildFireGraphic, buildExitGraphic, buildExtinguisherGraphic, buildFireAlarmEntity } from "./graphics.js";
 import { t } from "../../js/i18n.js";
 import { playNarration, stopNarration } from "../../js/audio.js";
 import {
@@ -63,6 +63,27 @@ let _currentStep = 0;
 
 // expose current step for testing and assessment engine reads
 function getCurrentStep() { return _currentStep; }
+
+// branching scenario state
+let _methaneReading = 2.1;
+let _currentBranch = null; // "evacuate" | "suppress"
+let _alarmPulled = false;
+let _decisionMade = null;
+
+// get active methane reading for scenario
+function getMethaneReading() { return _methaneReading; }
+
+// set methane reading for scenario or test
+function setMethaneReading(val) { _methaneReading = val; }
+
+// get active scenario branch
+function getActiveBranch() { return _currentBranch; }
+
+// check whether fire alarm station has been pulled
+function getAlarmPulled() { return _alarmPulled; }
+
+// get trainee choice made during drill
+function getDecisionMade() { return _decisionMade; }
 
 // inject dom overlay panel into container for marker/webxr overlay ui
 function _createOverlay(container, html) {
@@ -253,29 +274,276 @@ function _renderEvacuationOptions(container, onSelect) {
   return wrapper;
 }
 
-// render subscreen with educational text and next navigation button
+// render hud subscreen card
 function _renderSubscreen(overlay, { badge, title, desc, buttonText, onNext }) {
   if (!overlay) return;
-  overlay.innerHTML = `
-    <div class="fire-hud-card">
-      <div class="hud-badge">${badge}</div>
-      <div class="hud-title">${title}</div>
-      <div class="hud-desc">${desc}</div>
-    </div>
+  let hudCard = overlay.querySelector ? overlay.querySelector("#fire-hud-card") : document.getElementById("fire-hud-card");
+  if (!hudCard) {
+    hudCard = document.createElement("div");
+    hudCard.id = "fire-hud-card";
+    hudCard.className = "fire-hud-card";
+    overlay.appendChild(hudCard);
+  }
+  hudCard.innerHTML = `
+    <div class="hud-badge">${badge}</div>
+    <div class="hud-title">${title}</div>
+    <div class="hud-desc">${desc}</div>
   `;
+  const existingBtn = document.getElementById("btn-step-next");
+  if (existingBtn && existingBtn.remove) existingBtn.remove();
+
   const btnNext = document.createElement("button");
   btnNext.id = "btn-step-next";
   btnNext.style.cssText = "margin-top:0.4rem;padding:0.75rem 1.4rem;background:#ff6a00;color:#fff;border:none;border-radius:8px;font-size:0.95rem;cursor:pointer;font-weight:bold;display:block;width:100%;";
   btnNext.textContent = buttonText || "Next ➜";
   btnNext.addEventListener("click", onNext);
-  const card = overlay.querySelector(".fire-hud-card");
-  if (card && card.appendChild) {
-    card.appendChild(btnNext);
-  }
+  hudCard.appendChild(btnNext);
   overlay.appendChild(btnNext);
 }
 
-// step 1: proximity — user learns exit protocols and taps "I see the exit"
+// run branch a immediate evacuation
+function _executeBranchA_Evacuate(container, tierInfo, reading) {
+  _currentBranch = "evacuate";
+  logger.info({ event: "fire_branch_selected", branch: "evacuate", reading }, "Branch A Evacuation activated");
+
+  const decPanel = document.getElementById("fire-decision-panel");
+  if (decPanel && decPanel.remove) decPanel.remove();
+  const hudCard = document.getElementById("fire-hud-card");
+  if (hudCard && hudCard.remove) hudCard.remove();
+  const nextBtn = document.getElementById("btn-step-next");
+  if (nextBtn && nextBtn.remove) nextBtn.remove();
+
+  registerCheckpoint({
+    id: CP_EVACUATION_ID,
+    type: "select",
+    onTrigger: (detail) => {
+      logger.info({ event: "checkpoint_cb", id: detail.checkpointId, passed: detail.passed }, "Evacuation CP triggered");
+    }
+  });
+
+  let exitGraphic = _exitGraphicEl;
+  if (!exitGraphic || !document.getElementById("exit-graphic")) {
+    exitGraphic = _renderExitGraphic(container);
+  }
+  if (!_exitSampler) {
+    _exitSampler = startAlignmentSampler({ targetEl: exitGraphic, anchorId: EXIT_ANCHOR_ID });
+  }
+
+  const overlay = document.getElementById("fire-module-overlay");
+  if (overlay) {
+    const isHigh = reading >= METHANE_EXPLOSIVE_THRESHOLD;
+    overlay.innerHTML = `
+      <div id="fire-hud-card" class="fire-hud-card">
+        <div class="hud-badge">🚨 BRANCH A — IMMEDIATE EVACUATION</div>
+        <div class="hud-title">${isHigh ? "CRITICAL METHANE LEVEL (>= 5.0%)" : "PRECAUTIONARY EVACUATION"}</div>
+        <div class="hud-desc">${isHigh ? "Atmosphere is explosive. Fire suppression is strictly forbidden under mining regulations. Follow emergency route immediately." : "Evacuation selected. Move promptly along marked emergency path to the nearest safe surface exit."}</div>
+      </div>
+    `;
+
+    const btn = document.createElement("button");
+    btn.id = "btn-exit-found";
+    btn.style.cssText = "margin-top:0.4rem;padding:0.8rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;";
+    btn.textContent = t("modules.fire_response.btn_exit", {}, "✔ I see the emergency exit");
+    btn.addEventListener("click", () => {
+      const sampled = _exitSampler ? _exitSampler.stop() : { angularErrorRad: null, dwellMs: 0, frameCount: 0 };
+      _exitSampler = null;
+      fireCheckpointResult(
+        CP_EXIT_ID,
+        true,
+        { method: "branch_a_evacuate", measured: sampled.angularErrorRad !== null, reading },
+        spatialAlignment({
+          anchorId: EXIT_ANCHOR_ID,
+          angularErrorRad: sampled.angularErrorRad,
+          dwellMs: sampled.dwellMs,
+          frameCount: sampled.frameCount,
+          trackingSource: trackingSourceForTier(tierInfo && tierInfo.tier)
+        })
+      );
+      fireCheckpointResult(
+        CP_EVACUATION_ID,
+        true,
+        { selected: "sound_alarm_then_evacuate", branch: "evacuate", reading },
+        typeof selectionSingle === "function" ? selectionSingle("sound_alarm_then_evacuate") : null
+      );
+      _showComplete(true);
+    });
+    const card = overlay.querySelector ? overlay.querySelector("#fire-hud-card") : document.getElementById("fire-hud-card");
+    if (card && card.appendChild) {
+      card.appendChild(btn);
+    }
+    overlay.appendChild(btn);
+  }
+}
+
+// show 3d alarm station and require pull action
+function _showAlarmPullStation(container, tierInfo, onDone) {
+  _currentStep = 1;
+  const overlay = document.getElementById("fire-module-overlay");
+
+  const camera = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? (document.querySelector("#main-camera") || document.querySelector("[camera]"))
+    : null;
+  const scene = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? document.querySelector("a-scene")
+    : null;
+
+  const alarmEntity = buildFireAlarmEntity();
+  if (camera) {
+    alarmEntity.setAttribute("position", "-0.25 0.15 -1.2");
+    alarmEntity.setAttribute("rotation", "0 10 0");
+    camera.appendChild(alarmEntity);
+  } else if (scene) {
+    alarmEntity.setAttribute("position", "-0.3 0.25 -1.5");
+    alarmEntity.setAttribute("rotation", "0 10 0");
+    scene.appendChild(alarmEntity);
+  } else if (container && container.appendChild) {
+    container.appendChild(alarmEntity);
+  }
+
+  if (overlay) {
+    overlay.innerHTML = `
+      <div id="fire-hud-card" class="fire-hud-card">
+        <div class="hud-badge">🔔 STEP 1 / 3 — SOUND ALARM (BRANCH B)</div>
+        <div class="hud-title">Pull Fire Alarm Station</div>
+        <div class="hud-desc">Methane is below 5.0% LEL. Before attacking the fire with an extinguisher, sound the mine section alarm to alert all miners!</div>
+      </div>
+    `;
+
+    const btn = document.createElement("button");
+    btn.id = "btn-pull-alarm";
+    btn.style.cssText = "margin-top:0.5rem;padding:0.9rem 1.6rem;background:#ef4444;color:#fff;border:none;border-radius:10px;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;box-shadow:0 0 16px rgba(239,68,68,0.4);";
+    btn.textContent = "🚨 PULL FIRE ALARM STATION";
+
+    let pulled = false;
+    const triggerPull = () => {
+      if (pulled) return;
+      pulled = true;
+      _alarmPulled = true;
+      logger.info({ event: "fire_alarm_pulled", branch: "suppress" }, "Fire alarm station pulled");
+
+      btn.disabled = true;
+      btn.style.background = "#10b981";
+      btn.style.boxShadow = "0 0 16px rgba(16,185,129,0.4)";
+      btn.textContent = "✔ ALARM ACTIVATED! PREPARING EXTINGUISHER...";
+
+      fireCheckpointResult(
+        CP_EXIT_ID,
+        true,
+        { method: "alarm_pull_activated", reading: _methaneReading },
+        spatialAlignment({
+          anchorId: EXIT_ANCHOR_ID,
+          angularErrorRad: 0,
+          dwellMs: 500,
+          frameCount: 10,
+          trackingSource: trackingSourceForTier(tierInfo && tierInfo.tier)
+        })
+      );
+
+      if (alarmEntity && alarmEntity.remove) alarmEntity.remove();
+      if (typeof onDone === "function") onDone();
+    };
+
+    btn.addEventListener("click", triggerPull);
+    const card = overlay.querySelector ? overlay.querySelector("#fire-hud-card") : document.getElementById("fire-hud-card");
+    if (card && card.appendChild) {
+      card.appendChild(btn);
+    }
+    overlay.appendChild(btn);
+
+    if (alarmEntity && typeof alarmEntity.addEventListener === "function") {
+      alarmEntity.addEventListener("click", triggerPull);
+    }
+    const hitBox = document.getElementById("fire-alarm-hit-box");
+    if (hitBox && typeof hitBox.addEventListener === "function") {
+      hitBox.addEventListener("click", triggerPull);
+    }
+  }
+}
+
+// run branch b alarm pull and pass suppression
+function _executeBranchB_Suppress(container, tierInfo, reading) {
+  if (reading >= METHANE_EXPLOSIVE_THRESHOLD) {
+    logger.warn({ event: "fire_suppress_blocked", reading }, "Suppression attempt blocked for explosive methane reading");
+    return;
+  }
+  _currentBranch = "suppress";
+  logger.info({ event: "fire_branch_selected", branch: "suppress", reading }, "Branch B Suppression activated");
+
+  const decPanel = document.getElementById("fire-decision-panel");
+  if (decPanel && decPanel.remove) decPanel.remove();
+  const hudCard = document.getElementById("fire-hud-card");
+  if (hudCard && hudCard.remove) hudCard.remove();
+  const nextBtn = document.getElementById("btn-step-next");
+  if (nextBtn && nextBtn.remove) nextBtn.remove();
+
+  if (_exitSampler) {
+    _exitSampler.stop();
+    _exitSampler = null;
+  }
+
+  _showAlarmPullStation(container, tierInfo, () => {
+    _setupStep2(container, tierInfo);
+  });
+}
+
+// render post drill debrief log card
+function _renderDebriefCard(overlay) {
+  if (!overlay) return;
+  const existing = document.getElementById("debrief-summary-card");
+  if (existing && existing.remove) existing.remove();
+
+  const isExplosive = _methaneReading >= METHANE_EXPLOSIVE_THRESHOLD;
+  const card = document.createElement("div");
+  card.id = "debrief-summary-card";
+  card.style.cssText = [
+    "background:#0f172a", "border:2px solid " + (isExplosive ? "#ef4444" : "#10b981"),
+    "border-radius:12px", "padding:1rem", "margin-bottom:1rem",
+    "color:#fff", "box-shadow:0 4px 14px rgba(0,0,0,0.5)"
+  ].join(";");
+
+  const branchLabel = _currentBranch === "evacuate"
+    ? "Branch A (Immediate Evacuation)"
+    : (_currentBranch === "suppress" ? "Branch B (Alarm & Suppression Drill)" : "Standard Sequence");
+
+  const alarmStatus = _alarmPulled ? "✔ Sounded & Activated" : (_currentBranch === "evacuate" ? "N/A (Evacuated Immediately)" : "Completed");
+
+  card.innerHTML = `
+    <div style="font-size:0.8rem;font-weight:bold;color:${isExplosive ? "#f87171" : "#34d399"};letter-spacing:1px;">📋 DRILL DEBRIEF &amp; MINE SAFETY LOG</div>
+    <div style="font-size:1.1rem;font-weight:bold;margin:0.25rem 0;">Hazard Response Summary</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin:0.5rem 0;font-size:0.85rem;">
+      <div style="background:#1e293b;padding:0.45rem;border-radius:6px;">
+        <span style="color:#94a3b8;display:block;">Methane Level:</span>
+        <strong style="color:${isExplosive ? "#ef4444" : "#10b981"};">${_methaneReading.toFixed(1)}% CH₄ (${isExplosive ? "EXPLOSIVE" : "SAFE/INCIPIENT"})</strong>
+      </div>
+      <div style="background:#1e293b;padding:0.45rem;border-radius:6px;">
+        <span style="color:#94a3b8;display:block;">Action Taken:</span>
+        <strong>${branchLabel}</strong>
+      </div>
+      <div style="background:#1e293b;padding:0.45rem;border-radius:6px;">
+        <span style="color:#94a3b8;display:block;">Alarm Station:</span>
+        <strong>${alarmStatus}</strong>
+      </div>
+      <div style="background:#1e293b;padding:0.45rem;border-radius:6px;">
+        <span style="color:#94a3b8;display:block;">Evacuation Status:</span>
+        <strong style="color:#10b981;">✔ Safe Exit Reached</strong>
+      </div>
+    </div>
+    <div style="font-size:0.8rem;color:#cbd5e1;line-height:1.4;margin-top:0.35rem;">
+      ${isExplosive
+        ? "Mines Act Compliance: Trainee correctly recognized explosive atmosphere above 5.0% LEL and executed immediate evacuation without risking secondary blast."
+        : "Standard Safety Drill: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit."
+      }
+    </div>
+  `;
+
+  if (overlay && typeof overlay.insertBefore === "function" && overlay.firstChild) {
+    overlay.insertBefore(card, overlay.firstChild);
+  } else if (overlay && typeof overlay.appendChild === "function") {
+    overlay.appendChild(card);
+  }
+}
+
+// step 1 hazard assessment and branch selection
 function _setupStep1(container, tierInfo) {
   _currentStep = 1;
   logger.info({ event: "fire_step_start", step: 1 }, "Exit identification");
@@ -298,6 +566,19 @@ function _setupStep1(container, tierInfo) {
 
   const overlay = document.getElementById("fire-module-overlay");
   playNarration({ moduleId: "fire-response", stepKey: "step_1_exit" });
+
+  // render decision wheel for branching drill
+  renderDecisionWheel(overlay, {
+    reading: _methaneReading,
+    onDecision: ({ choice, reading }) => {
+      _decisionMade = choice;
+      if (choice === DECISION_CHOICES.EVACUATE) {
+        _executeBranchA_Evacuate(container, tierInfo, reading);
+      } else if (choice === DECISION_CHOICES.EXTINGUISH) {
+        _executeBranchB_Suppress(container, tierInfo, reading);
+      }
+    }
+  });
 
   const screens = [
     {
@@ -322,13 +603,21 @@ function _setupStep1(container, tierInfo) {
 
   function showActionScreen() {
     if (overlay) {
-      overlay.innerHTML = `
-        <div class="fire-hud-card">
-          <div class="hud-badge">🔥 STEP 1 / 3 — EXIT IDENTIFICATION (4/4)</div>
-          <div class="hud-title">Locate Emergency Exit</div>
-          <div class="hud-desc">Look for the illuminated green emergency sign anchored in AR space. Align your view with the evacuation path.</div>
-        </div>
+      let hudCard = overlay.querySelector ? overlay.querySelector("#fire-hud-card") : document.getElementById("fire-hud-card");
+      if (!hudCard) {
+        hudCard = document.createElement("div");
+        hudCard.id = "fire-hud-card";
+        hudCard.className = "fire-hud-card";
+        overlay.appendChild(hudCard);
+      }
+      hudCard.innerHTML = `
+        <div class="hud-badge">🔥 STEP 1 / 3 — EXIT IDENTIFICATION (4/4)</div>
+        <div class="hud-title">Locate Emergency Exit</div>
+        <div class="hud-desc">Look for the illuminated green emergency sign anchored in AR space. Align your view with the evacuation path.</div>
       `;
+      const existingBtn = document.getElementById("btn-exit-found");
+      if (existingBtn && existingBtn.remove) existingBtn.remove();
+
       const btn = document.createElement("button");
       btn.id = "btn-exit-found";
       btn.style.cssText = "margin-top:0.4rem;padding:0.8rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;";
@@ -350,10 +639,7 @@ function _setupStep1(container, tierInfo) {
         );
         _setupStep2(container, tierInfo);
       });
-      const card = overlay.querySelector(".fire-hud-card");
-      if (card && card.appendChild) {
-        card.appendChild(btn);
-      }
+      hudCard.appendChild(btn);
       overlay.appendChild(btn);
     }
   }
@@ -530,7 +816,11 @@ function _setupStep2(container, tierInfo) {
       const parentObj = _exitGraphicEl.parentEl && _exitGraphicEl.parentEl.object3D;
       if (parentObj) parentObj.remove(_exitGraphicEl.object3D);
     }
-    if (_exitGraphicEl.parentNode) _exitGraphicEl.parentNode.removeChild(_exitGraphicEl);
+    if (_exitGraphicEl.parentNode && typeof _exitGraphicEl.parentNode.removeChild === "function") {
+      _exitGraphicEl.parentNode.removeChild(_exitGraphicEl);
+    } else if (typeof _exitGraphicEl.remove === "function") {
+      _exitGraphicEl.remove();
+    }
     _exitGraphicEl = null;
   }
 
@@ -1677,6 +1967,9 @@ function _setupStep3(_container) {
 // clean up all fire module graphics and overlay from DOM and a-marker
 function cleanupFireModule() {
   _currentStep = 0;
+  _currentBranch = null;
+  _alarmPulled = false;
+  _decisionMade = null;
   stopNarration();
   // a sampler left running holds a requestAnimationFrame loop against a scene
   // that is about to be torn down
@@ -1700,6 +1993,11 @@ function cleanupFireModule() {
 
   [
     "fire-module-overlay",
+    "fire-decision-panel",
+    "fire-alarm-station",
+    "fire-alert-overlay",
+    "btn-pull-alarm",
+    "debrief-summary-card",
     "fire-graphic",
     "extinguisher-graphic",
     "extinguisher-pin",
@@ -1720,7 +2018,7 @@ function cleanupFireModule() {
   });
 
   if (typeof document !== "undefined" && typeof document.querySelectorAll === "function") {
-    document.querySelectorAll("#exit-graphic, #fire-graphic, #extinguisher-graphic").forEach((el) => {
+    document.querySelectorAll("#exit-graphic, #fire-graphic, #extinguisher-graphic, #fire-alarm-station").forEach((el) => {
       if (typeof el.setAttribute === "function") el.setAttribute("visible", "false");
       if (el.object3D) el.object3D.visible = false;
       if (el.parentNode) el.parentNode.removeChild(el);
@@ -1748,7 +2046,7 @@ function _showComplete(_lastPassed) {
   }
 
   function draw() {
-    return renderCompletionPanel(overlay, {
+    renderCompletionPanel(overlay, {
       evaluated: evaluated || {},
       theme,
       exitLabel: t("modules.fire_response.btn_exit_module", {}, "✖ Exit Module"),
@@ -1757,6 +2055,8 @@ function _showComplete(_lastPassed) {
         unloadModule();
       }
     });
+
+    _renderDebriefCard(overlay);
   }
 
   // draw at once from local state so the worker sees a result with no network
@@ -1779,12 +2079,27 @@ function _showComplete(_lastPassed) {
   logger.info({ event: "fire_module_complete" }, "Fire module all steps done");
 }
 
-// entry point — tierInfo: { tier: 1|2, xrSession?, trackingState? } from webxr/marker loaders
-function startFireModule(container, tierInfo) {
+// entry point — tierInfo: { tier: 1|2, xrSession?, trackingState? }, options: { reading? }
+function startFireModule(container, tierInfo, options = {}) {
   _currentStep = 0;
   logger.info({ event: "fire_module_start", tier: tierInfo && tierInfo.tier }, "Fire module starting");
 
   cleanupFireModule();
+
+  if (options && typeof options.reading === "number" && !isNaN(options.reading)) {
+    _methaneReading = options.reading;
+  } else {
+    _methaneReading = generateMethaneReading();
+  }
+
+  // trigger explosion alert flash pulse
+  const alertStrobe = renderAlertFlash(container, {
+    durationMs: 1800,
+    onDone: () => {}
+  });
+  if (alertStrobe && alertStrobe.dismiss) {
+    addCleanup(() => alertStrobe.dismiss());
+  }
 
   // initialize assessment session if not already started by loader
   if (!getActiveSession()) {
@@ -1839,5 +2154,10 @@ export {
   renderDecisionWheel,
   CP_DECISION_ID,
   DECISION_CHOICES,
-  METHANE_EXPLOSIVE_THRESHOLD
+  METHANE_EXPLOSIVE_THRESHOLD,
+  getMethaneReading,
+  setMethaneReading,
+  getActiveBranch,
+  getAlarmPulled,
+  getDecisionMade
 };

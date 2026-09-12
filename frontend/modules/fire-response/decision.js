@@ -1,4 +1,5 @@
 import { registerCheckpoint, fireCheckpointResult } from "../../ar/interactions.js";
+import { selectionSingle } from "../../assessment/observations.js";
 
 // stable decision checkpoint identifier
 export const CP_DECISION_ID = "fire_explosion_decision";
@@ -182,26 +183,37 @@ export function renderAlertFlash(container, { durationMs = 1800, onDone } = {}) 
   container.appendChild(overlay);
 
   let cleaned = false;
+  let timer = null;
+  let fadeTimer = null;
   const dismiss = () => {
     if (cleaned) return;
     cleaned = true;
-    overlay.classList.add("fire-alert-fade-out");
-    setTimeout(() => {
-      if (overlay && overlay.parentNode) overlay.remove();
-      if (typeof onDone === "function") onDone();
-    }, 250);
+    if (timer && typeof globalThis.clearTimeout === "function") globalThis.clearTimeout(timer);
+    if (overlay.classList && typeof overlay.classList.add === "function") {
+      overlay.classList.add("fire-alert-fade-out");
+    }
+    if (typeof globalThis.setTimeout === "function") {
+      fadeTimer = globalThis.setTimeout(() => {
+        if (overlay && overlay.parentNode) overlay.remove();
+        else if (overlay && typeof overlay.remove === "function") overlay.remove();
+        if (typeof onDone === "function") onDone();
+      }, 250);
+    }
   };
 
   overlay.addEventListener("click", dismiss);
-  const timer = setTimeout(dismiss, durationMs);
+  if (typeof globalThis.setTimeout === "function") {
+    timer = globalThis.setTimeout(dismiss, durationMs);
+  }
 
   return {
     element: overlay,
     dismiss: () => {
-      if (typeof window !== "undefined" && typeof window.clearTimeout === "function") {
-        window.clearTimeout(timer);
-      }
-      dismiss();
+      if (timer && typeof globalThis.clearTimeout === "function") globalThis.clearTimeout(timer);
+      if (fadeTimer && typeof globalThis.clearTimeout === "function") globalThis.clearTimeout(fadeTimer);
+      cleaned = true;
+      if (overlay && overlay.parentNode) overlay.remove();
+      else if (overlay && typeof overlay.remove === "function") overlay.remove();
     }
   };
 }
@@ -311,14 +323,21 @@ export function renderDecisionWheel(container, { reading, onDecision, onWrongAtt
       const correct = isCorrectDecision(readingVal, choice);
 
       // fire checkpoint result event for tracking
-      fireCheckpointResult(CP_DECISION_ID, correct, {
-        choice,
-        reading: readingVal,
-        threshold: METHANE_EXPLOSIVE_THRESHOLD
-      });
+      fireCheckpointResult(
+        CP_DECISION_ID,
+        correct,
+        {
+          choice,
+          reading: readingVal,
+          threshold: METHANE_EXPLOSIVE_THRESHOLD
+        },
+        typeof selectionSingle === "function" ? selectionSingle(choice) : null
+      );
 
       if (correct) {
-        btn.classList.add("wheel-btn-selected-correct");
+        if (btn.classList && typeof btn.classList.add === "function") {
+          btn.classList.add("wheel-btn-selected-correct");
+        }
         buttons.forEach((b) => (b.disabled = true));
         feedbackSlot.innerHTML = `
           <div class="decision-feedback decision-feedback-success">
@@ -331,14 +350,14 @@ export function renderDecisionWheel(container, { reading, onDecision, onWrongAtt
             </div>
           </div>
         `;
-        setTimeout(() => {
-          if (typeof onDecision === "function") {
-            onDecision({ choice, reading: readingVal, correct: true, panel });
-          }
-        }, 50);
+        if (typeof onDecision === "function") {
+          onDecision({ choice, reading: readingVal, correct: true, panel });
+        }
       } else {
         // wrong choice blocks progress and displays explanation
-        btn.classList.add("wheel-btn-selected-wrong");
+        if (btn.classList && typeof btn.classList.add === "function") {
+          btn.classList.add("wheel-btn-selected-wrong");
+        }
         const explanation = getDecisionExplanation(readingVal, choice);
         feedbackSlot.innerHTML = `
           <div class="decision-feedback decision-feedback-error">
@@ -350,16 +369,25 @@ export function renderDecisionWheel(container, { reading, onDecision, onWrongAtt
           </div>
         `;
 
+        let retryBtn = feedbackSlot.querySelector ? feedbackSlot.querySelector("#btn-decision-retry") : document.getElementById("btn-decision-retry");
+        if (!retryBtn) {
+          retryBtn = document.createElement("button");
+          retryBtn.type = "button";
+          retryBtn.id = "btn-decision-retry";
+          retryBtn.className = "btn-decision-retry";
+          retryBtn.textContent = "🔄 Re-evaluate Meter & Choose Action";
+          feedbackSlot.appendChild(retryBtn);
+        }
+        retryBtn.addEventListener("click", () => {
+          if (btn.classList && typeof btn.classList.remove === "function") {
+            btn.classList.remove("wheel-btn-selected-wrong");
+          }
+          feedbackSlot.innerHTML = "";
+          if (typeof retryBtn.remove === "function") retryBtn.remove();
+        });
+
         if (typeof onWrongAttempt === "function") {
           onWrongAttempt({ choice, reading: readingVal, correct: false });
-        }
-
-        const retryBtn = feedbackSlot.querySelector("#btn-decision-retry");
-        if (retryBtn) {
-          retryBtn.addEventListener("click", () => {
-            btn.classList.remove("wheel-btn-selected-wrong");
-            feedbackSlot.innerHTML = "";
-          });
         }
       }
     });
