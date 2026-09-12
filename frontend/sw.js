@@ -2,7 +2,7 @@
 // Enables full AR training and audio playback in connectivity-deprived underground mines
 
 // bump this whenever STATIC_ASSETS changes, or installed phones keep the old list
-const CACHE_NAME = "safear-offline-v4";
+const CACHE_NAME = "safear-offline-v6";
 
 const STATIC_ASSETS = [
   "./",
@@ -41,6 +41,8 @@ const STATIC_ASSETS = [
   "./modules/gas-leak/gas-leak.js",
   "./modules/gas-leak/graphics.js",
   "./modules/gas-leak/index.html",
+  // 3D models for gas leak and confined space module
+  "./assets/models/gas-leak/hazard_zone.glb",
   // English narration audio clips
   "./audio/en/fire_response_step_1_exit.mp3",
   "./audio/en/fire_response_step_2_extinguisher.mp3",
