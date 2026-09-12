@@ -7,10 +7,9 @@ function buildHazardZoneEntity() {
   }
 
   entity.innerHTML = `
-    <a-cylinder position="0 0.15 0" radius="0.6" height="0.35" material="color: #f59e0b; opacity: 0.4; transparent: true; roughness: 0.5"></a-cylinder>
+    <!-- real 3d low poly hazard perimeter barrier -->
+    <a-entity id="hazard-barrier-model" gltf-model="url(./assets/models/gas-leak/hazard_zone.glb)" position="0 0.1 0" scale="0.6 0.6 0.6" rotation="0 0 0"></a-entity>
     <a-ring position="0 0.02 0" rotation="-90 0 0" radius-inner="0.55" radius-outer="0.65" material="color: #ef4444; opacity: 0.85"></a-ring>
-    <a-box position="0 0.45 0" width="0.3" height="0.3" depth="0.05" material="color: #f59e0b"></a-box>
-    <a-sphere position="0 0.65 0" radius="0.16" material="color: #84cc16; opacity: 0.5; transparent: true"></a-sphere>
   `;
 
   return entity;
@@ -25,9 +24,12 @@ function buildPpeDisplayEntity() {
   }
 
   entity.innerHTML = `
-    <a-cylinder position="-0.2 0.2 0" radius="0.07" height="0.35" material="color: #3b82f6"></a-cylinder>
-    <a-box position="0.18 0.2 0" width="0.14" height="0.18" depth="0.08" material="color: #eab308"></a-box>
-    <a-torus position="0 0.38 0" radius="0.12" radius-tubular="0.02" material="color: #ef4444"></a-torus>
+    <!-- scba compressed breathing air cylinder -->
+    <a-entity id="ppe-scba-model" gltf-model="url(./assets/models/gas-leak/scba_respirator.glb)" position="-0.3 0.15 0" scale="0.35 0.35 0.35" rotation="0 0 0"></a-entity>
+    <!-- handheld atmospheric multi-gas detector -->
+    <a-entity id="ppe-detector-model" gltf-model="url(./assets/models/gas-leak/multi_gas_detector.glb)" position="0 0.15 0" scale="0.3 0.3 0.3" rotation="0 0 0"></a-entity>
+    <!-- safety harness fall arrest equipment pack -->
+    <a-entity id="ppe-harness-model" gltf-model="url(./assets/models/gas-leak/safety_harness.glb)" position="0.3 0.15 0" scale="0.35 0.35 0.35" rotation="0 0 0"></a-entity>
   `;
 
   return entity;

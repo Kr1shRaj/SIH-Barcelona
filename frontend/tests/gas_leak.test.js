@@ -160,14 +160,46 @@ describe("Gas Leak & Confined Space Protocol module", () => {
 
   // --- Checkpoint flow & interaction tests ---
 
-  it("startGasLeakModule registers step 1 (hazard zone recognition) checkpoint immediately", () => {
+  it("startGasLeakModule begins in TEACH phase without registering checkpoints", () => {
     startGasLeakModule(document.getElementById("ar-viewport"));
 
     const cps = getRegisteredCheckpoints();
+    assert.strictEqual(cps.length, 0, "teach phase must not register checkpoints");
+  });
+
+  it("transitioning from teach phase to test phase registers step 1 (hazard zone recognition) checkpoint", () => {
+    startGasLeakModule(document.getElementById("ar-viewport"));
+    clickThroughSubscreens();
+
+    const cps = getRegisteredCheckpoints();
     assert.ok(cps.some((c) => c.id === CP_HAZARD_ZONE_ID && c.type === "proximity"),
-      "hazard zone checkpoint must be registered on start");
+      "hazard zone checkpoint must register once test phase begins");
     assert.ok(!cps.some((c) => c.id === CP_PPE_SELECTION_ID), "ppe checkpoint must not register before step 1");
     assert.ok(!cps.some((c) => c.id === CP_BUDDY_PROCEDURE_ID), "buddy checkpoint must not register before step 2");
+  });
+
+  it("shows transition screen between teach phase and test phase", () => {
+    startGasLeakModule(document.getElementById("ar-viewport"));
+    // click through all 6 educational screens
+    for (let i = 0; i < 6; i++) {
+      const btn = _elements["btn-step-next"];
+      assert.ok(btn, `screen ${i + 1} next button must exist`);
+      delete _elements["btn-step-next"];
+      btn.click();
+    }
+    // now transition screen should be displayed
+    const transitionBtn = _elements["btn-step-next"];
+    assert.ok(transitionBtn, "transition screen next button must exist");
+    assert.strictEqual(transitionBtn.dataset.action, "start-test");
+    assert.strictEqual(getRegisteredCheckpoints().length, 0, "no checkpoints before test phase starts");
+
+    // clicking transition button starts test phase and registers step 1 checkpoint
+    delete _elements["btn-step-next"];
+    transitionBtn.click();
+
+    const cps = getRegisteredCheckpoints();
+    assert.ok(cps.some((c) => c.id === CP_HAZARD_ZONE_ID), "step 1 checkpoint registered after transition");
+    assert.ok(document.getElementById("btn-hazard-found"), "hazard action button visible in test phase");
   });
 
   it("completing step 1 fires proximity event and registers step 2", () => {
