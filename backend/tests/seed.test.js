@@ -81,12 +81,77 @@ describe("Deterministic seed data", () => {
       .all();
 
     assert.deepStrictEqual(rows, [
-      { module_id: "fire-response", checkpoint_id: "fire_evacuation_sequence", checkpoint_type: "select" },
+      { module_id: "fire-response", checkpoint_id: "fire_evacuation_sequence_marker", checkpoint_type: "select" },
+      { module_id: "fire-response", checkpoint_id: "fire_evacuation_sequence_webxr", checkpoint_type: "select" },
       { module_id: "fire-response", checkpoint_id: "fire_exit_identification", checkpoint_type: "proximity" },
       { module_id: "fire-response", checkpoint_id: "fire_extinguisher_aim", checkpoint_type: "aim" },
       { module_id: "gas-leak", checkpoint_id: "gas_buddy_procedure", checkpoint_type: "select" },
       { module_id: "gas-leak", checkpoint_id: "gas_hazard_zone_recognition", checkpoint_type: "proximity" },
       { module_id: "gas-leak", checkpoint_id: "gas_ppe_selection", checkpoint_type: "select" }
+    ]);
+  });
+
+  it("pins each evacuation variant to the tier that asks its question", () => {
+    seedDatabase(db);
+    const rows = db
+      .prepare("SELECT checkpoint_id, applies_to_tier FROM checkpoint_definition WHERE checkpoint_id LIKE 'fire_evacuation%' ORDER BY checkpoint_id")
+      .all();
+
+    assert.deepStrictEqual(rows, [
+      { checkpoint_id: "fire_evacuation_sequence_marker", applies_to_tier: 2 },
+      { checkpoint_id: "fire_evacuation_sequence_webxr", applies_to_tier: 1 }
+    ]);
+  });
+
+  it("leaves the two spatial checkpoints unmeasured and ungradeable", () => {
+    seedDatabase(db);
+    const rows = db
+      .prepare("SELECT checkpoint_id, max_angular_error_rad, min_frame_count, gradeable FROM checkpoint_definition WHERE observation_kind = 'spatial_alignment' ORDER BY checkpoint_id")
+      .all();
+
+    assert.deepStrictEqual(rows, [
+      { checkpoint_id: "fire_exit_identification", max_angular_error_rad: null, min_frame_count: null, gradeable: 0 },
+      { checkpoint_id: "gas_hazard_zone_recognition", max_angular_error_rad: null, min_frame_count: null, gradeable: 0 }
+    ], "no angle has been measured on real hardware, so these must not be gradeable yet");
+  });
+
+  it("carries the aim thresholds lifted from the fire module constants", () => {
+    seedDatabase(db);
+    const row = db
+      .prepare("SELECT max_distance_m, pass_threshold, min_sweep_coverage, min_dwell_ms, gradeable FROM checkpoint_definition WHERE checkpoint_id = 'fire_extinguisher_aim'")
+      .get();
+
+    assert.deepStrictEqual(row, {
+      max_distance_m: 0.8,
+      pass_threshold: 0.6,
+      min_sweep_coverage: 0.75,
+      min_dwell_ms: 800,
+      gradeable: 1
+    });
+  });
+
+  it("never lets device_orientation certify a spatial checkpoint", () => {
+    seedDatabase(db);
+    db.prepare("SELECT checkpoint_id, allowed_tracking_sources FROM checkpoint_definition WHERE allowed_tracking_sources IS NOT NULL")
+      .all()
+      .forEach((row) => {
+        const sources = JSON.parse(row.allowed_tracking_sources);
+        assert.deepStrictEqual(sources, ["webxr_pose", "arjs_marker"], `${row.checkpoint_id} must certify from tracked poses only`);
+      });
+  });
+
+  it("keeps the answer keys on the server, one per graded selection checkpoint", () => {
+    seedDatabase(db);
+    const rows = db
+      .prepare("SELECT checkpoint_id, expected_value FROM checkpoint_definition WHERE observation_kind LIKE 'selection%' ORDER BY checkpoint_id")
+      .all()
+      .map((row) => ({ checkpoint_id: row.checkpoint_id, expected: JSON.parse(row.expected_value) }));
+
+    assert.deepStrictEqual(rows, [
+      { checkpoint_id: "fire_evacuation_sequence_marker", expected: "sound_alarm_then_evacuate" },
+      { checkpoint_id: "fire_evacuation_sequence_webxr", expected: "wind_based_upwind" },
+      { checkpoint_id: "gas_buddy_procedure", expected: "standby_outside_with_lifeline" },
+      { checkpoint_id: "gas_ppe_selection", expected: ["scba_respirator", "multi_gas_detector", "safety_harness"] }
     ]);
   });
 

@@ -19,9 +19,13 @@ describe("Error handling", () => {
     assert.ok(res.body.error.requestId);
   });
 
-  it("answers 404 for the dashboard router, still deliberately not mounted", async () => {
+  it("answers 401 for an unknown dashboard path, because the gate comes before routing", async () => {
+    // this used to assert 404. the admin gate now runs on the whole router, so an
+    // anonymous caller cannot learn which dashboard paths exist by reading status
+    // codes. hiding the route map is the point, not a side effect.
     const dashboard = await request(ctx.app).get("/api/dashboard/summary");
-    assert.strictEqual(dashboard.status, 404);
+    assert.strictEqual(dashboard.status, 401);
+    assert.strictEqual(dashboard.body.error.code, "unauthorized");
   });
 
   it("no longer 404s the cert routes now that they are mounted", async () => {

@@ -11,11 +11,23 @@ package-lock.json
 *.db
 *.db-journal
 *.sqlite
+data/
+backend/data/
 
 # build outputs
 dist/
 build/
-android/app/build/
+
+# Capacitor Android platform — generated locally, never committed.
+# Rebuild from a clean clone:
+#   npx cap add android && npx cap sync android
+#
+# Ignore the whole directory and keep only the README. Naming the generated paths
+# one by one meant `cap add android` also left build.gradle, settings.gradle,
+# variables.gradle, gradle.properties, gradlew, gradlew.bat and gradle/ untracked
+# and waiting to be committed by accident.
+/android/*
+!/android/README.md
 
 # logs
 *.log

@@ -1,10 +1,14 @@
--- SafeAR SQLite schema. Version 3.
+-- SafeAR SQLite schema. Version 4.
 -- Runs on every boot, IF NOT EXISTS keeps it safe to re-run.
 -- Version bump is guarded in db/index.js — an older db on disk is rejected loud, never patched silently.
 --
--- Naming follows the SafeAR Attempt Contract v1.0:
+-- Naming follows the SafeAR Attempt Contract v2.0:
 --   attempt           = one complete module training run   (PK is the contract attemptId)
 --   checkpoint_result = one checkpoint inside that run
+--
+-- v2.0 moved grading to the server. The client sends raw observations only.
+-- checkpoint_definition holds the rule, checkpoint_result holds the observation
+-- plus what the server made of it. Nothing the client scored is authoritative.
 --
 -- attempt / checkpoint_result / certificate are append-only.
 -- Only certificate.revoked and certificate.revoked_at are ever updated in place.
@@ -42,17 +46,53 @@ CREATE TABLE IF NOT EXISTS module (
   title          TEXT NOT NULL,
   pass_threshold REAL NOT NULL,
   version        INTEGER NOT NULL DEFAULT 1,
-  -- NULL until the Mines Act recertification period is confirmed by the team
+  -- NULL until the recertification period is confirmed by the team
   recert_months  INTEGER,
   created_at     TEXT NOT NULL
 );
 
--- server side manifest. this is what lets the backend recompute instead of echo the client.
--- weight and required drive scoring. critical is wired but not yet decided by the team.
+-- server side grading rule. this is the whole point of v2 — the answer key, the
+-- thresholds and the weights live here and never travel to or from a phone.
+-- checkpoint_type stays a content label. observation_kind is what the grader
+-- dispatches on, because 'proximity' currently labels checkpoints that measure
+-- nothing and must never drive scoring.
 CREATE TABLE IF NOT EXISTS checkpoint_definition (
   module_id     TEXT NOT NULL REFERENCES module(module_id),
   checkpoint_id TEXT NOT NULL,
   checkpoint_type TEXT NOT NULL CHECK (checkpoint_type IN ('aim', 'proximity', 'select')),
+  observation_kind TEXT NOT NULL CHECK (observation_kind IN
+    ('selection_single', 'selection_multi', 'spatial_alignment', 'aim_dwell')),
+
+  -- NULL = lives on every tier. a number pins it to one tier and the manifest
+  -- check rejects an attempt that claims the other one.
+  applies_to_tier INTEGER CHECK (applies_to_tier IS NULL OR applies_to_tier IN (1, 2)),
+
+  -- json. string for selection_single, array for selection_multi, NULL otherwise.
+  expected_value   TEXT,
+  -- json array of every option the shipped ui can produce. anything else is a 422.
+  allowed_values   TEXT,
+  -- json array, selection_multi only
+  forbidden_values TEXT,
+  -- json array of tracking sources allowed to certify
+  allowed_tracking_sources TEXT,
+
+  -- spatial_alignment. NULL max_angular_error_rad means nobody has measured this
+  -- on a real device yet, so the grader scores it zero instead of guessing.
+  anchor_id             TEXT,
+  max_angular_error_rad REAL,
+
+  -- aim_dwell
+  max_distance_m     REAL,
+  pass_threshold     REAL,
+  min_sweep_coverage REAL,
+
+  -- optional plausibility gates for both spatial kinds. NULL = gate not applied.
+  min_dwell_ms    INTEGER,
+  min_frame_count INTEGER,
+
+  -- 0 = rule not configured yet. scores zero, blocks certification, never passes.
+  gradeable     INTEGER NOT NULL DEFAULT 1 CHECK (gradeable IN (0, 1)),
+
   weight        REAL NOT NULL DEFAULT 1 CHECK (weight > 0),
   required      INTEGER NOT NULL DEFAULT 1 CHECK (required IN (0, 1)),
   -- 0 = aggregate scoring only. flipping to 1 fails the whole module on this checkpoint.
@@ -93,6 +133,15 @@ CREATE TABLE IF NOT EXISTS attempt (
   -- contract only ever submits a finished run
   status           TEXT NOT NULL CHECK (status IN ('completed')),
 
+  -- graded               every checkpoint had a configured rule and got scored
+  -- ungradeable          at least one checkpoint has no measurable rule yet
+  -- legacy_client_graded v1 row, its score came from client claims, never certifiable
+  grading_status   TEXT NOT NULL DEFAULT 'legacy_client_graded'
+                     CHECK (grading_status IN ('graded', 'ungradeable', 'legacy_client_graded')),
+  -- which rules produced the numbers below, so a weaker rule stays visible later
+  grader_version   TEXT,
+  graded_at        TEXT,
+
   -- server authoritative. the cert service reads these and nothing else.
   server_total_score REAL NOT NULL CHECK (server_total_score >= 0),
   server_max_score   REAL NOT NULL CHECK (server_max_score > 0),
@@ -104,6 +153,10 @@ CREATE TABLE IF NOT EXISTS attempt (
   client_percentage     REAL,
   client_passed         INTEGER CHECK (client_passed IS NULL OR client_passed IN (0, 1)),
   client_claim_mismatch INTEGER NOT NULL DEFAULT 0 CHECK (client_claim_mismatch IN (0, 1)),
+  -- score_drift     numbers differ, same verdict. float paths, expected.
+  -- claim_inflation client said pass, server said fail. security signal.
+  mismatch_kind         TEXT NOT NULL DEFAULT 'none'
+                          CHECK (mismatch_kind IN ('none', 'score_drift', 'claim_inflation')),
 
   sync_batch_id      TEXT REFERENCES sync_batch(batch_id),
   server_received_at TEXT NOT NULL
@@ -111,28 +164,37 @@ CREATE TABLE IF NOT EXISTS attempt (
 
 -- one checkpoint inside one attempt. composite pk makes the contract rule
 -- "exactly one entry per checkpoint" a database guarantee, not a hope.
+-- observation_json is what the phone reported, server_* is what the server made of it.
 CREATE TABLE IF NOT EXISTS checkpoint_result (
   attempt_id      TEXT NOT NULL REFERENCES attempt(attempt_id) ON DELETE CASCADE,
   checkpoint_id   TEXT NOT NULL,
   checkpoint_type TEXT NOT NULL CHECK (checkpoint_type IN ('aim', 'proximity', 'select')),
-  passed          INTEGER NOT NULL CHECK (passed IN (0, 1)),
-  -- server recomputed from context, 0..1
-  score           REAL NOT NULL CHECK (score BETWEEN 0 AND 1),
+  observation_kind TEXT NOT NULL CHECK (observation_kind IN
+    ('selection_single', 'selection_multi', 'spatial_alignment', 'aim_dwell')),
+  -- raw observation exactly as it arrived. evidence, never proof, never an answer key.
+  observation_json TEXT NOT NULL,
+
+  -- graded on this server from checkpoint_definition, 0..1
+  server_score    REAL NOT NULL CHECK (server_score BETWEEN 0 AND 1),
+  server_passed   INTEGER NOT NULL CHECK (server_passed IN (0, 1)),
+  -- why the grader landed there, e.g. no_aim_sample, threshold_unconfigured
+  grade_reason    TEXT,
   -- taken from checkpoint_definition, never from the payload
   weight          REAL NOT NULL CHECK (weight > 0),
-  -- sanitized context from the engine. evidence, never proof. no answer key inside.
-  context_json    TEXT,
+  -- v2 carries no per checkpoint client verdict, so this stays NULL for now
+  client_claimed_passed INTEGER CHECK (client_claimed_passed IS NULL OR client_claimed_passed IN (0, 1)),
   client_ts       TEXT NOT NULL,
   PRIMARY KEY (attempt_id, checkpoint_id)
 );
 
--- signature and algo columns get filled by the cert service, not by seed data
+-- signature and algo columns get filled by the cert service, not by seed data.
+-- attempt_id is UNIQUE, so one run earns at most one certificate and the db says so.
 CREATE TABLE IF NOT EXISTS certificate (
   cert_id      TEXT PRIMARY KEY,
   worker_id    TEXT NOT NULL REFERENCES worker(worker_id),
   module_id    TEXT NOT NULL REFERENCES module(module_id),
   -- which run earned it, so a cert is always traceable back to its evidence
-  attempt_id   TEXT REFERENCES attempt(attempt_id),
+  attempt_id   TEXT UNIQUE REFERENCES attempt(attempt_id),
   score        REAL NOT NULL,
   issued_at    TEXT NOT NULL,
   expires_at   TEXT,
@@ -153,6 +215,7 @@ CREATE INDEX IF NOT EXISTS idx_attempt_worker_mod  ON attempt (worker_id, module
 CREATE INDEX IF NOT EXISTS idx_attempt_batch       ON attempt (sync_batch_id);
 CREATE INDEX IF NOT EXISTS idx_attempt_passed      ON attempt (server_passed);
 CREATE INDEX IF NOT EXISTS idx_attempt_mismatch    ON attempt (client_claim_mismatch);
+CREATE INDEX IF NOT EXISTS idx_attempt_grading     ON attempt (grading_status);
 CREATE INDEX IF NOT EXISTS idx_ckresult_checkpoint ON checkpoint_result (checkpoint_id);
 CREATE INDEX IF NOT EXISTS idx_cert_worker_mod     ON certificate (worker_id, module_id);
 CREATE INDEX IF NOT EXISTS idx_cert_attempt        ON certificate (attempt_id);

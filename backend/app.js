@@ -7,6 +7,7 @@ const { notFoundHandler, errorHandler } = require("./middleware/error");
 const { createModulesRouter } = require("./routes/modules");
 const { createSyncRouter } = require("./routes/sync");
 const { createCertRouter } = require("./routes/certs");
+const { createDashboardRouter } = require("./routes/dashboard");
 
 // only echo an origin we were told about, no wildcard anywhere
 function _buildCorsOptions(allowedOrigins) {
@@ -84,9 +85,7 @@ function createApp({ db, config, logger, keys }) {
   app.use("/api/modules", createModulesRouter({ db }));
   app.use("/api/sync", createSyncRouter({ db }));
   app.use("/api/certs", createCertRouter({ db, keys }));
-
-  // dashboard router stays unmounted on purpose. its factory still throws
-  // not implemented, and mounting it would kill the server at boot.
+  app.use("/api/dashboard", createDashboardRouter({ db, config }));
 
   app.use(notFoundHandler);
   app.use(errorHandler);

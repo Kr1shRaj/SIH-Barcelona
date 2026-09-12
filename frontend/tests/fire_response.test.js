@@ -319,7 +319,9 @@ describe("Fire & Explosion Response module", () => {
     assert.strictEqual(events[0].checkpointId, CP_EXIT_ID);
     assert.strictEqual(events[0].type, "proximity");
     assert.strictEqual(events[0].passed, true);
-    assert.deepStrictEqual(events[0].context, { method: "button_confirm" });
+    assert.deepStrictEqual(events[0].context, { method: "button_confirm", measured: false });
+    // the step now also carries the v2 observation the server grades
+    assert.strictEqual(events[0].observation.kind, "spatial_alignment");
     assert.ok(typeof events[0].timestamp === "string");
   });
 

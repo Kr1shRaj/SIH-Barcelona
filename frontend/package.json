@@ -10,6 +10,7 @@
     "test": "node --test tests/**/*.test.js"
   },
   "dependencies": {
+    "@capacitor/android": "^5.7.4",
     "@capacitor/core": "5.7.4"
   },
   "devDependencies": {

@@ -3,9 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "description": "SafeAR admin compliance dashboard",
+  "type": "module",
   "scripts": {
     "dev": "npx serve . -p 5174",
-    "build": "echo 'Dashboard static build'"
+    "build": "echo 'Dashboard static build'",
+    "test": "node --test tests/**/*.test.js"
   },
   "devDependencies": {
     "serve": "14.2.1"

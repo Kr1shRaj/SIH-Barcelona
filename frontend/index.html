@@ -7,13 +7,16 @@
   <meta name="robots" content="notranslate">
   <title>SafeAR — Industrial Safety Training</title>
   <link rel="stylesheet" href="./css/style.css">
-  <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
-  <script src="https://raw.githack.com/AR-js-org/AR.js/3.4.5/aframe/build/aframe-ar.js"></script>
+  <!-- vendored, not cdn: a mine has no signal. aframe must load before ar.js -->
+  <script src="./vendor/aframe.min.js"></script>
+  <script src="./vendor/aframe-ar.js"></script>
 </head>
 <body class="notranslate">
   <div id="app">
     <!-- audio/icon first navigation for workers -->
   </div>
+  <!-- plain script, not a module: it must set the api base before app.js runs -->
+  <script src="./config.js"></script>
   <script src="./js/app.js" type="module"></script>
 </body>
 </html>

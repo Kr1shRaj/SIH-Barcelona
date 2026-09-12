@@ -1,15 +1,36 @@
-// safe constants for assessment contract v1.0 and offline sync
+// api base comes from api.js so this file never decides where the backend lives
+import { resolveApiBase } from "../js/api.js";
+
+// two different jobs live in this file and must not be confused:
+//   evaluateAssessment() -> LOCAL result. score, percentage, pass/fail for the ui,
+//                           so a trainee offline still gets an answer.
+//   toWireAttempt()      -> SERVER payload. Attempt Contract v2.0, raw observations
+//                           only. the server regrades everything from scratch.
+// the local numbers ride along as clientClaimed* and are never authoritative.
+
+// safe constants for assessment contract v2.0 and offline sync
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const IDENTIFIER = /^[a-z][a-z0-9_-]{1,63}$/;
 const CHECKPOINT_TYPES = ["aim", "proximity", "select"];
+// mirrors OBSERVATION_KINDS in backend/models/attempt.js
+const OBSERVATION_KINDS = ["selection_single", "selection_multi", "spatial_alignment", "aim_dwell"];
 const MAX_CONTEXT_BYTES = 4096;
 const MAX_DURATION_MS = 4 * 60 * 60 * 1000;
 const QUEUE_STORAGE_KEY = "safear_attempt_sync_queue";
 const WORKER_STORAGE_KEY = "safear_worker_id";
 const DEVICE_STORAGE_KEY = "safear_device_id";
 const MANIFEST_STORAGE_KEY = "safear_module_manifests";
+const REJECTION_STORAGE_KEY = "safear_attempt_sync_rejections";
 const CANONICAL_DEMO_WORKER_ID = "WRK-0001";
 const MAX_BATCH_ATTEMPTS = 50;
+
+// the only contract this build speaks. the server accepts nothing else.
+const CONTRACT_VERSION = "2.0";
+
+// accepted and duplicate are both settled: the server holds the record either way,
+// so the local copy can go. rejected is NOT settled and must stay queued, or the
+// worker run is destroyed with no record on either side.
+const SETTLED_SYNC_STATUSES = ["accepted", "duplicate"];
 
 // default deterministic manifests used offline when server unavailable
 const DEFAULT_LOCAL_MANIFESTS = [
@@ -22,7 +43,8 @@ const DEFAULT_LOCAL_MANIFESTS = [
     requiredCheckpoints: [
       { checkpointId: "fire_exit_identification", type: "proximity", weight: 1, required: true, critical: false },
       { checkpointId: "fire_extinguisher_aim", type: "aim", weight: 1, required: true, critical: false },
-      { checkpointId: "fire_evacuation_sequence", type: "select", weight: 1, required: true, critical: false }
+      { checkpointId: "fire_evacuation_sequence_marker", type: "select", weight: 1, required: true, critical: false },
+      { checkpointId: "fire_evacuation_sequence_webxr", type: "select", weight: 1, required: true, critical: false }
     ]
   },
   {
@@ -93,8 +115,8 @@ function evaluateAssessment(attemptRecord, passThreshold) {
     throw new Error("attemptRecord must be an object");
   }
 
-  const contractVersion = attemptRecord.contractVersion || "1.0";
-  if (contractVersion !== "1.0") {
+  const contractVersion = attemptRecord.contractVersion || CONTRACT_VERSION;
+  if (contractVersion !== CONTRACT_VERSION) {
     throw new Error(`unsupported contractVersion ${contractVersion}`);
   }
 
@@ -218,6 +240,15 @@ function evaluateAssessment(attemptRecord, passThreshold) {
 
     const cleanContext = _sanitizeContext(cp.context);
 
+    // every checkpoint has to carry the observation the server will grade. a module
+    // that forgot to build one is a bug, and a silent placeholder would hide it.
+    if (!cp.observation || typeof cp.observation !== "object" || Array.isArray(cp.observation)) {
+      throw new Error(`checkpoint "${cp.checkpointId}" is missing its v2 observation`);
+    }
+    if (!OBSERVATION_KINDS.includes(cp.observation.kind)) {
+      throw new Error(`checkpoint "${cp.checkpointId}" has unknown observation kind "${cp.observation.kind}"`);
+    }
+
     sanitizedCheckpoints.push({
       checkpointId: cp.checkpointId,
       type: cp.type,
@@ -225,7 +256,8 @@ function evaluateAssessment(attemptRecord, passThreshold) {
       score: cp.score,
       weight: cp.weight,
       timestamp: cp.timestamp,
-      context: cleanContext
+      context: cleanContext,
+      observation: cp.observation
     });
 
     totalScore += cp.score * cp.weight;
@@ -264,6 +296,44 @@ function evaluateAssessment(attemptRecord, passThreshold) {
     percentage,
     passThresholdUsed,
     passed
+  };
+}
+
+// strip the local result down to the Attempt Contract v2.0 payload the server
+// accepts. the phone's own score survives only as a claim, clearly labelled.
+function toWireAttempt(evaluated) {
+  if (!evaluated || typeof evaluated !== "object" || Array.isArray(evaluated)) {
+    throw new Error("evaluated attempt must be an object");
+  }
+
+  const checkpoints = (evaluated.checkpoints || []).map((cp) => {
+    if (!cp.observation) {
+      throw new Error(`checkpoint "${cp.checkpointId}" cannot sync without an observation`);
+    }
+    return {
+      checkpointId: cp.checkpointId,
+      observedAt: cp.timestamp,
+      observation: cp.observation
+    };
+  });
+
+  return {
+    contractVersion: CONTRACT_VERSION,
+    attemptId: evaluated.attemptId,
+    workerId: evaluated.workerId,
+    moduleId: evaluated.moduleId,
+    moduleVersion: evaluated.moduleVersion,
+    engineVersion: evaluated.engineVersion,
+    deviceId: evaluated.deviceId,
+    arTier: evaluated.arTier,
+    locale: evaluated.locale,
+    startedAt: evaluated.startedAt,
+    completedAt: evaluated.completedAt,
+    durationMs: evaluated.durationMs,
+    status: "completed",
+    checkpoints,
+    clientClaimedPercentage: evaluated.percentage,
+    clientClaimedPassed: evaluated.passed === true
   };
 }
 
@@ -398,7 +468,7 @@ function getCachedOrLocalManifest(moduleId) {
 }
 
 // fetch manifests from backend, update cache, fall back gracefully offline
-async function fetchModuleManifests({ baseUrl = "", timeoutMs = 5000 } = {}) {
+async function fetchModuleManifests({ baseUrl = resolveApiBase(), timeoutMs = 5000 } = {}) {
   const storage = _getStorage();
 
   const fetchHandle = (typeof window !== "undefined" && window.fetch)
@@ -458,6 +528,70 @@ async function getModuleManifest(moduleId, options = {}) {
   return DEFAULT_LOCAL_MANIFESTS.find((m) => m.moduleId === moduleId) || null;
 }
 
+// read the rejection log, empty when nothing has ever been turned down
+function getSyncRejections() {
+  const storage = _getStorage();
+  if (!storage) return [];
+  try {
+    const raw = storage.getItem(REJECTION_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_err) {
+    return [];
+  }
+}
+
+// wipe the rejection log
+function clearSyncRejections() {
+  const storage = _getStorage();
+  if (storage) {
+    storage.removeItem(REJECTION_STORAGE_KEY);
+  }
+}
+
+// keep why the server turned an attempt down, in its OWN key.
+// it must never ride on the queued attempt itself: the backend validates attempts
+// with a strict schema, so one extra field would fail the whole next batch.
+function _recordSyncRejections(rejections) {
+  if (!Array.isArray(rejections) || rejections.length === 0) return getSyncRejections();
+  const storage = _getStorage();
+  const log = getSyncRejections();
+  const byId = new Map(log.map((entry) => [entry.attemptId, entry]));
+  rejections.forEach((entry) => byId.set(entry.attemptId, entry));
+  const merged = Array.from(byId.values());
+  if (storage) {
+    storage.setItem(REJECTION_STORAGE_KEY, JSON.stringify(merged));
+  }
+  return merged;
+}
+
+// split the server per-attempt verdicts into settled ids and rejections.
+// returns null when the server sent no results array, which the contract says
+// it always does on 200 and 422.
+function _partitionSyncResults(resData) {
+  if (!resData || !Array.isArray(resData.results)) return null;
+
+  const settledIds = [];
+  const rejections = [];
+
+  resData.results.forEach((result) => {
+    if (!result || typeof result.attemptId !== "string") return;
+    if (SETTLED_SYNC_STATUSES.indexOf(result.status) !== -1) {
+      settledIds.push(result.attemptId);
+    } else if (result.status === "rejected") {
+      rejections.push({
+        attemptId: result.attemptId,
+        reason: result.reason || "rejected",
+        message: result.message || "",
+        at: new Date().toISOString()
+      });
+    }
+  });
+
+  return { settledIds, rejections };
+}
+
 // remove confirmed synced attempt ids from queue
 function removeSyncedAttempts(syncedAttemptIds) {
   if (!Array.isArray(syncedAttemptIds) || syncedAttemptIds.length === 0) {
@@ -474,7 +608,7 @@ function removeSyncedAttempts(syncedAttemptIds) {
 }
 
 // push queued attempts to backend /api/sync
-async function syncQueuedAttempts({ baseUrl = "", deviceId, workerId, batchSize = MAX_BATCH_ATTEMPTS } = {}) {
+async function syncQueuedAttempts({ baseUrl = resolveApiBase(), deviceId, workerId, batchSize = MAX_BATCH_ATTEMPTS } = {}) {
   const queue = getQueuedAttempts();
   if (queue.length === 0) {
     return { success: true, synced: 0, remaining: 0 };
@@ -523,24 +657,49 @@ async function syncQueuedAttempts({ baseUrl = "", deviceId, workerId, batchSize 
       resData = null;
     }
 
+    // trust what the server said happened, never what we happened to send
+    const partition = _partitionSyncResults(resData);
+
     if (res.ok) {
-      const syncedIds = normalizedBatch.map((a) => a.attemptId);
-      const remainingQueue = removeSyncedAttempts(syncedIds);
+      // no results array means we cannot tell which attempts landed. assuming they
+      // all did is exactly the data loss this guards against, so keep everything.
+      if (!partition) {
+        return {
+          success: false,
+          status: res.status,
+          reason: "malformed_response",
+          error: resData,
+          remaining: queue.length
+        };
+      }
+
+      const remainingQueue = removeSyncedAttempts(partition.settledIds);
+      _recordSyncRejections(partition.rejections);
+
       return {
-        success: true,
+        // a mixed batch is not a full success, even though http said 200
+        success: partition.rejections.length === 0,
         status: res.status,
-        synced: normalizedBatch.length,
+        synced: partition.settledIds.length,
+        rejected: partition.rejections.length,
+        rejections: partition.rejections,
         remaining: remainingQueue.length,
         data: resData
       };
     }
 
     // backend rejected batch (4xx validation error or 5xx server error)
-    // NEVER remove attempts from queue on rejection
+    // NEVER remove attempts from queue on rejection.
+    // a 422 still carries per attempt reasons, so keep them for later.
+    if (partition) {
+      _recordSyncRejections(partition.rejections);
+    }
+
     return {
       success: false,
       status: res.status,
       reason: res.status >= 500 ? "server_error" : "validation_error",
+      rejections: partition ? partition.rejections : [],
       error: resData,
       remaining: queue.length
     };
@@ -573,8 +732,15 @@ function queueAttemptForSync(attemptRecord) {
     throw new Error("attemptRecord must have a valid UUID v4 attemptId");
   }
 
+  // the queue holds exactly what goes on the wire, so a retry after a reload sends
+  // the same bytes the first attempt did
+  const wire = attemptRecord.contractVersion === CONTRACT_VERSION && attemptRecord.checkpoints
+    && attemptRecord.checkpoints.length > 0 && attemptRecord.checkpoints[0].observedAt !== undefined
+    ? attemptRecord
+    : toWireAttempt(attemptRecord);
+
   const queue = getQueuedAttempts();
-  queue.push(attemptRecord);
+  queue.push(wire);
 
   const storage = _getStorage();
   if (storage) {
@@ -682,7 +848,9 @@ function recordCheckpointResult(detail) {
     score,
     weight,
     timestamp,
-    context: detail.context || {}
+    context: detail.context || {},
+    // the raw thing the server grades. built by the module, never by this engine.
+    observation: detail.observation || null
   };
 
   _activeSession.checkpoints.set(detail.checkpointId, record);
@@ -700,7 +868,7 @@ function finishAssessmentSession(options = {}) {
   const checkpointsList = Array.from(session.checkpoints.values());
 
   const attemptRecord = {
-    contractVersion: "1.0",
+    contractVersion: CONTRACT_VERSION,
     attemptId: session.attemptId,
     workerId: session.workerId,
     moduleId: session.moduleId,
@@ -759,10 +927,14 @@ function unbindAssessmentSessionListeners(targetWindow) {
 
 export {
   evaluateAssessment,
+  toWireAttempt,
+  CONTRACT_VERSION,
   queueAttemptForSync,
   getQueuedAttempts,
   clearAttemptQueue,
   removeSyncedAttempts,
+  getSyncRejections,
+  clearSyncRejections,
   syncQueuedAttempts,
   startAssessmentSession,
   getActiveSession,
@@ -781,6 +953,7 @@ export {
   CANONICAL_DEMO_WORKER_ID,
   DEFAULT_LOCAL_MANIFESTS,
   QUEUE_STORAGE_KEY,
+  REJECTION_STORAGE_KEY,
   WORKER_STORAGE_KEY,
   MANIFEST_STORAGE_KEY
 };

@@ -422,5 +422,3 @@ export {
   buildExitGraphic,
   buildExtinguisherGraphic
 };
-
-

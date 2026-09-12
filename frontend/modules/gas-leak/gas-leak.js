@@ -1,6 +1,10 @@
 import { createLogger } from "../../js/logger.js";
 import { registerCheckpoint, fireCheckpointResult } from "../../ar/interactions.js";
+import { startAlignmentSampler } from "../../ar/alignment.js";
+import { selectionSingle, selectionMulti, spatialAlignment, trackingSourceForTier } from "../../assessment/observations.js";
 import { unloadModule } from "../../js/module-loader.js";
+import { requestCertificateForAttempt, flushPendingCertificates } from "../../js/certificates.js";
+import { renderCompletionPanel } from "../../js/certificate-panel.js";
 import { buildHazardZoneEntity, buildPpeDisplayEntity } from "./graphics.js";
 import { t } from "../../js/i18n.js";
 import { playNarration, stopNarration } from "../../js/audio.js";
@@ -28,8 +32,14 @@ const FORBIDDEN_PPE = ["dust_mask", "welding_shield"];
 // correct buddy system procedure answer
 const CORRECT_BUDDY_PROCEDURE = "standby_outside_with_lifeline";
 
+// anchor id must match checkpoint_definition.anchor_id on the server
+const HAZARD_ANCHOR_ID = "gas_hazard_zone";
+
 // track active step
 let _currentStep = 0;
+
+// running alignment sampler for step 1, stopped when the trainee confirms
+let _hazardSampler = null;
 
 // get active step index
 function getCurrentStep() { return _currentStep; }
@@ -241,7 +251,11 @@ function _setupStep1(container, tierInfo) {
     }
   });
 
-  _renderHazardZoneGraphic(container);
+  const hazardGraphic = _renderHazardZoneGraphic(container);
+  // the hazard zone hangs off the printed marker, so the angle between where the
+  // phone points and where the zone is really is measurable. sample it while the
+  // trainee reads the briefing; report nothing measured if the scene cannot answer.
+  _hazardSampler = startAlignmentSampler({ targetEl: hazardGraphic, anchorId: HAZARD_ANCHOR_ID });
 
   const overlay = document.getElementById("gas-module-overlay");
   playNarration({ moduleId: "gas-leak", stepKey: "step_1_hazard" });
@@ -274,7 +288,20 @@ function _setupStep1(container, tierInfo) {
       btn.style.cssText = "margin-top:0.4rem;padding:0.8rem 1.5rem;background:#10b981;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
       btn.textContent = t("modules.gas_leak.btn_hazard", {}, "✔ Hazard Zone Acknowledged");
       btn.addEventListener("click", () => {
-        fireCheckpointResult(CP_HAZARD_ZONE_ID, true, { method: "button_confirm" });
+        const sampled = _hazardSampler ? _hazardSampler.stop() : { angularErrorRad: null, dwellMs: 0, frameCount: 0 };
+        _hazardSampler = null;
+        fireCheckpointResult(
+          CP_HAZARD_ZONE_ID,
+          true,
+          { method: "button_confirm", measured: sampled.angularErrorRad !== null },
+          spatialAlignment({
+            anchorId: HAZARD_ANCHOR_ID,
+            angularErrorRad: sampled.angularErrorRad,
+            dwellMs: sampled.dwellMs,
+            frameCount: sampled.frameCount,
+            trackingSource: trackingSourceForTier(tierInfo && tierInfo.tier)
+          })
+        );
         _setupStep2(container, tierInfo);
       });
       overlay.appendChild(btn);
@@ -342,12 +369,12 @@ function _setupStep2(container, tierInfo) {
 
       _renderPpeOptions(overlay, (selectedList) => {
         const result = evaluatePpeSelection(selectedList);
-        fireCheckpointResult(CP_PPE_SELECTION_ID, result.passed, {
-          selected: selectedList,
-          score: result.score,
-          missing: result.missing,
-          forbidden: result.forbidden
-        });
+        fireCheckpointResult(
+          CP_PPE_SELECTION_ID,
+          result.passed,
+          { selected: selectedList, score: result.score, missing: result.missing, forbidden: result.forbidden },
+          selectionMulti(selectedList)
+        );
         _setupStep3(container);
       });
     }
@@ -411,10 +438,12 @@ function _setupStep3(_container) {
       `;
 
       _renderBuddyOptions(overlay, (selectedOption, passed) => {
-        fireCheckpointResult(CP_BUDDY_PROCEDURE_ID, passed, {
-          selected: selectedOption,
-          correct: CORRECT_BUDDY_PROCEDURE
-        });
+        fireCheckpointResult(
+          CP_BUDDY_PROCEDURE_ID,
+          passed,
+          { selected: selectedOption, correct: CORRECT_BUDDY_PROCEDURE },
+          selectionSingle(selectedOption)
+        );
         _showComplete(passed);
       });
     }
@@ -442,6 +471,12 @@ function _setupStep3(_container) {
 function cleanupGasLeakModule() {
   _currentStep = 0;
   stopNarration();
+  // a sampler left running holds a requestAnimationFrame loop against a scene
+  // that is about to be torn down
+  if (_hazardSampler) {
+    _hazardSampler.stop();
+    _hazardSampler = null;
+  }
   if (getActiveSession()) {
     abortAssessmentSession();
   }
@@ -463,40 +498,52 @@ function cleanupGasLeakModule() {
 }
 
 // show completion screen with exit button
-function _showComplete(lastPassed) {
+function _showComplete(_lastPassed) {
   _currentStep = 0;
 
-  // finalize assessment attempt if session is active
+  const overlay = document.getElementById("gas-module-overlay");
+  const theme = { passColor: "#10b981", failColor: "#f59e0b", exitColor: "#f59e0b", exitTextColor: "#000" };
+
+  let evaluated = null;
   if (getActiveSession()) {
     try {
-      finishAssessmentSession();
+      // the evaluated attempt is the aggregate result. the last checkpoint alone
+      // does not decide whether the module was passed.
+      evaluated = finishAssessmentSession();
     } catch (err) {
       logger.warn({ event: "assessment_finish_error", error: err.message }, "Assessment finalize failed");
     }
   }
 
-  const overlay = document.getElementById("gas-module-overlay");
-  if (overlay) {
-    const titlePass = t("modules.gas_leak.complete_pass", {}, "✅ MODULE COMPLETE");
-    const titleReview = t("modules.gas_leak.complete_review", {}, "⚠ MODULE COMPLETE — Review step 3");
-    const desc = t("modules.gas_leak.complete_desc", {}, "All gas protocol checkpoints fired. Assessment engine will score your attempt.");
-    overlay.innerHTML = `
-      <div style="font-size:1.2rem;font-weight:bold;color:${lastPassed ? "#10b981" : "#f59e0b"}">
-        ${lastPassed ? titlePass : titleReview}
-      </div>
-      <div style="margin:0.5rem 0;font-size:0.95rem">${desc}</div>
-    `;
-
-    const btnExit = document.createElement("button");
-    btnExit.id = "btn-module-exit";
-    btnExit.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.5rem;background:#f59e0b;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;";
-    btnExit.textContent = t("modules.gas_leak.btn_exit_module", {}, "✖ Exit Module");
-    btnExit.addEventListener("click", () => {
-      cleanupGasLeakModule();
-      unloadModule();
+  function draw() {
+    return renderCompletionPanel(overlay, {
+      evaluated: evaluated || {},
+      theme,
+      exitLabel: t("modules.gas_leak.btn_exit_module", {}, "✖ Exit Module"),
+      onExit: () => {
+        cleanupGasLeakModule();
+        unloadModule();
+      }
     });
-    overlay.appendChild(btnExit);
   }
+
+  // draw at once from local state so the worker sees a result with no network
+  draw();
+
+  // then ask for the certificate. finishAssessmentSession already fired its own
+  // background sync and discarded the response, so there is nothing left to observe
+  // and no second sync is started here. the server still decides: a run that did not
+  // pass comes back 422 and the pending item is dropped.
+  if (evaluated && evaluated.passed === true) {
+    requestCertificateForAttempt(evaluated);
+    draw();
+    flushPendingCertificates()
+      .then(() => draw())
+      .catch((err) => {
+        logger.warn({ event: "certificate_flush_error", error: err.message }, "Certificate flush failed");
+      });
+  }
+
   logger.info({ event: "gas_module_complete" }, "Gas leak module all steps done");
 }
 

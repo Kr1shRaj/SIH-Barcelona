@@ -74,10 +74,20 @@ function insertCheckpoint(overrides) {
       attempt_id: ATTEMPT_ID,
       checkpoint_id: "fire_extinguisher_aim",
       checkpoint_type: "aim",
-      passed: 1,
-      score: 0.75,
+      observation_kind: "aim_dwell",
+      observation_json: JSON.stringify({
+        kind: "aim_dwell",
+        hitDistanceM: 0.2,
+        dwellMs: 900,
+        sweepCoverage: 0.8,
+        frameCount: 54,
+        trackingSource: "arjs_marker"
+      }),
+      server_score: 0.75,
+      server_passed: 1,
+      grade_reason: "on_target",
       weight: 1,
-      context_json: JSON.stringify({ accuracy: 0.75, target: "base", distance: 0.2 }),
+      client_claimed_passed: null,
       client_ts: "2026-09-01T10:16:20.410Z"
     },
     overrides || {}
@@ -86,9 +96,11 @@ function insertCheckpoint(overrides) {
   return db
     .prepare(
       `INSERT INTO checkpoint_result
-         (attempt_id, checkpoint_id, checkpoint_type, passed, score, weight, context_json, client_ts)
+         (attempt_id, checkpoint_id, checkpoint_type, observation_kind, observation_json,
+          server_score, server_passed, grade_reason, weight, client_claimed_passed, client_ts)
        VALUES
-         (@attempt_id, @checkpoint_id, @checkpoint_type, @passed, @score, @weight, @context_json, @client_ts)`
+         (@attempt_id, @checkpoint_id, @checkpoint_type, @observation_kind, @observation_json,
+          @server_score, @server_passed, @grade_reason, @weight, @client_claimed_passed, @client_ts)`
     )
     .run(c);
 }
@@ -125,9 +137,9 @@ describe("Attempt Contract schema shape", () => {
 
   it("hangs three checkpoint_result rows off that single attempt", () => {
     insertAttempt();
-    insertCheckpoint({ checkpoint_id: "fire_exit_identification", checkpoint_type: "proximity", score: 1 });
-    insertCheckpoint({ checkpoint_id: "fire_extinguisher_aim", checkpoint_type: "aim", score: 0.75 });
-    insertCheckpoint({ checkpoint_id: "fire_evacuation_sequence", checkpoint_type: "select", score: 1 });
+    insertCheckpoint({ checkpoint_id: "fire_exit_identification", checkpoint_type: "proximity", observation_kind: "spatial_alignment", server_score: 1 });
+    insertCheckpoint({ checkpoint_id: "fire_extinguisher_aim", checkpoint_type: "aim", server_score: 0.75 });
+    insertCheckpoint({ checkpoint_id: "fire_evacuation_sequence_marker", checkpoint_type: "select", observation_kind: "selection_single", server_score: 1 });
 
     const kids = db
       .prepare("SELECT checkpoint_id FROM checkpoint_result WHERE attempt_id = ? ORDER BY checkpoint_id")
@@ -135,7 +147,7 @@ describe("Attempt Contract schema shape", () => {
       .map((r) => r.checkpoint_id);
 
     assert.deepStrictEqual(kids, [
-      "fire_evacuation_sequence",
+      "fire_evacuation_sequence_marker",
       "fire_exit_identification",
       "fire_extinguisher_aim"
     ]);
@@ -148,7 +160,7 @@ describe("Attempt Contract schema shape", () => {
     insertCheckpoint({ checkpoint_id: "fire_extinguisher_aim" });
 
     assert.throws(
-      () => insertCheckpoint({ checkpoint_id: "fire_extinguisher_aim", score: 0.1 }),
+      () => insertCheckpoint({ checkpoint_id: "fire_extinguisher_aim", server_score: 0.1 }),
       /UNIQUE constraint failed/,
       "composite pk must enforce one row per checkpoint per attempt"
     );
@@ -211,7 +223,12 @@ describe("Attempt Contract schema shape", () => {
 
   it("rejects a checkpoint score outside 0..1", () => {
     insertAttempt();
-    assert.throws(() => insertCheckpoint({ score: 1.5 }), /CHECK constraint failed/);
+    assert.throws(() => insertCheckpoint({ server_score: 1.5 }), /CHECK constraint failed/);
+  });
+
+  it("rejects an unknown observation kind", () => {
+    insertAttempt();
+    assert.throws(() => insertCheckpoint({ observation_kind: "telepathy" }), /CHECK constraint failed/);
   });
 
   it("rejects an unknown checkpoint type", () => {

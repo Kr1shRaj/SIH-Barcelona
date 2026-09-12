@@ -12,6 +12,10 @@ const { testKeys } = require("../fixtures/certs");
 // config the app needs, without touching a real .env
 const TEST_CONFIG = Object.freeze({
   nodeEnv: "test",
+  // a real value on purpose. leaving it undefined would let the admin gate compare
+  // undefined against undefined and wave every unauthenticated request through,
+  // so the suite would pass while the routes were wide open.
+  adminApiKey: "test_admin_key_not_a_real_secret",
   allowedOrigins: Object.freeze([
     "http://localhost:5173",
     "http://localhost:5174",
@@ -39,4 +43,17 @@ function buildTestApp() {
   return { app, db, dir, cleanup };
 }
 
-module.exports = { buildTestApp, TEST_CONFIG };
+// TEST ONLY. the shipped seed leaves the two spatial checkpoints unmeasured, so
+// nothing can certify until a real device angle exists. this hands the suite a
+// configured manifest to exercise the certifiable path. the number is a test
+// fixture and must never be copied into db/seed.js.
+const TEST_ONLY_ANGULAR_ERROR_RAD = 0.35;
+
+// pretend somebody measured the spatial checkpoints on real hardware
+function measureSpatialCheckpoints(db) {
+  db.prepare(
+    "UPDATE checkpoint_definition SET max_angular_error_rad = ?, gradeable = 1 WHERE observation_kind = 'spatial_alignment'"
+  ).run(TEST_ONLY_ANGULAR_ERROR_RAD);
+}
+
+module.exports = { buildTestApp, measureSpatialCheckpoints, TEST_CONFIG, TEST_ONLY_ANGULAR_ERROR_RAD };

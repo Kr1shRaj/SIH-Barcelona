@@ -28,13 +28,15 @@ function insertAttempt(attemptId, passed, percentage) {
     .prepare(
       `INSERT INTO attempt (
          attempt_id, worker_id, module_id, module_version, contract_version,
+         grading_status, grader_version, graded_at,
          started_at, completed_at, duration_ms, status,
          server_total_score, server_max_score, server_percentage, server_passed,
          threshold_applied, client_percentage, client_passed, server_received_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
-      attemptId, "WRK-0001", "fire-response", 1, "1.0",
+      attemptId, "WRK-0001", "fire-response", 1, "2.0",
+      "graded", "2.0.0", "2026-09-03T10:05:00.000Z",
       "2026-09-03T10:00:00.000Z", "2026-09-03T10:03:00.000Z", 180000, "completed",
       (percentage / 100) * 3, 3, percentage, passed ? 1 : 0,
       0.7, percentage, passed ? 1 : 0, "2026-09-03T10:05:00.000Z"
@@ -48,6 +50,34 @@ describe("POST /api/certs/issue", () => {
     insertAttempt(FAILED_ATTEMPT, false, 42);
   });
   afterEach(() => ctx.cleanup());
+
+  // the whole point of Contract v2: a run the server did not grade cannot certify,
+  // and a v1 run can never become eligible however good its stored numbers look
+  describe("the trust boundary", () => {
+    const LEGACY_ATTEMPT = "5e2b7a10-3c4d-4e5f-8a9b-0c1d2e3f4a5b";
+
+    it("422s a v1 attempt that claims a perfect score", async () => {
+      insertAttempt(LEGACY_ATTEMPT, true, 100);
+      ctx.db
+        .prepare("UPDATE attempt SET contract_version = '1.0', grading_status = 'legacy_client_graded' WHERE attempt_id = ?")
+        .run(LEGACY_ATTEMPT);
+
+      const res = await issue(LEGACY_ATTEMPT);
+      assert.strictEqual(res.status, 422);
+      assert.strictEqual(res.body.error.code, "legacy_contract");
+      assert.strictEqual(ctx.db.prepare("SELECT COUNT(*) AS n FROM certificate").get().n, 0);
+    });
+
+    it("422s an attempt whose checkpoint rules are still unconfigured", async () => {
+      insertAttempt(LEGACY_ATTEMPT, true, 100);
+      ctx.db.prepare("UPDATE attempt SET grading_status = 'ungradeable' WHERE attempt_id = ?").run(LEGACY_ATTEMPT);
+
+      const res = await issue(LEGACY_ATTEMPT);
+      assert.strictEqual(res.status, 422);
+      assert.strictEqual(res.body.error.code, "attempt_not_graded");
+      assert.strictEqual(ctx.db.prepare("SELECT COUNT(*) AS n FROM certificate").get().n, 0);
+    });
+  });
 
   describe("happy path", () => {
     it("issues a new certificate with 201", async () => {

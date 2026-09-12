@@ -182,7 +182,9 @@ describe("Gas Leak & Confined Space Protocol module", () => {
     assert.strictEqual(events[0].checkpointId, CP_HAZARD_ZONE_ID);
     assert.strictEqual(events[0].type, "proximity");
     assert.strictEqual(events[0].passed, true);
-    assert.deepStrictEqual(events[0].context, { method: "button_confirm" });
+    assert.deepStrictEqual(events[0].context, { method: "button_confirm", measured: false });
+    // the step now also carries the v2 observation the server grades
+    assert.strictEqual(events[0].observation.kind, "spatial_alignment");
 
     const cps = getRegisteredCheckpoints();
     assert.ok(cps.some((c) => c.id === CP_PPE_SELECTION_ID && c.type === "select"),
