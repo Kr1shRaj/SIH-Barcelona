@@ -5,7 +5,12 @@ import { selectionSingle, selectionMulti, spatialAlignment, trackingSourceForTie
 import { unloadModule } from "../../js/module-loader.js";
 import { requestCertificateForAttempt, flushPendingCertificates } from "../../js/certificates.js";
 import { renderCompletionPanel } from "../../js/certificate-panel.js";
-import { buildHazardZoneEntity, buildPpeDisplayEntity } from "./graphics.js";
+import {
+  buildHazardZoneEntity,
+  buildPpeDisplayEntity,
+  createHazardZoneThreeMesh,
+  createPpeThreeMesh
+} from "./graphics.js";
 import { t } from "../../js/i18n.js";
 import { playNarration, stopNarration } from "../../js/audio.js";
 import {
@@ -40,6 +45,11 @@ let _currentStep = 0;
 
 // running alignment sampler for step 1, stopped when the trainee confirms
 let _hazardSampler = null;
+
+// track active tier info and webxr three.js mesh handles
+let _currentTierInfo = null;
+let _threeHazardMesh = null;
+let _threePpeMesh = null;
 
 // get active step index
 function getCurrentStep() { return _currentStep; }
@@ -89,8 +99,19 @@ function _createOverlay(container, html) {
   return panel;
 }
 
-// render 3d hazard zone in a-marker or fallback container
+// render 3d hazard zone in a-marker, webxr three scene, or fallback container
 function _renderHazardZoneGraphic(container) {
+  if (_currentTierInfo && _currentTierInfo.tier === 1 && _currentTierInfo.controller) {
+    if (_threeHazardMesh) {
+      _currentTierInfo.controller.removeFromScene(_threeHazardMesh);
+    }
+    _threeHazardMesh = createHazardZoneThreeMesh();
+    if (_threeHazardMesh) {
+      _threeHazardMesh.position.set(0, -0.2, -1.0);
+      _currentTierInfo.controller.addToScene(_threeHazardMesh);
+    }
+  }
+
   const marker = typeof document !== "undefined" && typeof document.querySelector === "function"
     ? document.querySelector("a-marker")
     : null;
@@ -103,20 +124,43 @@ function _renderHazardZoneGraphic(container) {
   }
 
   const graphic = buildHazardZoneEntity();
-  const parent = marker || container;
+  let parent = marker;
+  if (!parent && typeof document !== "undefined" && typeof document.querySelector === "function") {
+    parent = document.querySelector("a-scene");
+  }
+  if (!parent) {
+    parent = container;
+  }
   if (parent && parent.appendChild) {
     parent.appendChild(graphic);
   }
   return graphic;
 }
 
-// render 3d ppe visual in a-marker or fallback container
+// render 3d ppe visual in a-marker, webxr three scene, or fallback container
 function _renderPpeGraphic(container) {
+  if (_currentTierInfo && _currentTierInfo.tier === 1 && _currentTierInfo.controller) {
+    if (_threePpeMesh) {
+      _currentTierInfo.controller.removeFromScene(_threePpeMesh);
+    }
+    _threePpeMesh = createPpeThreeMesh();
+    if (_threePpeMesh) {
+      _threePpeMesh.position.set(0, -0.2, -0.9);
+      _currentTierInfo.controller.addToScene(_threePpeMesh);
+    }
+  }
+
   const marker = typeof document !== "undefined" && typeof document.querySelector === "function"
     ? document.querySelector("a-marker")
     : null;
   const el = buildPpeDisplayEntity();
-  const parent = marker || container;
+  let parent = marker;
+  if (!parent && typeof document !== "undefined" && typeof document.querySelector === "function") {
+    parent = document.querySelector("a-scene");
+  }
+  if (!parent) {
+    parent = container;
+  }
   if (parent && parent.appendChild) {
     parent.appendChild(el);
   }
@@ -233,7 +277,10 @@ function _renderSubscreen(overlay, { badge, title, desc, buttonText, onNext }) {
   btnNext.id = "btn-step-next";
   btnNext.style.cssText = "margin-top:0.4rem;padding:0.75rem 1.4rem;background:#f59e0b;color:#000;border:none;border-radius:8px;font-size:0.95rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
   btnNext.textContent = buttonText || "Next ➜";
-  btnNext.addEventListener("click", onNext);
+  btnNext.addEventListener("click", () => {
+    if (typeof btnNext.remove === "function") btnNext.remove();
+    onNext();
+  });
   overlay.appendChild(btnNext);
 }
 
@@ -250,7 +297,10 @@ function _renderTransitionScreen(overlay, onStartTest) {
   btnNext.dataset.action = "start-test";
   btnNext.style.cssText = "margin-top:0.4rem;padding:0.75rem 1.4rem;background:#10b981;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
   btnNext.textContent = t("gas.btn_start_test", {}, "Begin Graded Test ➜");
-  btnNext.addEventListener("click", onStartTest);
+  btnNext.addEventListener("click", () => {
+    if (typeof btnNext.remove === "function") btnNext.remove();
+    onStartTest();
+  });
   overlay.appendChild(btnNext);
 }
 
@@ -335,8 +385,11 @@ function _startTestPhase(container, tierInfo) {
   logger.info({ event: "gas_test_phase_start", tier: tierInfo && tierInfo.tier }, "Gas leak module test phase starting");
   stopNarration();
 
-  // initialize assessment session if not already started by loader
-  if (!getActiveSession()) {
+  // initialize assessment session if not already active for gas leak
+  if (!getActiveSession() || getActiveSession().moduleId !== "gas-leak") {
+    if (getActiveSession()) {
+      abortAssessmentSession();
+    }
     bindAssessmentSessionListeners();
     startAssessmentSession({ moduleId: "gas-leak" });
   }
@@ -348,6 +401,10 @@ function _startTestPhase(container, tierInfo) {
 function _setupTestAction1(container, tierInfo) {
   _currentStep = 1;
   logger.info({ event: "gas_step_start", step: 1, tier: tierInfo && tierInfo.tier }, "Hazard zone recognition");
+
+  if (typeof document !== "undefined") {
+    document.getElementById("btn-step-next")?.remove();
+  }
 
   registerCheckpoint({
     id: CP_HAZARD_ZONE_ID,
@@ -401,6 +458,10 @@ function _setupTestAction2(container, tierInfo) {
   _currentStep = 2;
   logger.info({ event: "gas_step_start", step: 2, tier: tierInfo && tierInfo.tier }, "PPE selection");
 
+  if (typeof document !== "undefined") {
+    document.getElementById("btn-step-next")?.remove();
+  }
+
   registerCheckpoint({
     id: CP_PPE_SELECTION_ID,
     type: "select",
@@ -436,6 +497,10 @@ function _setupTestAction2(container, tierInfo) {
 function _setupTestAction3(_container) {
   _currentStep = 3;
   logger.info({ event: "gas_step_start", step: 3 }, "Buddy procedure");
+
+  if (typeof document !== "undefined") {
+    document.getElementById("btn-step-next")?.remove();
+  }
 
   registerCheckpoint({
     id: CP_BUDDY_PROCEDURE_ID,
@@ -478,6 +543,18 @@ function cleanupGasLeakModule(options = {}) {
   if (!options.preserveSession && getActiveSession()) {
     abortAssessmentSession();
   }
+
+  if (_currentTierInfo && _currentTierInfo.controller) {
+    if (_threeHazardMesh) {
+      _currentTierInfo.controller.removeFromScene(_threeHazardMesh);
+      _threeHazardMesh = null;
+    }
+    if (_threePpeMesh) {
+      _currentTierInfo.controller.removeFromScene(_threePpeMesh);
+      _threePpeMesh = null;
+    }
+  }
+
   ["gas-module-overlay", "gas-hazard-graphic", "gas-ppe-graphic", "gas-ppe-options", "gas-buddy-options"].forEach((id) => {
     if (typeof document !== "undefined") {
       document.getElementById(id)?.remove();
@@ -490,6 +567,13 @@ function cleanupGasLeakModule(options = {}) {
       const oldHazard = marker.querySelector("#gas-hazard-graphic");
       if (oldHazard && typeof oldHazard.remove === "function") oldHazard.remove();
       const oldPpe = marker.querySelector("#gas-ppe-graphic");
+      if (oldPpe && typeof oldPpe.remove === "function") oldPpe.remove();
+    }
+    const scene = document.querySelector("a-scene");
+    if (scene && typeof scene.querySelector === "function") {
+      const oldHazard = scene.querySelector("#gas-hazard-graphic");
+      if (oldHazard && typeof oldHazard.remove === "function") oldHazard.remove();
+      const oldPpe = scene.querySelector("#gas-ppe-graphic");
       if (oldPpe && typeof oldPpe.remove === "function") oldPpe.remove();
     }
   }
@@ -548,9 +632,18 @@ function _showComplete(_lastPassed) {
 // start gas leak module entry point
 function startGasLeakModule(container, tierInfo) {
   _currentStep = 0;
+  _currentTierInfo = tierInfo || null;
   logger.info({ event: "gas_module_start", tier: tierInfo && tierInfo.tier }, "Gas leak module starting");
 
-  cleanupGasLeakModule({ preserveSession: true });
+  // preserve only fresh empty session from current loader call; restart with checkpoints must reset
+  const existingSession = getActiveSession();
+  const isFreshLoaderSession = Boolean(
+    existingSession &&
+    existingSession.moduleId === "gas-leak" &&
+    (!existingSession.checkpoints || existingSession.checkpoints.length === 0)
+  );
+
+  cleanupGasLeakModule({ preserveSession: isFreshLoaderSession });
 
   _createOverlay(container, `<div>${t("modules.gas_leak.title", {}, "Loading Gas Leak & Confined Space Protocol...")}</div>`);
   _startTeachPhase(container, tierInfo);
