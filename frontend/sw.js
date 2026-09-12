@@ -2,12 +2,17 @@
 // Enables full AR training and audio playback in connectivity-deprived underground mines
 
 // bump this whenever STATIC_ASSETS changes, or installed phones keep the old list
-const CACHE_NAME = "safear-offline-v5";
+const CACHE_NAME = "safear-offline-v6";
 
 const STATIC_ASSETS = [
   "./",
   "./index.html",
   "./css/style.css",
+  // 3D GLTF models for offline AR scenario rendering
+  "./assets/models/animated_fire.glb",
+  "./assets/models/fire_extinguisher.glb",
+  "./assets/models/low_poly_green_running_man_exit_sign.glb",
+  "./assets/models/notifier_rsg_t-bar_fire_alarm_pull_station.glb",
   // the whole ar runtime, vendored so a mine with no signal still renders scenes
   "./vendor/aframe.min.js",
   "./vendor/aframe-ar.js",

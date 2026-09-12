@@ -82,7 +82,8 @@
   "graphics": {
     "aim_flame_base": "👇 AIM AT BASE OF FLAMES",
     "abc_chemical": "ABC DRY CHEMICAL",
-    "pass_instructions": "1. PULL PIN\\n2. AIM AT BASE\\n3. SQUEEZE LEVER\\n4. SWEEP HAZARD"
+    "pass_instructions": "1. PULL PIN\\n2. AIM AT BASE\\n3. SQUEEZE LEVER\\n4. SWEEP HAZARD",
+    "pull_alarm": "PULL ALARM"
   },
   "fire": {
     "exit_badge_1": "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (1/4)",
