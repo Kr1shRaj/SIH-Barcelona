@@ -15,6 +15,17 @@ import {
   getActiveSession,
   bindAssessmentSessionListeners
 } from "../../assessment/engine.js";
+import {
+  generateMethaneReading,
+  isCorrectDecision,
+  getDecisionExplanation,
+  renderGasGaugeSvg,
+  renderAlertFlash,
+  renderDecisionWheel,
+  CP_DECISION_ID,
+  DECISION_CHOICES,
+  METHANE_EXPLOSIVE_THRESHOLD
+} from "./decision.js";
 
 const logger = createLogger("FireModule");
 const _activeCleanups = [];
@@ -1819,5 +1830,14 @@ export {
   CP_EVACUATION_WEBXR_ID,
   EXIT_ANCHOR_ID,
   calcMarkerDistance,
-  isSafeStandoffDistance
+  isSafeStandoffDistance,
+  generateMethaneReading,
+  isCorrectDecision,
+  getDecisionExplanation,
+  renderGasGaugeSvg,
+  renderAlertFlash,
+  renderDecisionWheel,
+  CP_DECISION_ID,
+  DECISION_CHOICES,
+  METHANE_EXPLOSIVE_THRESHOLD
 };
