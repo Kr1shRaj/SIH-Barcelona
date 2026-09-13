@@ -38,6 +38,9 @@ let _currentStep = 0;
 let _controller = null;
 let _fireMesh = null;
 let _extMesh = null;
+let _exitMesh = null;
+let _alarmMesh = null;
+let _alarmPulled = false;
 let _frameHandler = null;
 let _scanFrameHandler = null;
 let _aimFrameHandler = null;
@@ -45,6 +48,18 @@ let _sweepFrameHandler = null;
 let _placementScreenTap = null;
 let _placementConfirmedHandler = null;
 let _interactionState = null;
+
+// keep frame loop ticking all active 3d models
+function _ensureFrameHandler() {
+  if (_frameHandler || !_controller || typeof _controller.onFrame !== "function") return;
+  _frameHandler = ({ deltaMs }) => {
+    if (_fireMesh) animateFireMesh(_fireMesh, deltaMs);
+    if (_extMesh) animateExtinguisherMesh(_extMesh, deltaMs);
+    if (_exitMesh) animateExitSignMesh(_exitMesh, deltaMs);
+    if (_alarmMesh) animateAlarmStationMesh(_alarmMesh, deltaMs);
+  };
+  _controller.onFrame(_frameHandler);
+}
 
 // hazard decision state
 let _methaneReading = null;
@@ -288,14 +303,23 @@ function cleanupWebXRFireModule() {
     _touchZoomHandler = null;
   }
   _zoomScale = 1.0;
-  if (_fireMesh && _controller) {
+  if (_fireMesh && _controller && typeof _controller.removeFromScene === "function") {
     _controller.removeFromScene(_fireMesh);
     _fireMesh = null;
   }
-  if (_extMesh && _controller) {
+  if (_extMesh && _controller && typeof _controller.removeFromScene === "function") {
     _controller.removeFromScene(_extMesh);
     _extMesh = null;
   }
+  if (_exitMesh && _controller && typeof _controller.removeFromScene === "function") {
+    _controller.removeFromScene(_exitMesh);
+    _exitMesh = null;
+  }
+  if (_alarmMesh && _controller && typeof _controller.removeFromScene === "function") {
+    _controller.removeFromScene(_alarmMesh);
+    _alarmMesh = null;
+  }
+  _alarmPulled = false;
   _interactionState = null;
   _currentStep = 0;
 
@@ -319,6 +343,8 @@ function cleanupWebXRFireModule() {
     if (decPanel && decPanel.parentNode) decPanel.parentNode.removeChild(decPanel);
     const alertEl = document.getElementById("fire-alert-overlay");
     if (alertEl && alertEl.parentNode) alertEl.parentNode.removeChild(alertEl);
+    const debriefEl = document.getElementById("debrief-summary-card");
+    if (debriefEl && debriefEl.parentNode) debriefEl.parentNode.removeChild(debriefEl);
     const overlay = document.getElementById("fire-module-overlay");
     if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
     if (_diagHudEl && _diagHudEl.parentNode) {
@@ -524,28 +550,24 @@ function _setupStep1WebXR(container) {
       // setup zoom controls now that objects are anchored in scene
       _setupZoomControls();
 
-      // start animation frame handler
-      _frameHandler = ({ deltaMs }) => {
-        if (_fireMesh) animateFireMesh(_fireMesh, deltaMs);
-        if (_extMesh) animateExtinguisherMesh(_extMesh, deltaMs);
-      };
-      if (_controller) _controller.onFrame(_frameHandler);
+      // start animation frame handler for active 3d models
+      _ensureFrameHandler();
 
-      // fire checkpoint and advance
-      // tier 1 has no anchored exit sign yet, so there is no angle to measure.
-      // report that honestly — the server refuses to certify an unmeasured checkpoint.
-      fireCheckpointResult(
-        CP_EXIT_ID,
-        true,
-        { method: "webxr_surface_placement", measured: false },
-        spatialAlignment({
-          anchorId: EXIT_ANCHOR_ID,
-          angularErrorRad: null,
-          dwellMs: 0,
-          frameCount: 0,
-          trackingSource: "webxr_pose"
-        })
-      );
+      // fire checkpoint and advance if not already recorded from alarm pull
+      if (!_alarmPulled) {
+        fireCheckpointResult(
+          CP_EXIT_ID,
+          true,
+          { method: "webxr_surface_placement", measured: false },
+          spatialAlignment({
+            anchorId: EXIT_ANCHOR_ID,
+            angularErrorRad: null,
+            dwellMs: 0,
+            frameCount: 0,
+            trackingSource: "webxr_pose"
+          })
+        );
+      }
 
       if (overlay) {
         overlay.innerHTML = `
@@ -700,13 +722,13 @@ function _showDecisionWheelStep(container, overlay, onExtinguishProceed) {
           btnProceed.id = "btn-decision-proceed";
           btnProceed.className = "btn-decision-proceed";
           btnProceed.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.4rem;background:#10b981;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;box-shadow:0 0 12px rgba(16,185,129,0.4);";
-          btnProceed.textContent = "✔ Proceed to Extinguisher Placement ➜";
+          btnProceed.textContent = "✔ Proceed to Alarm & Extinguisher ➜";
           btnProceed.addEventListener("click", () => {
             dismissWebXRDiag();
-            _updateWebXRDiag("Proceed to Extinguisher Placement Screen");
+            _updateWebXRDiag("Proceed to Alarm Station Pull");
             const decPanel = document.getElementById("fire-decision-panel");
             if (decPanel && decPanel.remove) decPanel.remove();
-            onExtinguishProceed();
+            _showAlarmPullStationWebXR(container, overlay, onExtinguishProceed);
           });
           if (feedbackSlot && feedbackSlot.appendChild) feedbackSlot.appendChild(btnProceed);
         } else if (choice === DECISION_CHOICES.EVACUATE) {
@@ -720,7 +742,7 @@ function _showDecisionWheelStep(container, overlay, onExtinguishProceed) {
             _updateWebXRDiag("Proceed to Evacuation Route Confirmation");
             const decPanel = document.getElementById("fire-decision-panel");
             if (decPanel && decPanel.remove) decPanel.remove();
-            _showEvacuateConfirmation(container, overlay, reading);
+            _showEvacuateConfirmationWebXR(container, overlay, reading);
           });
           if (feedbackSlot && feedbackSlot.appendChild) feedbackSlot.appendChild(btnProceed);
         }
@@ -732,24 +754,124 @@ function _showDecisionWheelStep(container, overlay, onExtinguishProceed) {
   }
 }
 
-// show branch a evacuation message
-function _showEvacuateConfirmation(container, overlay, reading) {
+// show pull station in 3d and wait for worker to yank alarm
+function _showAlarmPullStationWebXR(container, overlay, onDone) {
+  _currentStep = 1;
+  _currentBranch = "suppress";
+  _updateWebXRDiag("Branch B: 3D Alarm Pull Station Active");
+  logger.info({ event: "webxr_fire_alarm_start", branch: "suppress" }, "Alarm pull station active (WebXR)");
+
+  if (!_alarmMesh && _controller && typeof _controller.addToScene === "function") {
+    _alarmMesh = createAlarmStationMesh({ position: { x: 0, y: 0, z: -1.2 } });
+    if (_alarmMesh) {
+      _controller.addToScene(_alarmMesh);
+      _ensureFrameHandler();
+    }
+  }
+
+  if (overlay) {
+    overlay.innerHTML = "";
+    const hudCard = document.createElement("div");
+    hudCard.id = "fire-hud-card";
+    hudCard.className = "fire-hud-card";
+    hudCard.innerHTML = `
+      <div class="hud-badge">🔔 STEP 1 / 3 — SOUND ALARM (BRANCH B)</div>
+      <div class="hud-title">Pull Fire Alarm Station</div>
+      <div class="hud-desc">Methane is below 5.0% LEL. Before attacking the fire with an extinguisher, sound the mine section alarm to alert all miners!</div>
+    `;
+    overlay.appendChild(hudCard);
+
+    const btn = document.createElement("button");
+    btn.id = "btn-pull-alarm";
+    btn.style.cssText = "margin-top:0.5rem;padding:0.9rem 1.6rem;background:#ef4444;color:#fff;border:none;border-radius:10px;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;box-shadow:0 0 16px rgba(239,68,68,0.4);";
+    btn.textContent = "🚨 PULL FIRE ALARM STATION";
+
+    let pulled = false;
+    const triggerPull = () => {
+      if (pulled) return;
+      pulled = true;
+      _alarmPulled = true;
+      logger.info({ event: "webxr_fire_alarm_pulled", branch: "suppress" }, "Fire alarm station pulled (WebXR)");
+      _updateWebXRDiag("Alarm Station Pulled -> Sounded");
+
+      btn.disabled = true;
+      btn.style.background = "#10b981";
+      btn.style.boxShadow = "0 0 16px rgba(16,185,129,0.4)";
+      btn.textContent = "✔ ALARM ACTIVATED! PREPARING EXTINGUISHER...";
+
+      fireCheckpointResult(
+        CP_EXIT_ID,
+        true,
+        { method: "alarm_pull_activated", reading: _methaneReading },
+        spatialAlignment({
+          anchorId: EXIT_ANCHOR_ID,
+          angularErrorRad: 0,
+          dwellMs: 500,
+          frameCount: 10,
+          trackingSource: "webxr_pose"
+        })
+      );
+
+      if (_alarmMesh && _controller && typeof _controller.removeFromScene === "function") {
+        _controller.removeFromScene(_alarmMesh);
+        _alarmMesh = null;
+      }
+
+      setTimeout(() => {
+        if (typeof onDone === "function") onDone();
+      }, 350);
+    };
+
+    btn.addEventListener("click", triggerPull);
+    overlay.appendChild(btn);
+  }
+}
+
+// show exit sign in 3d and confirm run path
+function _showEvacuateConfirmationWebXR(container, overlay, reading) {
   dismissWebXRDiag();
   if (!overlay) return;
+  _currentBranch = "evacuate";
   _updateWebXRDiag(`Branch A Evacuation Active | Reading: ${reading}%`);
+
+  registerCheckpoint({
+    id: CP_EVACUATION_WEBXR_ID,
+    type: "select",
+    onTrigger: (detail) => {
+      logger.info({ event: "checkpoint_cb", id: detail.checkpointId, passed: detail.passed }, "Evac CP (WebXR)");
+    }
+  });
+
+  if (!_exitMesh && _controller && typeof _controller.addToScene === "function") {
+    _exitMesh = createExitSignMesh({ position: { x: 0, y: 0.2, z: -1.8 } });
+    if (_exitMesh) {
+      _controller.addToScene(_exitMesh);
+      _ensureFrameHandler();
+    }
+  }
+
   const isHigh = reading >= METHANE_EXPLOSIVE_THRESHOLD;
-  overlay.innerHTML = `
-    <div id="fire-hud-card" class="fire-hud-card">
-      <div class="hud-badge">🚨 BRANCH A — IMMEDIATE EVACUATION</div>
-      <div class="hud-title">${isHigh ? "CRITICAL METHANE LEVEL (>= 5.0%)" : "PRECAUTIONARY EVACUATION"}</div>
-      <div class="hud-desc">${isHigh ? "Atmosphere is explosive. Fire suppression is strictly forbidden under mining regulations. Follow emergency route immediately." : "Evacuation selected. Move promptly along marked emergency path to the nearest safe surface exit."}</div>
-    </div>
+  overlay.innerHTML = "";
+  const hudCard = document.createElement("div");
+  hudCard.id = "fire-hud-card";
+  hudCard.className = "fire-hud-card";
+  hudCard.innerHTML = `
+    <div class="hud-badge">🚨 BRANCH A — IMMEDIATE EVACUATION</div>
+    <div class="hud-title">${isHigh ? "CRITICAL METHANE LEVEL (>= 5.0%)" : "PRECAUTIONARY EVACUATION"}</div>
+    <div class="hud-desc">${isHigh ? "Atmosphere is explosive. Fire suppression is strictly forbidden under mining regulations. Follow emergency route immediately." : "Evacuation selected. Move promptly along marked emergency path to the nearest safe surface exit."}</div>
   `;
+  overlay.appendChild(hudCard);
+
   const btn = document.createElement("button");
   btn.id = "btn-exit-found";
   btn.style.cssText = "margin-top:0.6rem;padding:0.8rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;";
   btn.textContent = "✔ Confirm Evacuation Route";
   btn.addEventListener("click", () => {
+    if (_exitMesh && _controller && typeof _controller.removeFromScene === "function") {
+      _controller.removeFromScene(_exitMesh);
+      _exitMesh = null;
+    }
+
     fireCheckpointResult(
       CP_EXIT_ID,
       true,
@@ -765,8 +887,8 @@ function _showEvacuateConfirmation(container, overlay, reading) {
     fireCheckpointResult(
       CP_EVACUATION_WEBXR_ID,
       true,
-      { selected: "sound_alarm_then_evacuate", branch: "evacuate", reading },
-      typeof selectionSingle === "function" ? selectionSingle("sound_alarm_then_evacuate") : null
+      { selected: "wind_based_upwind", branch: "evacuate", reading },
+      typeof selectionSingle === "function" ? selectionSingle("wind_based_upwind") : null
     );
     _showCompletionWebXR(overlay, container, true);
   });
@@ -1277,10 +1399,27 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
   overlay.appendChild(btn);
 }
 
-// step 3: evacuation route selection (pure DOM, same as tier 2)
+// step 3: evacuation route selection with 3d exit sign
 function _setupStep3WebXR(container, _step2Passed) {
   _currentStep = 3;
   logger.info({ event: "webxr_fire_step_start", step: 3 }, "Evacuation (WebXR)");
+
+  if (_fireMesh && _controller && typeof _controller.removeFromScene === "function") {
+    _controller.removeFromScene(_fireMesh);
+    _fireMesh = null;
+  }
+  if (_extMesh && _controller && typeof _controller.removeFromScene === "function") {
+    _controller.removeFromScene(_extMesh);
+    _extMesh = null;
+  }
+
+  if (!_exitMesh && _controller && typeof _controller.addToScene === "function") {
+    _exitMesh = createExitSignMesh({ position: { x: 0, y: 0.2, z: -1.8 } });
+    if (_exitMesh) {
+      _controller.addToScene(_exitMesh);
+      _ensureFrameHandler();
+    }
+  }
 
   registerCheckpoint({
     id: CP_EVACUATION_WEBXR_ID,
@@ -1313,6 +1452,11 @@ function _setupStep3WebXR(container, _step2Passed) {
   const wrapper = overlay.querySelector("#webxr-evac-options") || overlay;
 
   const onSelect = (id, correct) => {
+    if (_exitMesh && _controller && typeof _controller.removeFromScene === "function") {
+      _controller.removeFromScene(_exitMesh);
+      _exitMesh = null;
+    }
+
     fireCheckpointResult(
       CP_EVACUATION_WEBXR_ID,
       correct,
@@ -1342,6 +1486,64 @@ function _setupStep3WebXR(container, _step2Passed) {
   overlay.appendChild(wrapper);
 }
 
+// draw final safety log card with mines act compliance
+function _renderDebriefCardWebXR(overlay) {
+  if (!overlay) return;
+  const existing = document.getElementById("debrief-summary-card");
+  if (existing && existing.remove) existing.remove();
+
+  const reading = typeof _methaneReading === "number" ? _methaneReading : 0;
+  const isExplosive = reading >= METHANE_EXPLOSIVE_THRESHOLD;
+  const card = document.createElement("div");
+  card.id = "debrief-summary-card";
+  card.style.cssText = [
+    "background:#0f172a", "border:2px solid " + (isExplosive ? "#ef4444" : "#10b981"),
+    "border-radius:12px", "padding:1rem", "margin-bottom:1rem",
+    "color:#fff", "box-shadow:0 4px 14px rgba(0,0,0,0.5)"
+  ].join(";");
+
+  const branchLabel = _currentBranch === "evacuate"
+    ? "Branch A (Immediate Evacuation)"
+    : (_currentBranch === "suppress" ? "Branch B (Alarm & Suppression Drill)" : "Standard Sequence");
+
+  const alarmStatus = _alarmPulled ? "✔ Sounded & Activated" : (_currentBranch === "evacuate" ? "N/A (Evacuated Immediately)" : "Completed");
+
+  card.innerHTML = `
+    <div style="font-size:0.8rem;font-weight:bold;color:${isExplosive ? "#f87171" : "#34d399"};letter-spacing:1px;">📋 DRILL DEBRIEF &amp; MINE SAFETY LOG</div>
+    <div style="font-size:1.1rem;font-weight:bold;margin:0.25rem 0;">Hazard Response Summary</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin:0.5rem 0;font-size:0.85rem;">
+      <div style="background:#1e293b;padding:0.45rem;border-radius:6px;">
+        <span style="color:#94a3b8;display:block;">Methane Level:</span>
+        <strong style="color:${isExplosive ? "#ef4444" : "#10b981"};">${reading.toFixed(1)}% CH₄ (${isExplosive ? "EXPLOSIVE" : "SAFE/INCIPIENT"})</strong>
+      </div>
+      <div style="background:#1e293b;padding:0.45rem;border-radius:6px;">
+        <span style="color:#94a3b8;display:block;">Action Taken:</span>
+        <strong>${branchLabel}</strong>
+      </div>
+      <div style="background:#1e293b;padding:0.45rem;border-radius:6px;">
+        <span style="color:#94a3b8;display:block;">Alarm Station:</span>
+        <strong>${alarmStatus}</strong>
+      </div>
+      <div style="background:#1e293b;padding:0.45rem;border-radius:6px;">
+        <span style="color:#94a3b8;display:block;">Evacuation Status:</span>
+        <strong style="color:#10b981;">✔ Safe Exit Reached</strong>
+      </div>
+    </div>
+    <div style="font-size:0.8rem;color:#cbd5e1;line-height:1.4;margin-top:0.35rem;">
+      ${isExplosive
+        ? "Mines Act Compliance: Trainee correctly recognized explosive atmosphere above 5.0% LEL and executed immediate evacuation without risking secondary blast."
+        : "Standard Safety Drill: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit."
+      }
+    </div>
+  `;
+
+  if (overlay && typeof overlay.insertBefore === "function" && overlay.firstChild) {
+    overlay.insertBefore(card, overlay.firstChild);
+  } else if (overlay && typeof overlay.appendChild === "function") {
+    overlay.appendChild(card);
+  }
+}
+
 // completion screen
 function _showCompletionWebXR(overlay, container, passed) {
   dismissWebXRDiag();
@@ -1355,6 +1557,8 @@ function _showCompletionWebXR(overlay, container, passed) {
       ${passed ? t("fire.complete_pass_desc", "Excellent work! You completed the PASS fire extinguisher technique correctly.") : t("fire.complete_fail_desc", "Some steps need improvement. Review the PASS technique and try again.")}
     </div>
   `;
+
+  _renderDebriefCardWebXR(overlay);
 
   const btnExit = document.createElement("button");
   btnExit.id = "btn-exit-module";
@@ -1414,6 +1618,11 @@ function getDecisionMadeWebXR() {
   return _decisionMade;
 }
 
+// tell caller if alarm was pulled
+function getAlarmPulledWebXR() {
+  return _alarmPulled;
+}
+
 export {
   startFireModuleWebXR,
   cleanupWebXRFireModule,
@@ -1426,6 +1635,11 @@ export {
   setMethaneReadingWebXR,
   getActiveBranchWebXR,
   getDecisionMadeWebXR,
+  getAlarmPulledWebXR,
+  _renderDebriefCardWebXR,
+  _setupStep3WebXR,
+  _showAlarmPullStationWebXR,
+  _showEvacuateConfirmationWebXR,
   createExitSignMesh,
   createAlarmStationMesh,
   animateExitSignMesh,

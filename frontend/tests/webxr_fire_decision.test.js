@@ -24,6 +24,73 @@ globalThis.CustomEvent = class CustomEvent {
   }
 };
 
+class MockVector3 {
+  constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; }
+  set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
+}
+class MockMeshBasicMaterial {
+  constructor(opt = {}) {
+    this.color = { setRGB() {} };
+    this.opacity = opt.opacity ?? 1;
+  }
+  clone() {
+    return new MockMeshBasicMaterial();
+  }
+}
+class MockMesh {
+  constructor(geo, mat) {
+    this.geometry = geo;
+    this.material = mat || new MockMeshBasicMaterial();
+    this.position = new MockVector3();
+    this.scale = new MockVector3(1, 1, 1);
+    this.rotation = new MockVector3();
+    this.userData = {};
+    this.visible = true;
+  }
+}
+class MockGroup {
+  constructor() {
+    this.children = [];
+    this.position = new MockVector3();
+    this.scale = new MockVector3(1, 1, 1);
+    this.rotation = new MockVector3();
+    this.userData = {};
+    this.visible = true;
+  }
+  add(obj) { this.children.push(obj); }
+  remove(obj) { this.children = this.children.filter((c) => c !== obj); }
+  getObjectByName(name) {
+    if (this.name === name) return this;
+    for (const child of this.children) {
+      if (child.name === name) return child;
+      if (child.getObjectByName) {
+        const found = child.getObjectByName(name);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+}
+
+const mockTHREE = {
+  Vector3: MockVector3,
+  BoxGeometry: class {},
+  RingGeometry: class {},
+  CylinderGeometry: class {},
+  SphereGeometry: class {},
+  ConeGeometry: class {},
+  TorusGeometry: class {},
+  CircleGeometry: class {},
+  DodecahedronGeometry: class {},
+  MeshBasicMaterial: MockMeshBasicMaterial,
+  MeshStandardMaterial: MockMeshBasicMaterial,
+  Mesh: MockMesh,
+  Group: MockGroup,
+  PointLight: class { constructor() { this.position = new MockVector3(); } },
+  DoubleSide: 2
+};
+globalThis.window.THREE = mockTHREE;
+
 const _elements = {};
 // make mock dom element with listener and query support
 function _makeEl(initId) {
@@ -42,6 +109,13 @@ function _makeEl(initId) {
     set innerHTML(val) {
       this._innerHTML = String(val);
       this.children = [];
+      const matches = this._innerHTML.matchAll(/id=["']([^"']+)["']/g);
+      for (const m of matches) {
+        if (!_elements[m[1]]) {
+          const childEl = _makeEl(m[1]);
+          this.appendChild(childEl);
+        }
+      }
     },
     style: { cssText: "" },
     dataset: {},
@@ -127,8 +201,12 @@ import {
   cleanupWebXRFireModule,
   getMethaneReadingWebXR,
   getActiveBranchWebXR,
+  getAlarmPulledWebXR,
   dismissWebXRDiag,
   isDiagHudVisibleWebXR,
+  _setupStep3WebXR,
+  _showAlarmPullStationWebXR,
+  _renderDebriefCardWebXR,
   CP_DECISION_ID,
   DECISION_CHOICES
 } from "../modules/fire-response/webxr_fire_module.js";
@@ -387,5 +465,202 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
       assert.strictEqual(getActiveBranchWebXR(), "evacuate");
       done();
     }, 300);
+  });
+
+  it("Branch A: Evacuate choice spawns 3D exit sign, confirms route, fires checkpoints with wind_based_upwind and mounts debrief card", (t, done) => {
+    const container = _makeEl("container");
+    const addedMeshes = [];
+    const removedMeshes = [];
+    const mockController = {
+      addToScene(m) { addedMeshes.push(m); },
+      removeFromScene(m) { removedMeshes.push(m); },
+      onFrame() {},
+      offFrame() {}
+    };
+
+    const checkpointsFired = [];
+    window.addEventListener("safear:checkpoint", (ev) => {
+      checkpointsFired.push(ev.detail);
+    });
+
+    startFireModuleWebXR(container, mockController, { reading: 6.5 });
+
+    const overlay = document.getElementById("fire-module-overlay");
+    for (let i = 0; i < 3; i++) {
+      overlay.querySelector("#btn-step-next").click();
+    }
+    document.getElementById("fire-alert-overlay").click();
+
+    setTimeout(() => {
+      const btnEvac = document.getElementById("btn-decision-evacuate");
+      assert.ok(btnEvac);
+      btnEvac.click();
+
+      const btnProceed = document.getElementById("btn-decision-proceed");
+      assert.ok(btnProceed);
+      btnProceed.click();
+
+      // exit mesh added to scene
+      assert.ok(addedMeshes.some((m) => m.name === "exit-graphic"), "3D Exit sign mesh must be added to scene");
+
+      // HUD card rendered
+      const hudCard = document.getElementById("fire-hud-card");
+      assert.ok(hudCard);
+      assert.ok(hudCard.innerHTML.includes("BRANCH A — IMMEDIATE EVACUATION"));
+      assert.ok(hudCard.innerHTML.includes("CRITICAL METHANE LEVEL (>= 5.0%)"));
+
+      const btnConfirm = document.getElementById("btn-exit-found");
+      assert.ok(btnConfirm);
+      btnConfirm.click();
+
+      // exit mesh cleaned up
+      assert.ok(removedMeshes.some((m) => m.name === "exit-graphic"), "3D Exit sign mesh must be removed from scene");
+
+      // verify checkpoints
+      const exitCp = checkpointsFired.find((c) => c.checkpointId === "fire_exit_identification");
+      assert.ok(exitCp);
+      assert.strictEqual(exitCp.passed, true);
+      assert.strictEqual(exitCp.context.method, "branch_a_evacuate");
+
+      const evacCp = checkpointsFired.find((c) => c.checkpointId === "fire_evacuation_sequence_webxr");
+      assert.ok(evacCp);
+      assert.strictEqual(evacCp.passed, true);
+      assert.strictEqual(evacCp.context.selected, "wind_based_upwind");
+
+      // debrief card mounted
+      const debrief = document.getElementById("debrief-summary-card");
+      assert.ok(debrief, "Debrief summary card must be mounted");
+      assert.ok(debrief.innerHTML.includes("6.5% CH₄ (EXPLOSIVE)"));
+      assert.ok(debrief.innerHTML.includes("Branch A (Immediate Evacuation)"));
+      assert.ok(debrief.innerHTML.includes("N/A (Evacuated Immediately)"));
+      assert.ok(debrief.innerHTML.includes("Mines Act Compliance"));
+      done();
+    }, 300);
+  });
+
+  it("Branch B: Extinguish choice spawns 3D alarm station, pulls alarm station, sets alarmPulled flag, fires CP_EXIT_ID and advances", (t, done) => {
+    const container = _makeEl("container");
+    const addedMeshes = [];
+    const removedMeshes = [];
+    const mockController = {
+      addToScene(m) { addedMeshes.push(m); },
+      removeFromScene(m) { removedMeshes.push(m); },
+      onFrame() {},
+      offFrame() {}
+    };
+
+    const checkpointsFired = [];
+    window.addEventListener("safear:checkpoint", (ev) => {
+      checkpointsFired.push(ev.detail);
+    });
+
+    startFireModuleWebXR(container, mockController, { reading: 2.3 });
+
+    const overlay = document.getElementById("fire-module-overlay");
+    for (let i = 0; i < 3; i++) {
+      overlay.querySelector("#btn-step-next").click();
+    }
+    document.getElementById("fire-alert-overlay").click();
+
+    setTimeout(() => {
+      const btnExt = document.getElementById("btn-decision-extinguish");
+      assert.ok(btnExt);
+      btnExt.click();
+
+      const btnProceed = document.getElementById("btn-decision-proceed");
+      assert.ok(btnProceed);
+      btnProceed.click();
+
+      // alarm mesh added to scene
+      assert.ok(addedMeshes.some((m) => m.name === "fire-alarm-station"), "3D Alarm station mesh must be added to scene");
+
+      const hudCard = document.getElementById("fire-hud-card");
+      assert.ok(hudCard);
+      assert.ok(hudCard.innerHTML.includes("STEP 1 / 3 — SOUND ALARM (BRANCH B)"));
+
+      assert.strictEqual(getAlarmPulledWebXR(), false);
+      const btnPull = document.getElementById("btn-pull-alarm");
+      assert.ok(btnPull);
+      btnPull.click();
+
+      assert.strictEqual(getAlarmPulledWebXR(), true);
+
+      // alarm mesh cleaned up
+      assert.ok(removedMeshes.some((m) => m.name === "fire-alarm-station"), "3D Alarm station mesh must be removed after pulling");
+
+      const exitCp = checkpointsFired.find((c) => c.checkpointId === "fire_exit_identification");
+      assert.ok(exitCp);
+      assert.strictEqual(exitCp.passed, true);
+      assert.strictEqual(exitCp.context.method, "alarm_pull_activated");
+
+      setTimeout(() => {
+        // after alarm, transitions to placement screen
+        const placeBtn = document.getElementById("btn-place-extinguisher");
+        assert.ok(placeBtn, "Must transition to extinguisher placement screen after alarm pull");
+        done();
+      }, 500);
+    }, 300);
+  });
+
+  it("Step 3: Evacuation selection spawns 3D exit sign, passing selection fires CP_EVACUATION_WEBXR_ID and displays debrief card", () => {
+    const container = _makeEl("container");
+    const addedMeshes = [];
+    const removedMeshes = [];
+    const mockController = {
+      addToScene(m) { addedMeshes.push(m); },
+      removeFromScene(m) { removedMeshes.push(m); },
+      onFrame() {},
+      offFrame() {}
+    };
+
+    const checkpointsFired = [];
+    window.addEventListener("safear:checkpoint", (ev) => {
+      checkpointsFired.push(ev.detail);
+    });
+
+    startFireModuleWebXR(container, mockController, { reading: 1.8 });
+
+    // direct invocation of Step 3
+    _setupStep3WebXR(container, true);
+
+    assert.ok(addedMeshes.some((m) => m.name === "exit-graphic"), "Step 3 must spawn 3D exit sign mesh");
+
+    const optUpwind = document.getElementById("evacuation-opt-wind_based_upwind");
+    assert.ok(optUpwind, "wind_based_upwind option must be rendered");
+    optUpwind.click();
+
+    assert.ok(removedMeshes.some((m) => m.name === "exit-graphic"), "Exit sign must be removed after choice");
+
+    const evacCp = checkpointsFired.find((c) => c.checkpointId === "fire_evacuation_sequence_webxr");
+    assert.ok(evacCp);
+    assert.strictEqual(evacCp.passed, true);
+    assert.strictEqual(evacCp.context.selected, "wind_based_upwind");
+
+    const debrief = document.getElementById("debrief-summary-card");
+    assert.ok(debrief, "Debrief card must render on step 3 completion");
+    assert.ok(debrief.innerHTML.includes("1.8% CH₄ (SAFE/INCIPIENT)"));
+  });
+
+  it("cleanupWebXRFireModule resets all 3D meshes, alarm state, and debrief card", () => {
+    const container = _makeEl("container");
+    const removedMeshes = [];
+    const mockController = {
+      addToScene() {},
+      removeFromScene(m) { removedMeshes.push(m); },
+      onFrame() {},
+      offFrame() {}
+    };
+
+    startFireModuleWebXR(container, mockController, { reading: 3.0 });
+    _showAlarmPullStationWebXR(container, document.getElementById("fire-module-overlay"), () => {});
+    _renderDebriefCardWebXR(document.getElementById("fire-module-overlay"));
+
+    assert.ok(document.getElementById("debrief-summary-card"));
+    cleanupWebXRFireModule();
+
+    assert.strictEqual(getAlarmPulledWebXR(), false);
+    assert.strictEqual(getActiveBranchWebXR(), null);
+    assert.strictEqual(document.getElementById("debrief-summary-card"), null);
+    assert.ok(removedMeshes.length > 0, "Controller removeFromScene must be called during cleanup");
   });
 });
