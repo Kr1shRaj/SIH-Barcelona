@@ -129,7 +129,7 @@ describe("Database initialization", () => {
 
     assert.throws(
       () => initDatabase(legacyPath),
-      /schema v1, this build needs v3/,
+      /schema v1, this build needs v4/,
       "an unversioned db must be rejected, never half upgraded"
     );
   });
@@ -163,10 +163,11 @@ describe("Database initialization", () => {
         db
           .prepare(
             `INSERT INTO checkpoint_result
-             (attempt_id, checkpoint_id, checkpoint_type, passed, score, weight, client_ts)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`
+             (attempt_id, checkpoint_id, checkpoint_type, observation_kind, observation_json,
+              server_score, server_passed, weight, client_ts)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
-          .run("ATT-BAD", "cp", "aim", 7, 1, 1, "t"),
+          .run("ATT-BAD", "cp", "aim", "aim_dwell", "{}", 1, 7, 1, "t"),
       /CHECK constraint failed|FOREIGN KEY constraint failed/
     );
   });
@@ -179,10 +180,11 @@ describe("Database initialization", () => {
         db
           .prepare(
             `INSERT INTO checkpoint_result
-             (attempt_id, checkpoint_id, checkpoint_type, passed, score, weight, client_ts)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`
+             (attempt_id, checkpoint_id, checkpoint_type, observation_kind, observation_json,
+              server_score, server_passed, weight, client_ts)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
           )
-          .run("ATT-NOT-THERE", "fire_extinguisher_aim", "aim", 1, 1, 1, "t"),
+          .run("ATT-NOT-THERE", "fire_extinguisher_aim", "aim", "aim_dwell", "{}", 1, 1, 1, "t"),
       /FOREIGN KEY constraint failed/
     );
   });

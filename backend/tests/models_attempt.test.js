@@ -3,11 +3,10 @@ const assert = require("node:assert");
 const {
   validateAttemptContract,
   MAX_DURATION_MS,
-  CLOCK_SKEW_TOLERANCE_MS,
-  MAX_CONTEXT_BYTES
+  CLOCK_SKEW_TOLERANCE_MS
 } = require("../models/attempt");
 const { ValidationError, STRUCTURAL } = require("../models/errors");
-const { FIXED_NOW, fireAttempt, gasAttempt } = require("./fixtures/attempts");
+const { FIXED_NOW, fireAttempt, gasAttempt, forgedV1Attempt } = require("./fixtures/attempts");
 
 const AT = { now: FIXED_NOW };
 
@@ -43,7 +42,11 @@ describe("Attempt contract — structural validation", () => {
     it("accepts the Gas Leak example from the contract", () => {
       const result = validateAttemptContract(gasAttempt(), AT);
       assert.strictEqual(result.moduleId, "gas-leak");
-      assert.strictEqual(result.checkpoints[1].score, 0.67, "partial credit must survive");
+      assert.deepStrictEqual(
+        result.checkpoints[1].observation.selected,
+        ["scba_respirator", "multi_gas_detector"],
+        "the raw selection must survive untouched — the server grades it, not the phone"
+      );
     });
 
     it("returns the parsed payload, not the raw input object", () => {
@@ -54,13 +57,43 @@ describe("Attempt contract — structural validation", () => {
     });
   });
 
+  describe("the forged v1 payload that earned a real certificate", () => {
+    // this exact shape walked past the v1 server and got a signed cert with no
+    // training behind it. it must never validate again.
+    it("rejects the proven forgery outright", () => {
+      const err = failure(forgedV1Attempt());
+      assert.strictEqual(err.kind, STRUCTURAL);
+      assert.ok(hasCode(err, "unsupported_contract_version"));
+    });
+
+    it("still rejects the forgery when it relabels itself as v2", () => {
+      const err = failure(forgedV1Attempt({ contractVersion: "2.0" }));
+      assert.strictEqual(err.kind, STRUCTURAL);
+      assert.ok(
+        hasCode(err, "unrecognized_keys") || hasCode(err, "invalid_type"),
+        "a v1 body under a v2 label is still a v1 body"
+      );
+    });
+
+    it("rejects the minimum lie — a bare passed flag", () => {
+      const payload = fireAttempt({ passed: true });
+      assert.ok(hasCode(failure(payload), "unrecognized_keys"));
+    });
+  });
+
   describe("contract versioning", () => {
     it("rejects an unknown contractVersion before anything else", () => {
       const err = failure(fireAttempt({ contractVersion: "9.9" }));
       assert.strictEqual(err.kind, STRUCTURAL);
       assert.ok(hasCode(err, "unsupported_contract_version"));
       assert.strictEqual(err.issues.length, 1, "version failure must not cascade into field noise");
-      assert.match(err.issues[0].message, /this server speaks 1\.0/);
+      assert.match(err.issues[0].message, /this server speaks 2\.0/);
+    });
+
+    it("rejects contract v1.0, the version that let the client score itself", () => {
+      const err = failure(fireAttempt({ contractVersion: "1.0" }));
+      assert.ok(hasCode(err, "unsupported_contract_version"));
+      assert.strictEqual(err.issues.length, 1);
     });
 
     it("rejects a missing contractVersion", () => {
@@ -80,8 +113,7 @@ describe("Attempt contract — structural validation", () => {
     const REQUIRED = [
       "attemptId", "workerId", "moduleId", "moduleVersion", "engineVersion",
       "deviceId", "arTier", "locale", "startedAt", "completedAt", "durationMs",
-      "status", "checkpoints", "totalScore", "maxScore", "percentage",
-      "passThresholdUsed", "passed"
+      "status", "checkpoints", "clientClaimedPercentage", "clientClaimedPassed"
     ];
 
     REQUIRED.forEach((field) => {
@@ -146,65 +178,106 @@ describe("Attempt contract — structural validation", () => {
     });
   });
 
+  describe("nothing the client scored may ride along", () => {
+    const BANNED_TOP_LEVEL = ["passed", "score", "totalScore", "maxScore", "percentage", "passThresholdUsed"];
+
+    BANNED_TOP_LEVEL.forEach((field) => {
+      it(`rejects a top level ${field}`, () => {
+        assert.ok(hasCode(failure(fireAttempt({ [field]: 1 })), "unrecognized_keys"));
+      });
+    });
+
+    const BANNED_ON_CHECKPOINT = ["passed", "score", "weight", "type", "context", "timestamp"];
+
+    BANNED_ON_CHECKPOINT.forEach((field) => {
+      it(`rejects ${field} on a checkpoint`, () => {
+        const payload = fireAttempt();
+        payload.checkpoints[0][field] = 1;
+        assert.ok(hasCode(failure(payload), "unrecognized_keys"));
+      });
+    });
+
+    const BANNED_IN_OBSERVATION = ["accuracy", "score", "correct", "correctOption", "selectedOption", "passed"];
+
+    BANNED_IN_OBSERVATION.forEach((field) => {
+      it(`rejects ${field} inside an observation`, () => {
+        const payload = fireAttempt();
+        payload.checkpoints[2].observation[field] = "sound_alarm_then_evacuate";
+        assert.ok(hasCode(failure(payload), "unrecognized_keys"));
+      });
+    });
+  });
+
+  describe("observation shapes", () => {
+    it("rejects an unknown observation kind", () => {
+      const payload = fireAttempt();
+      payload.checkpoints[0].observation = { kind: "telepathy", selected: "x" };
+      assert.ok(hasIssueAt(failure(payload), "checkpoints.0.observation.kind"));
+    });
+
+    it("rejects a missing observation", () => {
+      const payload = fireAttempt();
+      delete payload.checkpoints[0].observation;
+      assert.ok(hasIssueAt(failure(payload), "checkpoints.0.observation"));
+    });
+
+    it("rejects an angular error beyond half a turn", () => {
+      const payload = fireAttempt();
+      payload.checkpoints[0].observation.angularErrorRad = Math.PI + 0.1;
+      assert.ok(hasIssueAt(failure(payload), "checkpoints.0.observation.angularErrorRad"));
+    });
+
+    it("rejects a negative angular error", () => {
+      const payload = fireAttempt();
+      payload.checkpoints[0].observation.angularErrorRad = -0.1;
+      assert.ok(hasIssueAt(failure(payload), "checkpoints.0.observation.angularErrorRad"));
+    });
+
+    it("rejects a negative hit distance", () => {
+      const payload = fireAttempt();
+      payload.checkpoints[1].observation.hitDistanceM = -1;
+      assert.ok(hasIssueAt(failure(payload), "checkpoints.1.observation.hitDistanceM"));
+    });
+
+    it("accepts a null hit distance, that is how a button fallback reports itself", () => {
+      const payload = fireAttempt();
+      payload.checkpoints[1].observation.hitDistanceM = null;
+      assert.doesNotThrow(() => validateAttemptContract(payload, AT));
+    });
+
+    it("rejects a sweep coverage above 1", () => {
+      const payload = fireAttempt();
+      payload.checkpoints[1].observation.sweepCoverage = 1.5;
+      assert.ok(hasIssueAt(failure(payload), "checkpoints.1.observation.sweepCoverage"));
+    });
+
+    it("rejects a tracking source the contract does not name", () => {
+      const payload = fireAttempt();
+      payload.checkpoints[1].observation.trackingSource = "vibes";
+      assert.ok(hasIssueAt(failure(payload), "checkpoints.1.observation.trackingSource"));
+    });
+
+    it("accepts a declared none tracking source, the grader is what refuses it", () => {
+      const payload = fireAttempt();
+      payload.checkpoints[1].observation.trackingSource = "none";
+      assert.doesNotThrow(() => validateAttemptContract(payload, AT));
+    });
+
+    it("rejects a fractional frame count", () => {
+      const payload = fireAttempt();
+      payload.checkpoints[1].observation.frameCount = 3.5;
+      assert.ok(hasIssueAt(failure(payload), "checkpoints.1.observation.frameCount"));
+    });
+  });
+
   describe("checkpoint rules", () => {
     it("rejects a duplicate checkpoint instead of silently collapsing it", () => {
       const payload = fireAttempt();
-      payload.checkpoints.push({ ...payload.checkpoints[0] });
+      payload.checkpoints.push(JSON.parse(JSON.stringify(payload.checkpoints[0])));
 
       const err = failure(payload);
       assert.ok(hasIssueAt(err, "checkpoints.3.checkpointId"));
       assert.match(err.issues.find((i) => i.path === "checkpoints.3.checkpointId").message, /duplicate checkpoint/);
-    });
-
-    it("rejects an unknown checkpoint type", () => {
-      const payload = fireAttempt();
-      payload.checkpoints[0].type = "telepathy";
-      assert.ok(hasIssueAt(failure(payload), "checkpoints.0.type"));
-    });
-
-    it("rejects a checkpoint score outside 0..1", () => {
-      const payload = fireAttempt();
-      payload.checkpoints[1].score = 1.5;
-      assert.ok(hasIssueAt(failure(payload), "checkpoints.1.score"));
-    });
-
-    it("rejects a zero weight", () => {
-      const payload = fireAttempt();
-      payload.checkpoints[0].weight = 0;
-      assert.ok(hasIssueAt(failure(payload), "checkpoints.0.weight"));
-    });
-  });
-
-  describe("context sanitization", () => {
-    it("rejects a context still carrying the answer key", () => {
-      const payload = fireAttempt();
-      payload.checkpoints[2].context.correct = "sound_alarm_then_evacuate";
-
-      const err = failure(payload);
-      assert.ok(hasIssueAt(err, "checkpoints.2.context"));
-      assert.match(
-        err.issues.find((i) => i.path === "checkpoints.2.context").message,
-        /must not carry the answer key/
-      );
-    });
-
-    it("accepts an empty context object", () => {
-      const payload = fireAttempt();
-      payload.checkpoints[0].context = {};
-      assert.doesNotThrow(() => validateAttemptContract(payload, AT));
-    });
-
-    it("keeps the gas PPE diagnostic fields — they are the training analytics", () => {
-      const result = validateAttemptContract(gasAttempt(), AT);
-      const ppe = result.checkpoints[1].context;
-      assert.deepStrictEqual(ppe.missing, ["safety_harness"]);
-      assert.deepStrictEqual(ppe.forbidden, []);
-    });
-
-    it("rejects an oversized context blob", () => {
-      const payload = fireAttempt();
-      payload.checkpoints[0].context = { blob: "x".repeat(MAX_CONTEXT_BYTES + 100) };
-      assert.ok(hasIssueAt(failure(payload), "checkpoints.0.context"));
     });
   });
 
@@ -220,20 +293,20 @@ describe("Attempt contract — structural validation", () => {
         completedAt: "2026-09-01T10:14:02.118Z",
         durationMs: 0
       });
-      payload.checkpoints.forEach((c) => { c.timestamp = "2026-09-01T10:14:02.118Z"; });
+      payload.checkpoints.forEach((c) => { c.observedAt = "2026-09-01T10:14:02.118Z"; });
       assert.doesNotThrow(() => validateAttemptContract(payload, AT));
     });
 
     it("rejects a checkpoint fired before the attempt started", () => {
       const payload = fireAttempt();
-      payload.checkpoints[0].timestamp = "2026-09-01T09:00:00.000Z";
-      assert.ok(hasIssueAt(failure(payload), "checkpoints.0.timestamp"));
+      payload.checkpoints[0].observedAt = "2026-09-01T09:00:00.000Z";
+      assert.ok(hasIssueAt(failure(payload), "checkpoints.0.observedAt"));
     });
 
     it("rejects a checkpoint fired after the attempt completed", () => {
       const payload = fireAttempt();
-      payload.checkpoints[1].timestamp = "2026-09-01T23:00:00.000Z";
-      assert.ok(hasIssueAt(failure(payload), "checkpoints.1.timestamp"));
+      payload.checkpoints[1].observedAt = "2026-09-01T23:00:00.000Z";
+      assert.ok(hasIssueAt(failure(payload), "checkpoints.1.observedAt"));
     });
 
     it("rejects an impossible calendar date", () => {
@@ -261,15 +334,11 @@ describe("Attempt contract — structural validation", () => {
   });
 
   describe("client claims are evidence, not gospel", () => {
-    // if bad arithmetic were rejected here, a tampered payload would never reach
-    // the database and client_claim_mismatch could never be recorded
-    it("accepts a payload whose percentage disagrees with its own scores", () => {
-      const payload = fireAttempt({ totalScore: 2.75, maxScore: 3, percentage: 100, passed: true });
-      assert.doesNotThrow(() => validateAttemptContract(payload, AT));
-    });
-
-    it("accepts a claimed pass that the scores do not support", () => {
-      const payload = fireAttempt({ percentage: 10, passThresholdUsed: 0.7, passed: true });
+    // if a bad claim were rejected here, a tampered payload would never reach the
+    // database and the mismatch could never be recorded
+    it("accepts a claimed pass the observations do not support", () => {
+      const payload = fireAttempt({ clientClaimedPercentage: 100, clientClaimedPassed: true });
+      payload.checkpoints[2].observation.selected = "use_elevator";
       assert.doesNotThrow(() => validateAttemptContract(payload, AT));
     });
 
@@ -278,9 +347,8 @@ describe("Attempt contract — structural validation", () => {
     });
 
     it("still enforces ranges on those claims", () => {
-      assert.ok(hasIssueAt(failure(fireAttempt({ percentage: 140 })), "percentage"));
-      assert.ok(hasIssueAt(failure(fireAttempt({ maxScore: 0 })), "maxScore"));
-      assert.ok(hasIssueAt(failure(fireAttempt({ passThresholdUsed: 1.4 })), "passThresholdUsed"));
+      assert.ok(hasIssueAt(failure(fireAttempt({ clientClaimedPercentage: 140 })), "clientClaimedPercentage"));
+      assert.ok(hasIssueAt(failure(fireAttempt({ clientClaimedPassed: "yes" })), "clientClaimedPassed"));
     });
   });
 });
