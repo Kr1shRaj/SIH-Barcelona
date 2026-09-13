@@ -808,6 +808,199 @@ canvas.a-canvas {
   width: 100%;
 }
 
+/* --- Radial Decision Wheel Styles (Phase A) --- */
+.decision-wheel-radial {
+  position: relative;
+  width: 100%;
+  max-width: 340px;
+  height: 250px;
+  margin: 0.35rem auto 0.2rem auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.radial-wheel-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.radial-orbit-ring {
+  fill: none;
+  stroke: rgba(148, 163, 184, 0.22);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 4;
+}
+
+.radial-orbit-inner {
+  fill: none;
+  stroke: rgba(56, 189, 248, 0.3);
+  stroke-width: 1.5;
+}
+
+.radial-spoke {
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease;
+}
+
+.radial-spoke-top {
+  stroke: rgba(245, 158, 11, 0.45);
+}
+
+.radial-spoke-left {
+  stroke: rgba(239, 68, 68, 0.45);
+}
+
+.radial-spoke-right {
+  stroke: rgba(148, 163, 184, 0.35);
+}
+
+/* Central telemetry hub */
+.radial-center-hub {
+  position: absolute;
+  top: 57%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 82px;
+  height: 82px;
+  border-radius: 50%;
+  background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+  border: 2px solid rgba(56, 189, 248, 0.6);
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.25), inset 0 0 10px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  pointer-events: none;
+  user-select: none;
+}
+
+.radial-center-hub.hub-danger {
+  border-color: #ef4444;
+  box-shadow: 0 0 18px rgba(239, 68, 68, 0.4), inset 0 0 12px rgba(239, 68, 68, 0.2);
+  animation: hub-pulse-danger 1.5s ease-in-out infinite alternate;
+}
+
+.radial-center-hub.hub-safe {
+  border-color: #10b981;
+  box-shadow: 0 0 16px rgba(16, 185, 129, 0.3), inset 0 0 10px rgba(16, 185, 129, 0.15);
+}
+
+@keyframes hub-pulse-danger {
+  0% { transform: translate(-50%, -50%) scale(0.97); }
+  100% { transform: translate(-50%, -50%) scale(1.03); }
+}
+
+.hub-label {
+  font-size: 0.65rem;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  color: #94a3b8;
+  line-height: 1;
+}
+
+.hub-value {
+  font-size: 1.05rem;
+  font-weight: 900;
+  font-family: monospace, monospace;
+  color: #f8fafc;
+  line-height: 1.1;
+  margin: 1px 0;
+}
+
+.hub-sub {
+  font-size: 0.60rem;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+
+/* Radial node buttons */
+.wheel-btn-radial {
+  position: absolute !important;
+  z-index: 3 !important;
+  padding: 0.5rem 0.55rem !important;
+  border-radius: 12px !important;
+  background: rgba(15, 23, 42, 0.92) !important;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  text-align: center !important;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6) !important;
+  touch-action: manipulation !important;
+  cursor: pointer !important;
+  box-sizing: border-box !important;
+  width: auto !important;
+}
+
+.wheel-node-top {
+  top: 6px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  width: min(168px, 50%) !important;
+  min-height: 58px !important;
+}
+
+.wheel-node-left {
+  bottom: 6px !important;
+  left: 2px !important;
+  width: min(134px, 42%) !important;
+  min-height: 64px !important;
+}
+
+.wheel-node-right {
+  bottom: 6px !important;
+  right: 2px !important;
+  width: min(134px, 42%) !important;
+  min-height: 64px !important;
+}
+
+.wheel-btn-radial .wheel-btn-icon {
+  font-size: 1.25rem;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+
+.wheel-btn-radial .wheel-btn-label {
+  font-size: 0.86rem;
+  font-weight: 700;
+  line-height: 1.15;
+  color: #f8fafc;
+}
+
+.wheel-btn-radial .wheel-btn-sub {
+  font-size: 0.68rem;
+  color: #94a3b8;
+  line-height: 1.1;
+  margin-top: 2px;
+}
+
+/* Highlight spokes on button hover */
+.decision-wheel-radial:has(.wheel-node-top:hover) .radial-spoke-top {
+  stroke: #f59e0b;
+  stroke-width: 3.5;
+}
+
+.decision-wheel-radial:has(.wheel-node-left:hover) .radial-spoke-left {
+  stroke: #ef4444;
+  stroke-width: 3.5;
+}
+
+.decision-wheel-radial:has(.wheel-node-right:hover) .radial-spoke-right {
+  stroke: #94a3b8;
+  stroke-width: 3.5;
+}
+
 .wheel-options-cluster {
   display: flex;
   flex-direction: column;

@@ -229,7 +229,7 @@ export function renderDecisionWheel(container, { reading, onDecision, onWrongAtt
   panel.id = "fire-decision-panel";
   panel.className = "fire-decision-panel";
 
-  const gaugeHtml = renderGasGaugeSvg(readingVal, { size: 210 });
+  const gaugeHtml = renderGasGaugeSvg(readingVal, { size: 175 });
 
   const cardShell = document.createElement("div");
   cardShell.className = "decision-card-shell";
@@ -250,37 +250,55 @@ export function renderDecisionWheel(container, { reading, onDecision, onWrongAtt
     </div>
   `;
 
-  const wheelWrapper = document.createElement("div");
-  wheelWrapper.className = "decision-wheel-wrapper";
-  wheelWrapper.id = "decision-wheel-wrapper";
+  const radialWheel = document.createElement("div");
+  radialWheel.className = "decision-wheel-radial";
+  radialWheel.id = "decision-wheel-radial";
 
-  const cluster = document.createElement("div");
-  cluster.className = "wheel-options-cluster";
+  radialWheel.innerHTML = `
+    <svg class="radial-wheel-svg" viewBox="0 0 340 250" aria-hidden="true">
+      <defs>
+        <radialGradient id="hub-glow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.3" />
+          <stop offset="100%" stop-color="#38bdf8" stop-opacity="0" />
+        </radialGradient>
+      </defs>
+      <circle cx="170" cy="142" r="92" class="radial-orbit-ring" />
+      <circle cx="170" cy="142" r="56" class="radial-orbit-inner" />
+      <line x1="170" y1="142" x2="170" y2="60" class="radial-spoke radial-spoke-top" />
+      <line x1="170" y1="142" x2="72" y2="190" class="radial-spoke radial-spoke-left" />
+      <line x1="170" y1="142" x2="268" y2="190" class="radial-spoke radial-spoke-right" />
+    </svg>
+    <div class="radial-center-hub ${isExplosive ? "hub-danger" : "hub-safe"}">
+      <span class="hub-label">CH₄</span>
+      <span class="hub-value">${readingVal.toFixed(1)}%</span>
+      <span class="hub-sub">VOL</span>
+    </div>
+  `;
 
   const optionDefs = [
     {
-      id: "btn-decision-evacuate",
-      choice: DECISION_CHOICES.EVACUATE,
-      extraClass: "wheel-btn-evacuate",
-      icon: "🚨",
-      label: "Evacuate immediately",
-      sub: "Run to nearest marked exit"
-    },
-    {
       id: "btn-decision-extinguish",
       choice: DECISION_CHOICES.EXTINGUISH,
-      extraClass: "wheel-btn-extinguish",
+      extraClass: "wheel-btn-extinguish wheel-node-top",
       icon: "🧯",
-      label: "Attempt to extinguish",
-      sub: "Use PASS extinguisher drill"
+      label: "Attempt Extinguish",
+      sub: "PASS suppression drill"
+    },
+    {
+      id: "btn-decision-evacuate",
+      choice: DECISION_CHOICES.EVACUATE,
+      extraClass: "wheel-btn-evacuate wheel-node-left",
+      icon: "🚨",
+      label: "Evacuate Now",
+      sub: "To emergency exit"
     },
     {
       id: "btn-decision-wait",
       choice: DECISION_CHOICES.WAIT,
-      extraClass: "wheel-btn-wait",
+      extraClass: "wheel-btn-wait wheel-node-right",
       icon: "⏳",
-      label: "Wait for supervisor",
-      sub: "Remain at location for orders"
+      label: "Wait in Place",
+      sub: "Await supervisor"
     }
   ];
 
@@ -289,18 +307,18 @@ export function renderDecisionWheel(container, { reading, onDecision, onWrongAtt
     const btn = document.createElement("button");
     btn.type = "button";
     btn.id = opt.id;
-    btn.className = `wheel-btn ${opt.extraClass}`;
+    btn.className = `wheel-btn wheel-btn-radial ${opt.extraClass}`;
     btn.dataset.choice = opt.choice;
     btn.innerHTML = `
       <span class="wheel-btn-icon">${opt.icon}</span>
       <span class="wheel-btn-label">${opt.label}</span>
       <span class="wheel-btn-sub">${opt.sub}</span>
     `;
-    cluster.appendChild(btn);
+    radialWheel.appendChild(btn);
     buttons.push(btn);
   });
-  wheelWrapper.appendChild(cluster);
-  cardShell.appendChild(wheelWrapper);
+
+  cardShell.appendChild(radialWheel);
 
   const feedbackSlot = document.createElement("div");
   feedbackSlot.id = "decision-feedback-slot";
@@ -308,7 +326,14 @@ export function renderDecisionWheel(container, { reading, onDecision, onWrongAtt
   cardShell.appendChild(feedbackSlot);
 
   panel.appendChild(cardShell);
-  container.appendChild(panel);
+
+  // ensure modal attaches to viewport root if caller passed a nested or transformed overlay
+  let mountTarget = container;
+  if (container && container.id === "fire-module-overlay" && typeof document !== "undefined") {
+    const viewport = document.getElementById("ar-viewport") || document.body;
+    if (viewport) mountTarget = viewport;
+  }
+  mountTarget.appendChild(panel);
 
   // register scored moment checkpoint
   registerCheckpoint({
