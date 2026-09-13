@@ -25,6 +25,7 @@ let _controller = null;
 let _fireMesh = null;
 let _extMesh = null;
 let _frameHandler = null;
+let _scanFrameHandler = null;
 let _aimFrameHandler = null;
 let _sweepFrameHandler = null;
 let _placementScreenTap = null;
@@ -129,6 +130,10 @@ function cleanupWebXRFireModule() {
     _controller.offFrame(_frameHandler);
     _frameHandler = null;
   }
+  if (_scanFrameHandler && _controller) {
+    _controller.offFrame(_scanFrameHandler);
+    _scanFrameHandler = null;
+  }
   if (_aimFrameHandler && _controller) {
     _controller.offFrame(_aimFrameHandler);
     _aimFrameHandler = null;
@@ -203,7 +208,10 @@ function _renderSubscreen(overlay, { badge, title, desc, buttonText, onNext }) {
   btnNext.id = "btn-step-next";
   btnNext.style.cssText = "margin-top:0.6rem;padding:0.75rem 0;background:transparent !important;color:#ff6a00;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);";
   btnNext.textContent = buttonText || "Next ➜";
-  btnNext.addEventListener("click", onNext);
+  btnNext.addEventListener("click", (e) => {
+    if (e && typeof e.stopPropagation === "function") e.stopPropagation();
+    onNext();
+  });
   overlay.appendChild(btnNext);
 }
 
@@ -246,14 +254,38 @@ function _setupStep1WebXR(container) {
   function showPlacementScreen() {
     if (!overlay) return;
 
-    // spawn 3D extinguisher immediately so trainee sees it right away
+    // spawn extinguisher hidden until surface detected or placed
     if (!_extMesh && _controller) {
       _extMesh = createExtinguisherMesh();
       if (_extMesh) {
-        _extMesh.position.set(0, -0.42, -1.05);
-        _extMesh.scale.set(0.35, 0.35, 0.35);
+        _extMesh.visible = false;
+        const s = BASE_EXT_SCALE * _zoomScale;
+        _extMesh.scale.set(s, s, s);
         _controller.addToScene(_extMesh);
       }
+    }
+
+    // preview extinguisher sitting on detected surface while scanning
+    if (_controller && typeof _controller.onFrame === "function") {
+      _scanFrameHandler = () => {
+        if (placed) return;
+        if (_controller._lastHitPose && _controller.state === "surface_found") {
+          const hp = _controller._lastHitPose.transform.position;
+          if (_extMesh) {
+            _extMesh.visible = true;
+            _extMesh.position.set(hp.x, hp.y, hp.z);
+          }
+          const statusEl = document.getElementById("placement-status-text");
+          if (statusEl && !statusEl.dataset.surfaceFound) {
+            statusEl.dataset.surfaceFound = "true";
+            statusEl.style.color = "#00e676";
+            statusEl.textContent = t("fire.surface_found", "Surface detected! Tap button or floor to place extinguisher.");
+          }
+        } else if (_extMesh && !placed) {
+          _extMesh.visible = false;
+        }
+      };
+      _controller.onFrame(_scanFrameHandler);
     }
 
     overlay.innerHTML = `
@@ -270,6 +302,11 @@ function _setupStep1WebXR(container) {
     const doPlace = (pos, viewerQuat) => {
       if (placed) return;
       placed = true;
+
+      if (_scanFrameHandler && _controller && typeof _controller.offFrame === "function") {
+        _controller.offFrame(_scanFrameHandler);
+        _scanFrameHandler = null;
+      }
 
       if (_placementScreenTap && typeof window !== "undefined") {
         window.removeEventListener("click", _placementScreenTap);
@@ -288,12 +325,13 @@ function _setupStep1WebXR(container) {
       const finalPos = pos || { x: 0, y: -0.45, z: -1.20 };
       logger.info({ event: "extinguisher_placed", position: finalPos }, "Extinguisher placed on surface");
 
-      // position extinguisher at placed spot
+      // position extinguisher flush at placed spot
       if (!_extMesh && _controller) {
         _extMesh = createExtinguisherMesh();
         if (_extMesh) _controller.addToScene(_extMesh);
       }
       if (_extMesh) {
+        _extMesh.visible = true;
         _extMesh.position.set(finalPos.x, finalPos.y, finalPos.z);
         const s = BASE_EXT_SCALE * _zoomScale;
         _extMesh.scale.set(s, s, s);
@@ -404,12 +442,15 @@ function _setupStep1WebXR(container) {
       btnPlace.addEventListener("touchstart", triggerPlacement, { passive: false });
     }
 
-    // 2. Hook up screen tap fallback
-    _placementScreenTap = (e) => {
-      triggerPlacement(e);
-    };
-    window.addEventListener("click", _placementScreenTap, { once: true });
-    window.addEventListener("pointerdown", _placementScreenTap, { once: true });
+    // 2. Hook up screen tap fallback with delay to prevent previous button click bubbling
+    setTimeout(() => {
+      if (placed) return;
+      _placementScreenTap = (e) => {
+        triggerPlacement(e);
+      };
+      window.addEventListener("click", _placementScreenTap, { once: true });
+      window.addEventListener("pointerdown", _placementScreenTap, { once: true });
+    }, 150);
 
     // 3. Listen for WebXR session select event directly
     if (_controller && _controller.session && typeof _controller.session.addEventListener === "function") {

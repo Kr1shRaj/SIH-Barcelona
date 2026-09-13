@@ -235,7 +235,7 @@ function createExtinguisherMesh() {
   const bodyGeo = new THREE.CylinderGeometry(0.38, 0.38, 1.30, 24);
   const bodyMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
   const body = new THREE.Mesh(bodyGeo, bodyMat);
-  body.position.set(0, 0.65, 0);
+  body.position.set(0, 0.79, 0);
   body.name = "ext-body";
   group.add(body);
 
@@ -244,7 +244,7 @@ function createExtinguisherMesh() {
   const topMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
   const top = new THREE.Mesh(topGeo, topMat);
   top.scale.set(1, 0.40, 1);
-  top.position.set(0, 1.30, 0);
+  top.position.set(0, 1.44, 0);
   top.name = "ext-top-dome";
   group.add(top);
 
@@ -253,15 +253,15 @@ function createExtinguisherMesh() {
   const botMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
   const bot = new THREE.Mesh(botGeo, botMat);
   bot.scale.set(1, 0.30, 1);
-  bot.position.set(0, 0.0, 0);
+  bot.position.set(0, 0.14, 0);
   bot.name = "ext-bottom-dome";
   group.add(bot);
 
-  // base ring
+  // base ring (rests flush on Y=0)
   const baseGeo = new THREE.CylinderGeometry(0.41, 0.41, 0.14, 24);
   const baseMat = new THREE.MeshBasicMaterial({ color: 0x1e293b });
   const base = new THREE.Mesh(baseGeo, baseMat);
-  base.position.set(0, -0.07, 0);
+  base.position.set(0, 0.07, 0);
   base.name = "ext-base";
   group.add(base);
 
@@ -271,14 +271,14 @@ function createExtinguisherMesh() {
     color: 0xd97706, metalness: 0.85, roughness: 0.2
   });
   const valve = new THREE.Mesh(valveGeo, valveMat);
-  valve.position.set(0, 1.49, 0);
+  valve.position.set(0, 1.63, 0);
   valve.name = "ext-valve-block";
   group.add(valve);
 
   // neck
   const neckGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.16, 16);
   const neck = new THREE.Mesh(neckGeo, valveMat.clone());
-  neck.position.set(0, 1.39, 0);
+  neck.position.set(0, 1.53, 0);
   neck.name = "ext-neck";
   group.add(neck);
 
@@ -288,7 +288,7 @@ function createExtinguisherMesh() {
     color: 0x334155, metalness: 0.5, roughness: 0.3
   });
   const handle = new THREE.Mesh(handleGeo, handleMat);
-  handle.position.set(0.15, 1.53, 0);
+  handle.position.set(0.15, 1.67, 0);
   handle.rotation.z = -0.21;
   handle.name = "extinguisher-handle";
   handle.userData.raycastTarget = "handle";
@@ -297,7 +297,7 @@ function createExtinguisherMesh() {
   // safety pin (gold)
   const pinGroup = new THREE.Group();
   pinGroup.name = "extinguisher-pin";
-  pinGroup.position.set(0.06, 1.53, 0.15);
+  pinGroup.position.set(0.06, 1.67, 0.15);
 
   const pinShaftGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.38, 12);
   const pinMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
@@ -321,7 +321,7 @@ function createExtinguisherMesh() {
   // guide arrow pointing at pin
   const arrowGroup = new THREE.Group();
   arrowGroup.name = "extinguisher-guide-arrow";
-  arrowGroup.position.set(0.26, 2.10, 0.15);
+  arrowGroup.position.set(0.26, 2.24, 0.15);
 
   const arrowConeGeo = new THREE.ConeGeometry(0.16, 0.36, 12);
   const arrowMat = new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide });
@@ -341,7 +341,7 @@ function createExtinguisherMesh() {
   const hoseGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.70, 8);
   const hoseMat = new THREE.MeshBasicMaterial({ color: 0x0f172a });
   const hose = new THREE.Mesh(hoseGeo, hoseMat);
-  hose.position.set(0.26, 1.15, -0.10);
+  hose.position.set(0.26, 1.29, -0.10);
   hose.rotation.set(0.35, 0, -0.42);
   hose.name = "ext-hose";
   group.add(hose);
@@ -349,7 +349,7 @@ function createExtinguisherMesh() {
   // discharge nozzle horn pointing toward fire (-Z)
   const nozzleGroup = new THREE.Group();
   nozzleGroup.name = "extinguisher-nozzle";
-  nozzleGroup.position.set(0.40, 0.88, -0.28);
+  nozzleGroup.position.set(0.40, 1.02, -0.28);
   nozzleGroup.rotation.set(-0.15, 0.10, 0);
 
   const hornGeo = new THREE.ConeGeometry(0.11, 0.34, 12);
@@ -492,7 +492,7 @@ function animateExtinguisherMesh(extGroup, deltaMs, discharging = false) {
 
   const arrow = extGroup.getObjectByName("extinguisher-guide-arrow");
   if (arrow && !extGroup.userData._pinPulled) {
-    arrow.position.y = 2.10 + 0.15 * Math.sin(t * 0.008);
+    arrow.position.y = 2.24 + 0.15 * Math.sin(t * 0.008);
   }
 
   const ring = extGroup.getObjectByName("ext-pin-ring");

@@ -89,6 +89,10 @@ class MockRingGeometry {
 class MockConeGeometry {}
 class MockCylinderGeometry {}
 class MockSphereGeometry {}
+class MockBoxGeometry {}
+class MockTorusGeometry {}
+class MockCircleGeometry {}
+class MockDodecahedronGeometry {}
 class MockMeshBasicMaterial {
   constructor(opt = {}) {
     this.color = {
@@ -96,6 +100,7 @@ class MockMeshBasicMaterial {
     };
     this.opacity = opt.opacity ?? 1;
   }
+  clone() { return new MockMeshBasicMaterial(); }
 }
 class MockMesh {
   constructor(geo, mat) {
@@ -172,6 +177,10 @@ const mockTHREE = {
   ConeGeometry: MockConeGeometry,
   CylinderGeometry: MockCylinderGeometry,
   SphereGeometry: MockSphereGeometry,
+  BoxGeometry: MockBoxGeometry,
+  TorusGeometry: MockTorusGeometry,
+  CircleGeometry: MockCircleGeometry,
+  DodecahedronGeometry: MockDodecahedronGeometry,
   MeshBasicMaterial: MockMeshBasicMaterial,
   MeshStandardMaterial: MockMeshBasicMaterial,
   Mesh: MockMesh,
@@ -190,6 +199,8 @@ import {
   createPlacementReticle,
   createPowderSprayMesh,
   animatePowderSpray,
+  createExtinguisherMesh,
+  createFireMesh,
   animateFireMesh
 } from "../ar/webxr_render.js";
 
@@ -486,5 +497,32 @@ describe("WebXR Placement and Tracking", () => {
 
     // reset
     setZoomScaleWebXR(1.0);
+  });
+
+  it("createExtinguisherMesh base rests flush on floor plane Y=0", () => {
+    globalThis.window.THREE = mockTHREE;
+    const mesh = createExtinguisherMesh();
+    assert.ok(mesh);
+    const base = mesh.getObjectByName("ext-base");
+    assert.ok(base);
+    // base cylinder is 0.14m high, centered at Y=0.07m -> base bottom is 0.07 - 0.07 = 0.00m flush
+    assert.strictEqual(base.position.y, 0.07);
+    const body = mesh.getObjectByName("ext-body");
+    assert.ok(body);
+    // body cylinder rests on top of base at Y=0.14
+    assert.strictEqual(body.position.y, 0.79);
+  });
+
+  it("createFireMesh barrel base rests flush on floor plane Y=0", () => {
+    globalThis.window.THREE = mockTHREE;
+    const mesh = createFireMesh();
+    assert.ok(mesh);
+    const barrel = mesh.getObjectByName("fire-barrel");
+    assert.ok(barrel);
+    // barrel cylinder is 0.84m high, centered at Y=0.42m -> barrel bottom is 0.42 - 0.42 = 0.00m flush
+    assert.strictEqual(barrel.position.y, 0.42);
+    const scorch = mesh.getObjectByName("floor-scorch-decal");
+    assert.ok(scorch);
+    assert.strictEqual(scorch.position.y, 0.01);
   });
 });
