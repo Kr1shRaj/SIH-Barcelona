@@ -726,7 +726,7 @@ canvas.a-canvas {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1500;
+  z-index: 10000;
   pointer-events: auto;
   padding: 1rem;
   overflow-y: auto;

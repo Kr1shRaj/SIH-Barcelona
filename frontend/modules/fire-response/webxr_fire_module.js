@@ -49,6 +49,71 @@ let _decisionMade = null;
 let _currentBranch = null;
 let _alertStrobe = null;
 
+// temporary diagnostic hud state for tablet verification
+let _diagHudEl = null;
+let _diagLastError = null;
+let _diagErrorListener = null;
+let _diagRejectionListener = null;
+
+// update temporary on-screen diagnostic hud for tablet verification
+function _updateWebXRDiag(stateText, err = null) {
+  if (err) {
+    _diagLastError = (err && (err.stack || err.message)) ? `${err.name || "Error"}: ${err.message}` : String(err);
+    logger.error({ event: "webxr_diag_error", err: _diagLastError }, "Diagnostic caught error");
+  }
+  if (typeof document === "undefined") return;
+
+  if (!_diagHudEl) {
+    _diagHudEl = document.createElement("div");
+    _diagHudEl.id = "webxr-diag-hud";
+    _diagHudEl.style.cssText = [
+      "position:fixed", "top:48px", "left:8px", "right:8px",
+      "background:rgba(15,23,42,0.92)", "color:#f8fafc",
+      "border:1.5px solid #38bdf8", "border-radius:6px",
+      "padding:6px 10px", "font-family:monospace", "font-size:0.75rem",
+      "z-index:100000", "pointer-events:none", "line-height:1.35",
+      "box-shadow:0 4px 14px rgba(0,0,0,0.8)", "word-break:break-word"
+    ].join(";");
+    const parent = document.body || document.documentElement;
+    if (parent && parent.appendChild) {
+      parent.appendChild(_diagHudEl);
+    }
+  }
+
+  const decPanelInDom = typeof document !== "undefined" && Boolean(document.getElementById("fire-decision-panel"));
+  const vpInDom = typeof document !== "undefined" && Boolean(document.getElementById("ar-viewport"));
+
+  const errSection = _diagLastError
+    ? `<div style="color:#f87171;font-weight:bold;margin-top:4px;">❌ THROWN ERROR:<br>${_diagLastError}</div>`
+    : '<div style="color:#4ade80;margin-top:2px;">✔ Errors: none</div>';
+
+  _diagHudEl.innerHTML = `
+    <div style="color:#38bdf8;font-weight:bold;">[TEMPORARY DIAGNOSTIC — WEBXR FIRE RUNTIME]</div>
+    <div><strong>State:</strong> ${stateText}</div>
+    <div style="color:#94a3b8;"><strong>DOM:</strong> vp=${vpInDom ? "yes" : "NO"} | decision-panel=${decPanelInDom ? "yes" : "no"} | step=${_currentStep}</div>
+    ${errSection}
+  `;
+}
+
+// setup window level error trap for tablet diagnostics
+function _initDiagErrorTraps() {
+  if (typeof window === "undefined") return;
+  if (!_diagErrorListener) {
+    _diagErrorListener = (ev) => {
+      const err = ev.error || new Error(ev.message || "Unknown window error");
+      _updateWebXRDiag("Window Error Trapped", err);
+    };
+    window.addEventListener("error", _diagErrorListener);
+  }
+  if (!_diagRejectionListener) {
+    _diagRejectionListener = (ev) => {
+      const reason = ev.reason || new Error("Unhandled promise rejection");
+      _updateWebXRDiag("Promise Rejection Trapped", reason);
+    };
+    window.addEventListener("unhandledrejection", _diagRejectionListener);
+  }
+}
+
 // zoom state
 let _zoomScale = 1.0;
 const BASE_EXT_SCALE = 0.35;
@@ -205,7 +270,23 @@ function cleanupWebXRFireModule() {
     if (alertEl && alertEl.parentNode) alertEl.parentNode.removeChild(alertEl);
     const overlay = document.getElementById("fire-module-overlay");
     if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    if (_diagHudEl && _diagHudEl.parentNode) {
+      _diagHudEl.parentNode.removeChild(_diagHudEl);
+      _diagHudEl = null;
+    }
   }
+
+  if (typeof window !== "undefined") {
+    if (_diagErrorListener) {
+      window.removeEventListener("error", _diagErrorListener);
+      _diagErrorListener = null;
+    }
+    if (_diagRejectionListener) {
+      window.removeEventListener("unhandledrejection", _diagRejectionListener);
+      _diagRejectionListener = null;
+    }
+  }
+  _diagLastError = null;
 }
 
 // inject dom overlay panel
@@ -353,6 +434,7 @@ function _setupStep1WebXR(container) {
 
       const finalPos = pos || { x: 0, y: -0.45, z: -1.20 };
       logger.info({ event: "extinguisher_placed", position: finalPos }, "Extinguisher placed on surface");
+      _updateWebXRDiag("Extinguisher Placed on Surface -> Ready for Step 2");
 
       // position extinguisher flush at placed spot
       if (!_extMesh && _controller) {
@@ -500,6 +582,7 @@ function _setupStep1WebXR(container) {
   let subIndex = 0;
   function renderCurrentSubscreen() {
     if (subIndex < screens.length) {
+      _updateWebXRDiag(`Step 1 Exit Subscreen ${subIndex + 1}/${screens.length}`);
       _renderSubscreen(overlay, {
         ...screens[subIndex],
         onNext: () => {
@@ -519,9 +602,11 @@ function _setupStep1WebXR(container) {
 
 // strobe emergency flash then show gas gauge wheel
 function _triggerHazardDecisionPhase(container, overlay, onExtinguishProceed) {
+  _updateWebXRDiag("Step 1: Triggering Emergency Alert Flash (1500ms)");
   if (overlay) overlay.innerHTML = "";
 
   const onAlertDone = () => {
+    _updateWebXRDiag("Step 1: Alert Dismissed -> Mount Decision Wheel");
     _showDecisionWheelStep(container, overlay, onExtinguishProceed);
   };
 
@@ -537,52 +622,65 @@ function _triggerHazardDecisionPhase(container, overlay, onExtinguishProceed) {
 
 // show svg gas gauge and decision buttons
 function _showDecisionWheelStep(container, overlay, onExtinguishProceed) {
-  if (overlay) overlay.innerHTML = "";
+  try {
+    if (overlay) overlay.innerHTML = "";
 
-  if (_methaneReading === null || typeof _methaneReading !== "number") {
-    _methaneReading = generateMethaneReading();
-  }
-
-  renderDecisionWheel(overlay, {
-    reading: _methaneReading,
-    onDecision: ({ choice, reading }) => {
-      _decisionMade = choice;
-      _currentBranch = choice === DECISION_CHOICES.EVACUATE ? "evacuate" : "suppress";
-
-      const feedbackSlot = overlay.querySelector ? overlay.querySelector("#decision-feedback-slot") : document.getElementById("decision-feedback-slot");
-
-      if (choice === DECISION_CHOICES.EXTINGUISH) {
-        const btnProceed = document.createElement("button");
-        btnProceed.id = "btn-decision-proceed";
-        btnProceed.className = "btn-decision-proceed";
-        btnProceed.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.4rem;background:#10b981;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;box-shadow:0 0 12px rgba(16,185,129,0.4);";
-        btnProceed.textContent = "✔ Proceed to Extinguisher Placement ➜";
-        btnProceed.addEventListener("click", () => {
-          const decPanel = document.getElementById("fire-decision-panel");
-          if (decPanel && decPanel.remove) decPanel.remove();
-          onExtinguishProceed();
-        });
-        if (feedbackSlot && feedbackSlot.appendChild) feedbackSlot.appendChild(btnProceed);
-      } else if (choice === DECISION_CHOICES.EVACUATE) {
-        const btnProceed = document.createElement("button");
-        btnProceed.id = "btn-decision-proceed";
-        btnProceed.className = "btn-decision-proceed";
-        btnProceed.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.4rem;background:#ef4444;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;box-shadow:0 0 12px rgba(239,68,68,0.4);";
-        btnProceed.textContent = "🚨 Confirm Evacuation Order ➜";
-        btnProceed.addEventListener("click", () => {
-          const decPanel = document.getElementById("fire-decision-panel");
-          if (decPanel && decPanel.remove) decPanel.remove();
-          _showEvacuateConfirmation(container, overlay, reading);
-        });
-        if (feedbackSlot && feedbackSlot.appendChild) feedbackSlot.appendChild(btnProceed);
-      }
+    if (_methaneReading === null || typeof _methaneReading !== "number") {
+      _methaneReading = generateMethaneReading();
     }
-  });
+
+    // append to viewport container rather than overlay to avoid transform clipping
+    const targetContainer = container || (typeof document !== "undefined" && (document.getElementById("ar-viewport") || document.body));
+    _updateWebXRDiag(`Step 1: Decision Wheel Mounted to <${targetContainer ? (targetContainer.id || targetContainer.tagName) : "null"}> | CH4: ${_methaneReading}%`);
+
+    renderDecisionWheel(targetContainer, {
+      reading: _methaneReading,
+      onDecision: ({ choice, reading }) => {
+        _decisionMade = choice;
+        _currentBranch = choice === DECISION_CHOICES.EVACUATE ? "evacuate" : "suppress";
+        _updateWebXRDiag(`Decision Choice: ${choice} -> Branch: ${_currentBranch}`);
+
+        const feedbackSlot = document.getElementById("decision-feedback-slot");
+
+        if (choice === DECISION_CHOICES.EXTINGUISH) {
+          const btnProceed = document.createElement("button");
+          btnProceed.id = "btn-decision-proceed";
+          btnProceed.className = "btn-decision-proceed";
+          btnProceed.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.4rem;background:#10b981;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;box-shadow:0 0 12px rgba(16,185,129,0.4);";
+          btnProceed.textContent = "✔ Proceed to Extinguisher Placement ➜";
+          btnProceed.addEventListener("click", () => {
+            _updateWebXRDiag("Proceed to Extinguisher Placement Screen");
+            const decPanel = document.getElementById("fire-decision-panel");
+            if (decPanel && decPanel.remove) decPanel.remove();
+            onExtinguishProceed();
+          });
+          if (feedbackSlot && feedbackSlot.appendChild) feedbackSlot.appendChild(btnProceed);
+        } else if (choice === DECISION_CHOICES.EVACUATE) {
+          const btnProceed = document.createElement("button");
+          btnProceed.id = "btn-decision-proceed";
+          btnProceed.className = "btn-decision-proceed";
+          btnProceed.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.4rem;background:#ef4444;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;box-shadow:0 0 12px rgba(239,68,68,0.4);";
+          btnProceed.textContent = "🚨 Confirm Evacuation Order ➜";
+          btnProceed.addEventListener("click", () => {
+            _updateWebXRDiag("Proceed to Evacuation Route Confirmation");
+            const decPanel = document.getElementById("fire-decision-panel");
+            if (decPanel && decPanel.remove) decPanel.remove();
+            _showEvacuateConfirmation(container, overlay, reading);
+          });
+          if (feedbackSlot && feedbackSlot.appendChild) feedbackSlot.appendChild(btnProceed);
+        }
+      }
+    });
+  } catch (err) {
+    _updateWebXRDiag("Decision Wheel Render Threw Error", err);
+    throw err;
+  }
 }
 
 // show branch a evacuation message
 function _showEvacuateConfirmation(container, overlay, reading) {
   if (!overlay) return;
+  _updateWebXRDiag(`Branch A Evacuation Active | Reading: ${reading}%`);
   const isHigh = reading >= METHANE_EXPLOSIVE_THRESHOLD;
   overlay.innerHTML = `
     <div id="fire-hud-card" class="fire-hud-card">
@@ -622,6 +720,7 @@ function _showEvacuateConfirmation(container, overlay, reading) {
 // step 2: PASS technique interactions against world-space entities
 function _setupStep2WebXR(container) {
   _currentStep = 2;
+  _updateWebXRDiag("Step 2 PASS technique active");
   logger.info({ event: "webxr_fire_step_start", step: 2 }, "PASS technique (WebXR)");
 
   registerCheckpoint({
@@ -1189,6 +1288,7 @@ function _setupStep3WebXR(container, _step2Passed) {
 // completion screen
 function _showCompletionWebXR(overlay, container, passed) {
   if (!overlay) return;
+  _updateWebXRDiag(`Module Complete | Passed: ${passed}`);
   overlay.innerHTML = `
     <div style="font-size:1.15rem;font-weight:bold;color:${passed ? "#00e676" : "#ff1744"};margin-bottom:0.5rem;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">
       ${passed ? t("cert.passed", "✔ Module Complete — All Steps Passed") : t("cert.review_needed", "✖ Module Complete — Review Needed")}
@@ -1225,6 +1325,9 @@ function startFireModuleWebXR(container, controller, options = {}) {
   } else {
     _methaneReading = generateMethaneReading();
   }
+
+  _initDiagErrorTraps();
+  _updateWebXRDiag(`Module Start (Tier 1 WebXR) | Reading: ${_methaneReading}%`);
 
   _createOverlay(container, "<div>Loading Fire & Explosion Response (WebXR)...</div>");
   _setupStep1WebXR(container);
