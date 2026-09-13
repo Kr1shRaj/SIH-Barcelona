@@ -35,7 +35,9 @@
       "complete_pass": "✅ MODULE COMPLETE",
       "complete_review": "⚠ MODULE COMPLETE — Review step 3",
       "complete_desc": "All checkpoints fired. Assessment engine will score your attempt.",
-      "btn_exit_module": "✖ Exit Module"
+      "btn_exit_module": "✖ Exit Module",
+      "landscape_nudge": "Tip: rotate your device to landscape for a better experience",
+      "nudge_dismiss": "Dismiss"
     },
     "gas_leak": {
       "title": "Gas Leak & Confined Space Protocol",

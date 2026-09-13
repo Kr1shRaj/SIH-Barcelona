@@ -24,7 +24,8 @@ import {
   renderDecisionWheel,
   CP_DECISION_ID,
   DECISION_CHOICES,
-  METHANE_EXPLOSIVE_THRESHOLD
+  METHANE_EXPLOSIVE_THRESHOLD,
+  initOrientationNudge
 } from "./decision.js";
 
 const logger = createLogger("FireModule");
@@ -1992,6 +1993,7 @@ function cleanupFireModule() {
   }
 
   [
+    "safear-orientation-nudge",
     "fire-module-overlay",
     "fire-decision-panel",
     "fire-alarm-station",
@@ -2090,6 +2092,12 @@ function startFireModule(container, tierInfo, options = {}) {
     _methaneReading = options.reading;
   } else {
     _methaneReading = generateMethaneReading();
+  }
+
+  // initialize orientation recommendation toast for portrait view
+  const nudge = initOrientationNudge(container);
+  if (nudge && nudge.destroy) {
+    addCleanup(() => nudge.destroy());
   }
 
   // trigger explosion alert flash pulse

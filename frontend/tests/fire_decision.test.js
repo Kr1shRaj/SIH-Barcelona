@@ -4,6 +4,16 @@ import assert from "node:assert";
 // minimal browser stubs for test environment
 const _listeners = {};
 globalThis.window = {
+  innerWidth: 400,
+  innerHeight: 800,
+  matchMedia(q) {
+    const isPortrait = this.innerHeight > this.innerWidth;
+    return {
+      matches: q.includes("portrait") ? isPortrait : !isPortrait,
+      addEventListener: (type, fn) => this.addEventListener(type, fn),
+      removeEventListener: (type, fn) => this.removeEventListener(type, fn)
+    };
+  },
   dispatchEvent(ev) {
     (_listeners[ev.type] || []).forEach((fn) => fn(ev));
   },
@@ -35,6 +45,14 @@ function _makeEl(initId) {
       if (newId) _elements[newId] = el;
     },
     _innerHTML: "",
+    _textContent: "",
+    get textContent() {
+      return this._textContent || this._innerHTML;
+    },
+    set textContent(val) {
+      this._textContent = String(val);
+      this._innerHTML = String(val);
+    },
     get innerHTML() {
       return this._innerHTML + (this.children || []).map((c) => c.innerHTML).join("");
     },
@@ -89,6 +107,12 @@ function _makeEl(initId) {
       this.children.push(child);
       child.parentNode = this;
     },
+    removeChild(child) {
+      if (child && child.id) delete _elements[child.id];
+      this.children = this.children.filter((c) => c !== child);
+      child.parentNode = null;
+    },
+    setAttribute(k, v) { this[k] = v; },
     remove() {
       if (_id) delete _elements[_id];
       if (this.parentNode && Array.isArray(this.parentNode.children)) {
@@ -113,7 +137,8 @@ import {
   renderAlertFlash,
   renderDecisionWheel,
   CP_DECISION_ID,
-  DECISION_CHOICES
+  DECISION_CHOICES,
+  initOrientationNudge
 } from "../modules/fire-response/decision.js";
 
 describe("Fire & Explosion Scenario: Methane Reading & Decision Logic (Phase 1)", () => {
@@ -332,4 +357,60 @@ describe("Fire & Explosion Scenario: Methane Reading & Decision Logic (Phase 1)"
       assert.ok(feedbackSlot.innerHTML.includes("btn-decision-retry"));
     });
   });
+
+  describe("initOrientationNudge (Phase 1 soft landscape recommendation)", () => {
+    it("renders non-blocking toast in portrait mode", () => {
+      window.innerWidth = 360;
+      window.innerHeight = 740;
+      const container = document.createElement("div");
+      const nudge = initOrientationNudge(container);
+      const toast = document.getElementById("safear-orientation-nudge");
+      assert.ok(toast, "toast element must mount in portrait");
+      assert.ok(toast.className.includes("orientation-nudge-toast"));
+      assert.ok(toast.innerHTML.includes("Tip: rotate your device"));
+      nudge.destroy();
+    });
+
+    it("does not render toast when device is already in landscape", () => {
+      window.innerWidth = 800;
+      window.innerHeight = 400;
+      const container = document.createElement("div");
+      const nudge = initOrientationNudge(container);
+      const toast = document.getElementById("safear-orientation-nudge");
+      assert.strictEqual(toast, null, "toast must not appear when in landscape");
+      nudge.destroy();
+    });
+
+    it("allows user to dismiss toast via close button", () => {
+      window.innerWidth = 360;
+      window.innerHeight = 740;
+      const container = document.createElement("div");
+      const nudge = initOrientationNudge(container);
+      const toast = document.getElementById("safear-orientation-nudge");
+      assert.ok(toast);
+      const closeBtn = toast.children.find((c) => c.className && c.className.includes("nudge-dismiss-btn"));
+      assert.ok(closeBtn, "close button must exist on toast");
+      closeBtn.click();
+      assert.ok(toast.classList.contains("nudge-hidden"));
+      nudge.destroy();
+    });
+
+    it("hides toast if user rotates to landscape", () => {
+      window.innerWidth = 360;
+      window.innerHeight = 740;
+      const container = document.createElement("div");
+      const nudge = initOrientationNudge(container);
+      const toast = document.getElementById("safear-orientation-nudge");
+      assert.ok(toast);
+
+      // simulate device rotation to landscape
+      window.innerWidth = 740;
+      window.innerHeight = 360;
+      window.dispatchEvent(new CustomEvent("resize"));
+
+      assert.ok(toast.classList.contains("nudge-hidden"));
+      nudge.destroy();
+    });
+  });
 });
+

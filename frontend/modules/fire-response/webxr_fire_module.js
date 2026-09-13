@@ -25,7 +25,8 @@ import {
   renderDecisionWheel,
   CP_DECISION_ID,
   DECISION_CHOICES,
-  METHANE_EXPLOSIVE_THRESHOLD
+  METHANE_EXPLOSIVE_THRESHOLD,
+  initOrientationNudge
 } from "./decision.js";
 
 const logger = createLogger("FireModuleWebXR");
@@ -48,6 +49,7 @@ let _methaneReading = null;
 let _decisionMade = null;
 let _currentBranch = null;
 let _alertStrobe = null;
+let _orientationNudge = null;
 
 // temporary diagnostic hud state for tablet verification
 let _diagHudEl = null;
@@ -263,7 +265,14 @@ function cleanupWebXRFireModule() {
   _decisionMade = null;
   _currentBranch = null;
 
+  if (_orientationNudge && typeof _orientationNudge.destroy === "function") {
+    _orientationNudge.destroy();
+    _orientationNudge = null;
+  }
+
   if (typeof document !== "undefined") {
+    const nudgeEl = document.getElementById("safear-orientation-nudge");
+    if (nudgeEl && nudgeEl.parentNode) nudgeEl.parentNode.removeChild(nudgeEl);
     const decPanel = document.getElementById("fire-decision-panel");
     if (decPanel && decPanel.parentNode) decPanel.parentNode.removeChild(decPanel);
     const alertEl = document.getElementById("fire-alert-overlay");
@@ -1328,6 +1337,9 @@ function startFireModuleWebXR(container, controller, options = {}) {
 
   _initDiagErrorTraps();
   _updateWebXRDiag(`Module Start (Tier 1 WebXR) | Reading: ${_methaneReading}%`);
+
+  // initialize orientation recommendation toast for portrait view
+  _orientationNudge = initOrientationNudge(container);
 
   _createOverlay(container, "<div>Loading Fire & Explosion Response (WebXR)...</div>");
   _setupStep1WebXR(container);

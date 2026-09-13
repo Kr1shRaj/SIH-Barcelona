@@ -1,5 +1,6 @@
 import { registerCheckpoint, fireCheckpointResult } from "../../ar/interactions.js";
 import { selectionSingle } from "../../assessment/observations.js";
+import { t } from "../../js/i18n.js";
 
 // stable decision checkpoint identifier
 export const CP_DECISION_ID = "fire_explosion_decision";
@@ -420,3 +421,129 @@ export function renderDecisionWheel(container, { reading, onDecision, onWrongAtt
 
   return panel;
 }
+
+// show soft non-blocking landscape tip when device in portrait
+export function initOrientationNudge(container) {
+  if (typeof window === "undefined") {
+    return { dismiss: () => {}, destroy: () => {} };
+  }
+
+  let toastEl = null;
+  let hideTimer = null;
+  let userDismissed = false;
+
+  const safeSetTimeout = (fn, ms) => (typeof window !== "undefined" && typeof window.setTimeout === "function" ? window.setTimeout(fn, ms) : globalThis.setTimeout(fn, ms));
+  const safeClearTimeout = (id) => (typeof window !== "undefined" && typeof window.clearTimeout === "function" ? window.clearTimeout(id) : globalThis.clearTimeout(id));
+
+  function isPortraitMode() {
+    if (window.matchMedia) {
+      const mq = window.matchMedia("(orientation: portrait)");
+      if (mq && typeof mq.matches === "boolean") return mq.matches;
+    }
+    return (window.innerHeight || 0) > (window.innerWidth || 0);
+  }
+
+  function dismiss() {
+    if (hideTimer) {
+      safeClearTimeout(hideTimer);
+      hideTimer = null;
+    }
+    if (toastEl) {
+      if (toastEl.classList && toastEl.classList.add) {
+        toastEl.classList.add("nudge-hidden");
+      }
+      safeSetTimeout(() => {
+        if (toastEl && toastEl.parentNode) {
+          toastEl.parentNode.removeChild(toastEl);
+        }
+        toastEl = null;
+      }, 350);
+    }
+  }
+
+  function showToast() {
+    if (userDismissed || !isPortraitMode()) return;
+    if (toastEl && toastEl.parentNode) return;
+
+    const mountTarget = (container && container.appendChild)
+      ? container
+      : (typeof document !== "undefined" && (document.getElementById("ar-viewport") || document.body));
+
+    if (!mountTarget || !mountTarget.appendChild) return;
+
+    toastEl = document.createElement("div");
+    toastEl.id = "safear-orientation-nudge";
+    toastEl.className = "orientation-nudge-toast";
+    toastEl.setAttribute("role", "status");
+    toastEl.setAttribute("aria-live", "polite");
+
+    const icon = document.createElement("span");
+    icon.className = "nudge-icon";
+    icon.textContent = "🔄";
+
+    const text = document.createElement("span");
+    text.className = "nudge-text";
+    text.textContent = t("modules.fire_response.landscape_nudge", {}, "Tip: rotate your device to landscape for a better experience");
+
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "nudge-dismiss-btn";
+    closeBtn.setAttribute("aria-label", t("modules.fire_response.nudge_dismiss", {}, "Dismiss"));
+    closeBtn.textContent = "✕";
+    closeBtn.addEventListener("click", (e) => {
+      if (e && e.stopPropagation) e.stopPropagation();
+      userDismissed = true;
+      dismiss();
+    });
+
+    toastEl.appendChild(icon);
+    toastEl.appendChild(text);
+    toastEl.appendChild(closeBtn);
+    mountTarget.appendChild(toastEl);
+
+    // auto-hide after 5 seconds so it never lingers
+    hideTimer = safeSetTimeout(() => {
+      dismiss();
+    }, 5000);
+  }
+
+  function handleOrientationChange() {
+    if (!isPortraitMode()) {
+      dismiss();
+    } else if (!userDismissed) {
+      showToast();
+    }
+  }
+
+  const mql = window.matchMedia ? window.matchMedia("(orientation: portrait)") : null;
+  if (mql && mql.addEventListener) {
+    mql.addEventListener("change", handleOrientationChange);
+  } else if (mql && mql.addListener) {
+    mql.addListener(handleOrientationChange);
+  }
+  if (window.addEventListener) {
+    window.addEventListener("resize", handleOrientationChange);
+    window.addEventListener("orientationchange", handleOrientationChange);
+  }
+
+  if (isPortraitMode()) {
+    showToast();
+  }
+
+  return {
+    dismiss,
+    destroy: () => {
+      if (mql && mql.removeEventListener) {
+        mql.removeEventListener("change", handleOrientationChange);
+      } else if (mql && mql.removeListener) {
+        mql.removeListener(handleOrientationChange);
+      }
+      if (window.removeEventListener) {
+        window.removeEventListener("resize", handleOrientationChange);
+        window.removeEventListener("orientationchange", handleOrientationChange);
+      }
+      dismiss();
+    }
+  };
+}
+
