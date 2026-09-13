@@ -16,6 +16,17 @@ import {
   CP_EXIT_ID, CP_EXTINGUISHER_ID, CP_EVACUATION_WEBXR_ID, EXIT_ANCHOR_ID
 } from "./fire-response.js";
 import { selectionSingle, aimDwell, spatialAlignment } from "../../assessment/observations.js";
+import {
+  renderAlertFlash,
+  renderGasGaugeSvg,
+  generateMethaneReading,
+  isCorrectDecision,
+  getDecisionExplanation,
+  renderDecisionWheel,
+  CP_DECISION_ID,
+  DECISION_CHOICES,
+  METHANE_EXPLOSIVE_THRESHOLD
+} from "./decision.js";
 
 const logger = createLogger("FireModuleWebXR");
 
@@ -31,6 +42,12 @@ let _sweepFrameHandler = null;
 let _placementScreenTap = null;
 let _placementConfirmedHandler = null;
 let _interactionState = null;
+
+// hazard decision state
+let _methaneReading = null;
+let _decisionMade = null;
+let _currentBranch = null;
+let _alertStrobe = null;
 
 // zoom state
 let _zoomScale = 1.0;
@@ -173,7 +190,19 @@ function cleanupWebXRFireModule() {
   _interactionState = null;
   _currentStep = 0;
 
+  if (_alertStrobe && typeof _alertStrobe.dismiss === "function") {
+    _alertStrobe.dismiss();
+    _alertStrobe = null;
+  }
+  _methaneReading = null;
+  _decisionMade = null;
+  _currentBranch = null;
+
   if (typeof document !== "undefined") {
+    const decPanel = document.getElementById("fire-decision-panel");
+    if (decPanel && decPanel.parentNode) decPanel.parentNode.removeChild(decPanel);
+    const alertEl = document.getElementById("fire-alert-overlay");
+    if (alertEl && alertEl.parentNode) alertEl.parentNode.removeChild(alertEl);
     const overlay = document.getElementById("fire-module-overlay");
     if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
   }
@@ -479,11 +508,115 @@ function _setupStep1WebXR(container) {
         }
       });
     } else {
-      showPlacementScreen();
+      _triggerHazardDecisionPhase(container, overlay, () => {
+        showPlacementScreen();
+      });
     }
   }
 
   renderCurrentSubscreen();
+}
+
+// strobe emergency flash then show gas gauge wheel
+function _triggerHazardDecisionPhase(container, overlay, onExtinguishProceed) {
+  if (overlay) overlay.innerHTML = "";
+
+  const onAlertDone = () => {
+    _showDecisionWheelStep(container, overlay, onExtinguishProceed);
+  };
+
+  _alertStrobe = renderAlertFlash(container, {
+    durationMs: 1500,
+    onDone: onAlertDone
+  });
+
+  if (!_alertStrobe) {
+    onAlertDone();
+  }
+}
+
+// show svg gas gauge and decision buttons
+function _showDecisionWheelStep(container, overlay, onExtinguishProceed) {
+  if (overlay) overlay.innerHTML = "";
+
+  if (_methaneReading === null || typeof _methaneReading !== "number") {
+    _methaneReading = generateMethaneReading();
+  }
+
+  renderDecisionWheel(overlay, {
+    reading: _methaneReading,
+    onDecision: ({ choice, reading }) => {
+      _decisionMade = choice;
+      _currentBranch = choice === DECISION_CHOICES.EVACUATE ? "evacuate" : "suppress";
+
+      const feedbackSlot = overlay.querySelector ? overlay.querySelector("#decision-feedback-slot") : document.getElementById("decision-feedback-slot");
+
+      if (choice === DECISION_CHOICES.EXTINGUISH) {
+        const btnProceed = document.createElement("button");
+        btnProceed.id = "btn-decision-proceed";
+        btnProceed.className = "btn-decision-proceed";
+        btnProceed.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.4rem;background:#10b981;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;box-shadow:0 0 12px rgba(16,185,129,0.4);";
+        btnProceed.textContent = "✔ Proceed to Extinguisher Placement ➜";
+        btnProceed.addEventListener("click", () => {
+          const decPanel = document.getElementById("fire-decision-panel");
+          if (decPanel && decPanel.remove) decPanel.remove();
+          onExtinguishProceed();
+        });
+        if (feedbackSlot && feedbackSlot.appendChild) feedbackSlot.appendChild(btnProceed);
+      } else if (choice === DECISION_CHOICES.EVACUATE) {
+        const btnProceed = document.createElement("button");
+        btnProceed.id = "btn-decision-proceed";
+        btnProceed.className = "btn-decision-proceed";
+        btnProceed.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.4rem;background:#ef4444;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;box-shadow:0 0 12px rgba(239,68,68,0.4);";
+        btnProceed.textContent = "🚨 Confirm Evacuation Order ➜";
+        btnProceed.addEventListener("click", () => {
+          const decPanel = document.getElementById("fire-decision-panel");
+          if (decPanel && decPanel.remove) decPanel.remove();
+          _showEvacuateConfirmation(container, overlay, reading);
+        });
+        if (feedbackSlot && feedbackSlot.appendChild) feedbackSlot.appendChild(btnProceed);
+      }
+    }
+  });
+}
+
+// show branch a evacuation message
+function _showEvacuateConfirmation(container, overlay, reading) {
+  if (!overlay) return;
+  const isHigh = reading >= METHANE_EXPLOSIVE_THRESHOLD;
+  overlay.innerHTML = `
+    <div id="fire-hud-card" class="fire-hud-card">
+      <div class="hud-badge">🚨 BRANCH A — IMMEDIATE EVACUATION</div>
+      <div class="hud-title">${isHigh ? "CRITICAL METHANE LEVEL (>= 5.0%)" : "PRECAUTIONARY EVACUATION"}</div>
+      <div class="hud-desc">${isHigh ? "Atmosphere is explosive. Fire suppression is strictly forbidden under mining regulations. Follow emergency route immediately." : "Evacuation selected. Move promptly along marked emergency path to the nearest safe surface exit."}</div>
+    </div>
+  `;
+  const btn = document.createElement("button");
+  btn.id = "btn-exit-found";
+  btn.style.cssText = "margin-top:0.6rem;padding:0.8rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;";
+  btn.textContent = "✔ Confirm Evacuation Route";
+  btn.addEventListener("click", () => {
+    fireCheckpointResult(
+      CP_EXIT_ID,
+      true,
+      { method: "branch_a_evacuate", measured: false, reading },
+      spatialAlignment({
+        anchorId: EXIT_ANCHOR_ID,
+        angularErrorRad: null,
+        dwellMs: 0,
+        frameCount: 0,
+        trackingSource: "webxr_pose"
+      })
+    );
+    fireCheckpointResult(
+      CP_EVACUATION_WEBXR_ID,
+      true,
+      { selected: "sound_alarm_then_evacuate", branch: "evacuate", reading },
+      typeof selectionSingle === "function" ? selectionSingle("sound_alarm_then_evacuate") : null
+    );
+    _showCompletionWebXR(overlay, container, true);
+  });
+  overlay.appendChild(btn);
 }
 
 // step 2: PASS technique interactions against world-space entities
@@ -1079,7 +1212,7 @@ function _showCompletionWebXR(overlay, container, passed) {
 }
 
 // entry point for tier 1 webxr fire module
-function startFireModuleWebXR(container, controller) {
+function startFireModuleWebXR(container, controller, options = {}) {
   _currentStep = 0;
   _controller = controller;
   logger.info({ event: "webxr_fire_module_start" }, "Fire module starting (WebXR Tier 1)");
@@ -1087,8 +1220,34 @@ function startFireModuleWebXR(container, controller) {
   cleanupWebXRFireModule();
   _controller = controller;
 
+  if (options && typeof options.reading === "number" && !isNaN(options.reading)) {
+    _methaneReading = options.reading;
+  } else {
+    _methaneReading = generateMethaneReading();
+  }
+
   _createOverlay(container, "<div>Loading Fire & Explosion Response (WebXR)...</div>");
   _setupStep1WebXR(container);
+}
+
+// read methane gas concentration
+function getMethaneReadingWebXR() {
+  return _methaneReading;
+}
+
+// set methane gas concentration for testing
+function setMethaneReadingWebXR(val) {
+  _methaneReading = typeof val === "number" && !isNaN(val) ? val : 0;
+}
+
+// get active scenario branch
+function getActiveBranchWebXR() {
+  return _currentBranch;
+}
+
+// read trainee decision
+function getDecisionMadeWebXR() {
+  return _decisionMade;
 }
 
 export {
@@ -1096,5 +1255,18 @@ export {
   cleanupWebXRFireModule,
   getCurrentStepWebXR,
   setZoomScaleWebXR,
-  getZoomScaleWebXR
+  getZoomScaleWebXR,
+  getMethaneReadingWebXR,
+  setMethaneReadingWebXR,
+  getActiveBranchWebXR,
+  getDecisionMadeWebXR,
+  renderDecisionWheel,
+  renderAlertFlash,
+  renderGasGaugeSvg,
+  generateMethaneReading,
+  isCorrectDecision,
+  getDecisionExplanation,
+  CP_DECISION_ID,
+  DECISION_CHOICES,
+  METHANE_EXPLOSIVE_THRESHOLD
 };

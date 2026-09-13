@@ -206,7 +206,12 @@ import {
 
 import {
   setZoomScaleWebXR,
-  getZoomScaleWebXR
+  getZoomScaleWebXR,
+  getMethaneReadingWebXR,
+  setMethaneReadingWebXR,
+  getActiveBranchWebXR,
+  CP_DECISION_ID,
+  DECISION_CHOICES
 } from "../modules/fire-response/webxr_fire_module.js";
 
 import {
@@ -524,5 +529,18 @@ describe("WebXR Placement and Tracking", () => {
     const scorch = mesh.getObjectByName("floor-scorch-decal");
     assert.ok(scorch);
     assert.strictEqual(scorch.position.y, 0.01);
+  });
+
+  it("getMethaneReadingWebXR and setMethaneReadingWebXR manage gas state", () => {
+    setMethaneReadingWebXR(5.5);
+    assert.strictEqual(getMethaneReadingWebXR(), 5.5);
+    setMethaneReadingWebXR(2.1);
+    assert.strictEqual(getMethaneReadingWebXR(), 2.1);
+
+    assert.strictEqual(getActiveBranchWebXR(), null);
+    assert.strictEqual(CP_DECISION_ID, "fire_explosion_decision");
+    assert.strictEqual(DECISION_CHOICES.EVACUATE, "evacuate");
+    assert.strictEqual(DECISION_CHOICES.EXTINGUISH, "extinguish");
+    assert.strictEqual(DECISION_CHOICES.WAIT, "wait");
   });
 });
