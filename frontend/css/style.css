@@ -249,6 +249,8 @@ canvas.a-canvas {
   max-height: 85vh !important;
   overflow-y: auto !important;
   -webkit-overflow-scrolling: touch !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
   padding: 8px 4px !important;
   background: transparent !important;
   border: none !important;
@@ -260,6 +262,12 @@ canvas.a-canvas {
   flex-direction: column !important;
   align-items: flex-start !important;
   justify-content: center !important;
+}
+
+#fire-module-overlay::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
 }
 
 #gas-module-overlay {
@@ -1423,13 +1431,43 @@ canvas.a-canvas {
     margin-top: 0.35rem !important;
   }
 
-  /* 4. Bottom HUD Card & PASS Overlay in landscape */
+  /* 4. Subscreen card & Bottom HUD in landscape */
   #fire-module-overlay {
-    padding: 0.3rem 0.8rem !important;
-    max-width: 600px !important;
+    top: 64px !important;
+    bottom: auto !important;
+    left: 16px !important;
+    right: auto !important;
+    transform: none !important;
+    width: min(340px, 42vw) !important;
+    max-width: 340px !important;
+    max-height: calc(100vh - 76px) !important;
+    max-height: calc(100dvh - 76px) !important;
+    padding: 0.4rem 0.6rem !important;
+    justify-content: flex-start !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  #fire-module-overlay::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+
+  #fire-module-overlay:has(.fire-hud-card),
+  #fire-module-overlay:has(#webxr-evac-options),
+  #fire-module-overlay:has(#evacuation-options) {
+    top: auto !important;
+    bottom: 6px !important;
     left: 50% !important;
+    right: auto !important;
     transform: translateX(-50%) !important;
-    bottom: 4px !important;
+    width: auto !important;
+    max-width: 600px !important;
+    max-height: 48vh !important;
+    max-height: 48dvh !important;
+    padding: 0.3rem 0.8rem !important;
+    justify-content: center !important;
   }
 
   .fire-hud-card {
@@ -1487,12 +1525,12 @@ canvas.a-canvas {
     font-size: 0.80rem !important;
   }
 
-  /* 7. WebXR diagnostic HUD in landscape (Corner positioning) */
+  /* 7. WebXR diagnostic HUD in landscape (Corner positioning, docked below header) */
   #webxr-diag-hud {
-    top: 6px !important;
-    right: 8px !important;
+    top: 64px !important;
+    right: 14px !important;
     left: auto !important;
-    max-width: 300px !important;
+    max-width: 320px !important;
     font-size: 0.64rem !important;
     padding: 4px 8px !important;
     line-height: 1.25 !important;

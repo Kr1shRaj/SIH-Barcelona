@@ -90,7 +90,7 @@ function _updateWebXRDiag(stateText, err = null) {
     _diagHudEl = document.createElement("div");
     _diagHudEl.id = "webxr-diag-hud";
     _diagHudEl.style.cssText = [
-      "position:fixed", "top:48px", "left:8px", "right:8px",
+      "position:fixed", "top:64px", "left:8px", "right:8px",
       "background:rgba(15,23,42,0.92)", "color:#f8fafc",
       "border:1.5px solid #38bdf8", "border-radius:6px",
       "padding:6px 10px", "font-family:monospace", "font-size:0.75rem",

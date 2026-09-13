@@ -348,6 +348,16 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     assert.strictEqual(document.getElementById("webxr-diag-hud"), null, "HUD must not reappear on subsequent state changes");
   });
 
+  it("diagnostic HUD is positioned at top:64px to clear header bar badges", () => {
+    const container = _makeEl("container");
+    const mockController = {};
+    startFireModuleWebXR(container, mockController, { reading: 2.5 });
+
+    const hudEl = document.getElementById("webxr-diag-hud");
+    assert.ok(hudEl, "Diagnostic HUD must be present on start");
+    assert.ok(hudEl.style.cssText.includes("top:64px"), "HUD inline style must set top:64px to clear header");
+  });
+
   it("mid-session rotation (resize / orientationchange) preserves decision panel, gauge, and state", (t, done) => {
     const container = _makeEl("container");
     const mockController = {};
