@@ -27,13 +27,100 @@ function createPlacementReticle() {
   return mesh;
 }
 
-// build fire barrel + flames + smoke as three.js group
+// load glb 3d model with pivot fix and flush floor drop
+function loadGLBModel(path, options = {}) {
+  const THREE = getTHREE();
+  if (!THREE || !THREE.GLTFLoader) {
+    return Promise.reject(new Error("THREE or GLTFLoader not available"));
+  }
+
+  const {
+    targetHeight = null,
+    scale = 1.0,
+    flushFloor = true,
+    centerHorizontal = true,
+    rotation = null,
+    position = null
+  } = options;
+
+  return new Promise((resolve, reject) => {
+    const loader = new THREE.GLTFLoader();
+    loader.load(
+      path,
+      (gltf) => {
+        const root = gltf.scene || (gltf.scenes && gltf.scenes[0]) || gltf;
+        const container = new THREE.Group();
+        container.name = `${root.name || "model"}-container`;
+        container.add(root);
+
+        if (rotation) {
+          if (rotation.x !== undefined) root.rotation.x = rotation.x;
+          if (rotation.y !== undefined) root.rotation.y = rotation.y;
+          if (rotation.z !== undefined) root.rotation.z = rotation.z;
+        }
+
+        if (typeof root.updateMatrixWorld === "function") {
+          root.updateMatrixWorld(true);
+        }
+
+        if (THREE.Box3) {
+          const box = new THREE.Box3().setFromObject(root);
+          const size = new THREE.Vector3();
+          box.getSize(size);
+
+          let s = scale;
+          if (targetHeight && size.y > 0) {
+            s = (targetHeight / size.y) * scale;
+          }
+          root.scale.set(s, s, s);
+          if (typeof root.updateMatrixWorld === "function") {
+            root.updateMatrixWorld(true);
+          }
+
+          const scaledBox = new THREE.Box3().setFromObject(root);
+          if (flushFloor) {
+            root.position.y = (-scaledBox.min.y) || 0;
+          }
+          if (centerHorizontal) {
+            root.position.x = (-((scaledBox.min.x + scaledBox.max.x) / 2)) || 0;
+            root.position.z = (-((scaledBox.min.z + scaledBox.max.z) / 2)) || 0;
+          }
+        }
+
+        if (position) {
+          if (position.x !== undefined) container.position.x = position.x;
+          if (position.y !== undefined) container.position.y = position.y;
+          if (position.z !== undefined) container.position.z = position.z;
+        }
+
+        let mixer = null;
+        if (gltf.animations && gltf.animations.length > 0 && THREE.AnimationMixer) {
+          mixer = new THREE.AnimationMixer(root);
+          gltf.animations.forEach((clip) => {
+            const action = mixer.clipAction(clip);
+            action.play();
+          });
+          container.userData.mixer = mixer;
+        }
+
+        container.userData.gltf = gltf;
+        container.userData.model = root;
+        resolve({ container, root, mixer, gltf });
+      },
+      undefined,
+      (err) => reject(err)
+    );
+  });
+}
+
+// build fire barrel with flames cluster and floor scorch
 function createFireMesh() {
   const THREE = getTHREE();
   if (!THREE) return null;
 
   const group = new THREE.Group();
   group.name = "fire-graphic";
+  group.userData.mixers = [];
 
   // floor scorch mark decal
   const scorchGeo = new THREE.CircleGeometry(0.85, 32);
@@ -91,7 +178,14 @@ function createFireMesh() {
   ember.name = "fire-embers";
   group.add(ember);
 
-  // outer flame cone
+  // container for 3d animated fire gltf cluster
+  const flamesGroup = new THREE.Group();
+  flamesGroup.name = "fire-flames-group";
+  flamesGroup.position.set(0, 0.84, 0);
+  group.add(flamesGroup);
+  group.userData.flamesGroup = flamesGroup;
+
+  // outer flame cone (procedural fallback)
   const outerGeo = new THREE.ConeGeometry(0.56, 1.80, 16);
   const outerMat = new THREE.MeshBasicMaterial({
     color: 0xff3d00, transparent: true, opacity: 0.90
@@ -101,7 +195,7 @@ function createFireMesh() {
   outer.name = "fire-outer-cone";
   group.add(outer);
 
-  // inner flame cone
+  // inner flame cone (procedural fallback)
   const innerGeo = new THREE.ConeGeometry(0.40, 1.30, 16);
   const innerMat = new THREE.MeshBasicMaterial({
     color: 0xffea00, transparent: true, opacity: 0.95
@@ -111,7 +205,7 @@ function createFireMesh() {
   inner.name = "fire-inner-cone";
   group.add(inner);
 
-  // tongue left
+  // tongue left (procedural fallback)
   const tongueGeoL = new THREE.ConeGeometry(0.36, 1.45, 12);
   const tongueMat = new THREE.MeshBasicMaterial({
     color: 0xff6d00, transparent: true, opacity: 0.88
@@ -122,7 +216,7 @@ function createFireMesh() {
   tongueL.name = "fire-tongue-left";
   group.add(tongueL);
 
-  // tongue right
+  // tongue right (procedural fallback)
   const tongueGeoR = new THREE.ConeGeometry(0.34, 1.38, 12);
   const tongueMatR = new THREE.MeshBasicMaterial({
     color: 0xff9100, transparent: true, opacity: 0.88
@@ -150,23 +244,72 @@ function createFireMesh() {
   target.userData.raycastTarget = "aim";
   group.add(target);
 
+  // load GLB animated fire cluster if loader present
+  if (THREE.GLTFLoader) {
+    const clusterConfigs = [
+      { scale: 1.0, x: 0, y: 0, z: 0, rotY: 0 },
+      { scale: 0.85, x: -0.16, y: 0, z: 0.08, rotY: 0.8 },
+      { scale: 1.15, x: 0.14, y: 0, z: -0.08, rotY: 2.1 }
+    ];
+    clusterConfigs.forEach((cfg) => {
+      loadGLBModel("./assets/models/animated_fire.glb", {
+        targetHeight: 1.6,
+        scale: cfg.scale,
+        flushFloor: true,
+        centerHorizontal: true,
+        rotation: { y: cfg.rotY },
+        position: { x: cfg.x, y: cfg.y, z: cfg.z }
+      }).then(({ container, mixer }) => {
+        flamesGroup.add(container);
+        if (mixer && group.userData.mixers) {
+          group.userData.mixers.push(mixer);
+        }
+        [outer, inner, tongueL, tongueR].forEach((c) => {
+          if (c) c.visible = false;
+        });
+      }).catch(() => {
+        // retain procedural cones on error
+      });
+    });
+  }
+
   // store animation state
   group.userData._animTime = 0;
 
   return group;
 }
 
-// animate fire flames and dustbin burn reduction
+// update fire flames scale and tick animation mixers
 function animateFireMesh(fireGroup, deltaMs) {
   if (!fireGroup || !fireGroup.userData) return;
   fireGroup.userData._animTime = (fireGroup.userData._animTime || 0) + deltaMs;
   const t = fireGroup.userData._animTime;
+  const deltaSec = Math.min(0.1, (deltaMs || 16) / 1000);
+
+  // update all active animation mixers
+  if (Array.isArray(fireGroup.userData.mixers)) {
+    fireGroup.userData.mixers.forEach((m) => {
+      if (m && typeof m.update === "function") m.update(deltaSec);
+    });
+  }
 
   const extProgress = typeof fireGroup.userData.extinguishProgress === "number"
     ? fireGroup.userData.extinguishProgress
     : 0;
   const flameFactor = Math.max(0, 1.0 - extProgress * 1.0);
 
+  // update GLB flames cluster if loaded
+  const flamesGroup = fireGroup.userData.flamesGroup || fireGroup.getObjectByName("fire-flames-group");
+  if (flamesGroup) {
+    if (flameFactor <= 0.02) {
+      flamesGroup.visible = false;
+    } else {
+      flamesGroup.visible = true;
+      flamesGroup.scale.set(flameFactor, flameFactor, flameFactor);
+    }
+  }
+
+  // update procedural cones if present
   const outer = fireGroup.getObjectByName("fire-outer-cone");
   const inner = fireGroup.getObjectByName("fire-inner-cone");
   const tongueL = fireGroup.getObjectByName("fire-tongue-left");
@@ -184,32 +327,36 @@ function animateFireMesh(fireGroup, deltaMs) {
     return;
   }
 
-  if (outer) {
-    outer.visible = true;
-    const s = (0.92 + 0.16 * Math.sin(t * 0.0285)) * flameFactor;
-    const sy = (0.85 + 0.33 * Math.sin(t * 0.0285)) * flameFactor;
-    outer.scale.set(s, sy, s);
-    outer.position.y = 0.84 + 0.90 * sy;
+  const hasGLBFlames = Boolean(flamesGroup && flamesGroup.children && flamesGroup.children.length > 0);
+  if (!hasGLBFlames) {
+    if (outer) {
+      outer.visible = true;
+      const s = (0.92 + 0.16 * Math.sin(t * 0.0285)) * flameFactor;
+      const sy = (0.85 + 0.33 * Math.sin(t * 0.0285)) * flameFactor;
+      outer.scale.set(s, sy, s);
+      outer.position.y = 0.84 + 0.90 * sy;
+    }
+    if (inner) {
+      inner.visible = true;
+      const s = (0.85 + 0.30 * Math.sin(t * 0.037)) * flameFactor;
+      const sy = (0.80 + 0.45 * Math.sin(t * 0.037)) * flameFactor;
+      inner.scale.set(s, sy, s);
+      inner.position.y = 0.84 + 0.65 * sy;
+    }
+    if (tongueL) {
+      tongueL.visible = true;
+      tongueL.rotation.z = -0.21 + 0.14 * Math.sin(t * 0.025);
+      tongueL.scale.set(flameFactor, flameFactor, flameFactor);
+      tongueL.position.y = 0.84 + 0.70 * flameFactor;
+    }
+    if (tongueR) {
+      tongueR.visible = true;
+      tongueR.rotation.z = 0.17 - 0.14 * Math.sin(t * 0.033);
+      tongueR.scale.set(flameFactor, flameFactor, flameFactor);
+      tongueR.position.y = 0.84 + 0.72 * flameFactor;
+    }
   }
-  if (inner) {
-    inner.visible = true;
-    const s = (0.85 + 0.30 * Math.sin(t * 0.037)) * flameFactor;
-    const sy = (0.80 + 0.45 * Math.sin(t * 0.037)) * flameFactor;
-    inner.scale.set(s, sy, s);
-    inner.position.y = 0.84 + 0.65 * sy;
-  }
-  if (tongueL) {
-    tongueL.visible = true;
-    tongueL.rotation.z = -0.21 + 0.14 * Math.sin(t * 0.025);
-    tongueL.scale.set(flameFactor, flameFactor, flameFactor);
-    tongueL.position.y = 0.84 + 0.70 * flameFactor;
-  }
-  if (tongueR) {
-    tongueR.visible = true;
-    tongueR.rotation.z = 0.17 - 0.14 * Math.sin(t * 0.033);
-    tongueR.scale.set(flameFactor, flameFactor, flameFactor);
-    tongueR.position.y = 0.84 + 0.72 * flameFactor;
-  }
+
   if (light) {
     light.intensity = (1.5 + 1.1 * Math.sin(t * 0.045)) * flameFactor;
   }
@@ -368,6 +515,26 @@ function createExtinguisherMesh() {
   }
   group.add(nozzleGroup);
 
+  // load realistic GLB extinguisher model if loader available
+  if (THREE.GLTFLoader) {
+    loadGLBModel("./assets/models/fire_extinguisher.glb", {
+      targetHeight: 1.75,
+      flushFloor: true,
+      centerHorizontal: true
+    }).then(({ container }) => {
+      container.name = "extinguisher-glb-model";
+      group.add(container);
+      // hide procedural cylinder body parts
+      const partsToHide = ["ext-body", "ext-top-dome", "ext-bottom-dome", "ext-base", "ext-valve-block", "ext-neck"];
+      partsToHide.forEach((name) => {
+        const obj = group.getObjectByName(name);
+        if (obj) obj.visible = false;
+      });
+    }).catch(() => {
+      // retain procedural body if load fails
+    });
+  }
+
   // store animation state
   group.userData._animTime = 0;
   group.userData._pinPulled = false;
@@ -508,7 +675,139 @@ function animateExtinguisherMesh(extGroup, deltaMs, discharging = false) {
   }
 }
 
-// compute fire spawn position 2m in front of placed extinguisher
+// build exit sign with running man glb model
+function createExitSignMesh(options = {}) {
+  const THREE = getTHREE();
+  if (!THREE) return null;
+
+  const group = new THREE.Group();
+  group.name = "exit-graphic";
+  group.userData.raycastTarget = "exit";
+  group.userData._animTime = 0;
+
+  const targetHeight = options.targetHeight || 0.45;
+  const initialPos = options.position || { x: 0, y: 1.2, z: -2.0 };
+  group.position.set(initialPos.x, initialPos.y, initialPos.z);
+
+  // procedural fallback geometry (green sign with border)
+  const signGeo = new THREE.BoxGeometry(0.70, 0.35, 0.06);
+  const signMat = new THREE.MeshBasicMaterial({ color: 0x10b981 });
+  const signBox = new THREE.Mesh(signGeo, signMat);
+  signBox.name = "exit-sign-fallback";
+  group.add(signBox);
+
+  // exit sign hit area for touch/raycasting
+  const hitGeo = new THREE.BoxGeometry(0.90, 0.55, 0.30);
+  const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.0 });
+  const hitMesh = new THREE.Mesh(hitGeo, hitMat);
+  hitMesh.name = "exit-hit-area";
+  hitMesh.userData.raycastTarget = "exit";
+  group.add(hitMesh);
+
+  // load GLB model if loader available
+  if (THREE.GLTFLoader) {
+    loadGLBModel("./assets/models/low_poly_green_running_man_exit_sign.glb", {
+      targetHeight,
+      flushFloor: false,
+      centerHorizontal: true
+    }).then(({ container }) => {
+      container.name = "exit-sign-model";
+      group.add(container);
+      if (signBox) signBox.visible = false;
+    }).catch(() => {
+      // retain procedural signBox on failure
+    });
+  }
+
+  return group;
+}
+
+// float exit sign gently up and down
+function animateExitSignMesh(exitGroup, deltaMs) {
+  if (!exitGroup || !exitGroup.userData) return;
+  exitGroup.userData._animTime = (exitGroup.userData._animTime || 0) + deltaMs;
+  const t = exitGroup.userData._animTime;
+  const basePosY = exitGroup.userData.basePosY !== undefined ? exitGroup.userData.basePosY : exitGroup.position.y;
+  exitGroup.userData.basePosY = basePosY;
+  exitGroup.position.y = basePosY + 0.03 * Math.sin(t * 0.003);
+}
+
+// build fire alarm station with notifier pull glb
+function createAlarmStationMesh(options = {}) {
+  const THREE = getTHREE();
+  if (!THREE) return null;
+
+  const group = new THREE.Group();
+  group.name = "fire-alarm-station";
+  group.userData.raycastTarget = "alarm";
+  group.userData._animTime = 0;
+
+  const targetHeight = options.targetHeight || 0.35;
+  const initialPos = options.position || { x: 0.8, y: 1.2, z: -1.5 };
+  group.position.set(initialPos.x, initialPos.y, initialPos.z);
+
+  // procedural fallback (red alarm box)
+  const boxGeo = new THREE.BoxGeometry(0.24, 0.32, 0.08);
+  const boxMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.4 });
+  const box = new THREE.Mesh(boxGeo, boxMat);
+  box.name = "alarm-box-fallback";
+  group.add(box);
+
+  // pulsing red pull affordance ring
+  const ringGeo = new THREE.RingGeometry(0.18, 0.24, 24);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0xef4444,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.8
+  });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.name = "alarm-pulse-ring";
+  ring.position.set(0, 0, 0.08);
+  group.add(ring);
+
+  // touch hit box
+  const hitGeo = new THREE.BoxGeometry(0.45, 0.55, 0.25);
+  const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.0 });
+  const hit = new THREE.Mesh(hitGeo, hitMat);
+  hit.name = "alarm-hit-box";
+  hit.userData.raycastTarget = "alarm";
+  group.add(hit);
+
+  // load GLB model if loader available
+  if (THREE.GLTFLoader) {
+    loadGLBModel("./assets/models/notifier_rsg_t-bar_fire_alarm_pull_station.glb", {
+      targetHeight,
+      flushFloor: false,
+      centerHorizontal: true
+    }).then(({ container }) => {
+      container.name = "alarm-model";
+      group.add(container);
+      if (box) box.visible = false;
+    }).catch(() => {
+      // retain procedural box on failure
+    });
+  }
+
+  return group;
+}
+
+// pulse red alarm pull circle ring
+function animateAlarmStationMesh(alarmGroup, deltaMs) {
+  if (!alarmGroup || !alarmGroup.userData) return;
+  alarmGroup.userData._animTime = (alarmGroup.userData._animTime || 0) + deltaMs;
+  const t = alarmGroup.userData._animTime;
+  const ring = alarmGroup.getObjectByName("alarm-pulse-ring");
+  if (ring) {
+    const s = 1.0 + 0.25 * Math.sin(t * 0.006);
+    ring.scale.set(s, s, s);
+    if (ring.material) {
+      ring.material.opacity = 0.5 + 0.35 * Math.sin(t * 0.006);
+    }
+  }
+}
+
+// drop fire two meters in front of worker
 function calcFireOffsetPosition(placedPosition, placedQuaternion) {
   const THREE = getTHREE();
   if (!THREE || !placedPosition) return null;
@@ -531,6 +830,7 @@ function calcFireOffsetPosition(placedPosition, placedQuaternion) {
 
 export {
   getTHREE,
+  loadGLBModel,
   createPlacementReticle,
   createFireMesh,
   animateFireMesh,
@@ -538,5 +838,9 @@ export {
   animateExtinguisherMesh,
   createPowderSprayMesh,
   animatePowderSpray,
+  createExitSignMesh,
+  animateExitSignMesh,
+  createAlarmStationMesh,
+  animateAlarmStationMesh,
   calcFireOffsetPosition
 };

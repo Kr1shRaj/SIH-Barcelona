@@ -5,6 +5,8 @@ import { t } from "../../js/i18n.js";
 import {
   createFireMesh, animateFireMesh,
   createExtinguisherMesh, animateExtinguisherMesh,
+  createExitSignMesh, animateExitSignMesh,
+  createAlarmStationMesh, animateAlarmStationMesh,
   calcFireOffsetPosition
 } from "../../ar/webxr_render.js";
 import {
@@ -1424,6 +1426,10 @@ export {
   setMethaneReadingWebXR,
   getActiveBranchWebXR,
   getDecisionMadeWebXR,
+  createExitSignMesh,
+  createAlarmStationMesh,
+  animateExitSignMesh,
+  animateAlarmStationMesh,
   renderDecisionWheel,
   renderAlertFlash,
   renderGasGaugeSvg,

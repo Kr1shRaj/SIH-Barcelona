@@ -170,6 +170,60 @@ class MockLight {
   }
 }
 
+class MockBox3 {
+  constructor(min, max) {
+    this.min = min || new MockVector3(-0.5, 0.2, -0.5);
+    this.max = max || new MockVector3(0.5, 2.2, 0.5);
+  }
+  setFromObject(obj) {
+    if (obj && obj.userData && obj.userData.mockBounds) {
+      this.min = obj.userData.mockBounds.min;
+      this.max = obj.userData.mockBounds.max;
+    }
+    return this;
+  }
+  getSize(target) {
+    target.set(this.max.x - this.min.x, this.max.y - this.min.y, this.max.z - this.min.z);
+    return target;
+  }
+}
+
+class MockAnimationMixer {
+  constructor(root) {
+    this.root = root;
+    this.actions = [];
+    this.timeUpdated = 0;
+  }
+  clipAction(clip) {
+    const action = {
+      clip,
+      playing: false,
+      play() { this.playing = true; return this; }
+    };
+    this.actions.push(action);
+    return action;
+  }
+  update(deltaSec) {
+    this.timeUpdated += deltaSec;
+  }
+}
+
+class MockGLTFLoader {
+  load(url, onLoad) {
+    const root = new MockGroup();
+    root.name = "mock-scene";
+    root.userData.mockBounds = {
+      min: new MockVector3(-0.5, 0.2, -0.5),
+      max: new MockVector3(0.5, 2.2, 0.5)
+    };
+    const gltf = {
+      scene: root,
+      animations: [{ name: "Animation" }]
+    };
+    if (onLoad) onLoad(gltf);
+  }
+}
+
 const mockTHREE = {
   Vector3: MockVector3,
   Quaternion: MockQuaternion,
@@ -191,7 +245,10 @@ const mockTHREE = {
   AmbientLight: MockLight,
   DirectionalLight: MockLight,
   PointLight: MockLight,
-  DoubleSide: 2
+  DoubleSide: 2,
+  Box3: MockBox3,
+  AnimationMixer: MockAnimationMixer,
+  GLTFLoader: MockGLTFLoader
 };
 
 import {
@@ -201,7 +258,12 @@ import {
   animatePowderSpray,
   createExtinguisherMesh,
   createFireMesh,
-  animateFireMesh
+  animateFireMesh,
+  loadGLBModel,
+  createExitSignMesh,
+  animateExitSignMesh,
+  createAlarmStationMesh,
+  animateAlarmStationMesh
 } from "../ar/webxr_render.js";
 
 import {
@@ -542,5 +604,117 @@ describe("WebXR Placement and Tracking", () => {
     assert.strictEqual(DECISION_CHOICES.EVACUATE, "evacuate");
     assert.strictEqual(DECISION_CHOICES.EXTINGUISH, "extinguish");
     assert.strictEqual(DECISION_CHOICES.WAIT, "wait");
+  });
+
+  it("loadGLBModel rejects if THREE or GLTFLoader is missing", async () => {
+    globalThis.window.THREE = null;
+    await assert.rejects(async () => {
+      await loadGLBModel("dummy.glb");
+    }, /THREE or GLTFLoader not available/);
+
+    globalThis.window.THREE = { ...mockTHREE, GLTFLoader: null };
+    await assert.rejects(async () => {
+      await loadGLBModel("dummy.glb");
+    }, /THREE or GLTFLoader not available/);
+  });
+
+  it("loadGLBModel normalizes model pivot flush to floor Y=0 and centers horizontally", async () => {
+    globalThis.window.THREE = mockTHREE;
+    const { root, container, mixer } = await loadGLBModel("frontend/assets/models/fire_extinguisher.glb", {
+      targetHeight: 1.75,
+      flushFloor: true,
+      centerHorizontal: true
+    });
+
+    assert.ok(container);
+    assert.ok(root);
+    assert.ok(mixer);
+    assert.ok(root.position.y <= 0);
+    assert.strictEqual(root.position.x, 0);
+    assert.strictEqual(root.position.z, 0);
+  });
+
+  it("createExitSignMesh creates exit sign with fallback geometry and touch hit area", () => {
+    globalThis.window.THREE = mockTHREE;
+    const exitGroup = createExitSignMesh({ position: { x: 0, y: 1.4, z: -2.2 } });
+    assert.ok(exitGroup);
+    assert.strictEqual(exitGroup.name, "exit-graphic");
+    assert.strictEqual(exitGroup.userData.raycastTarget, "exit");
+    assert.strictEqual(exitGroup.position.y, 1.4);
+
+    const hitArea = exitGroup.getObjectByName("exit-hit-area");
+    assert.ok(hitArea);
+    assert.strictEqual(hitArea.userData.raycastTarget, "exit");
+
+    const fallback = exitGroup.getObjectByName("exit-sign-fallback");
+    assert.ok(fallback);
+  });
+
+  it("animateExitSignMesh bobs exit sign Y position smoothly", () => {
+    globalThis.window.THREE = mockTHREE;
+    const exitGroup = createExitSignMesh({ position: { x: 0, y: 1.5, z: -2.0 } });
+    animateExitSignMesh(exitGroup, 100);
+    assert.notStrictEqual(exitGroup.position.y, 1.5);
+  });
+
+  it("createAlarmStationMesh creates pull station with hit box and pulsing ring", () => {
+    globalThis.window.THREE = mockTHREE;
+    const alarmGroup = createAlarmStationMesh({ position: { x: 0.8, y: 1.2, z: -1.5 } });
+    assert.ok(alarmGroup);
+    assert.strictEqual(alarmGroup.name, "fire-alarm-station");
+    assert.strictEqual(alarmGroup.userData.raycastTarget, "alarm");
+
+    const hit = alarmGroup.getObjectByName("alarm-hit-box");
+    assert.ok(hit);
+    assert.strictEqual(hit.userData.raycastTarget, "alarm");
+
+    const ring = alarmGroup.getObjectByName("alarm-pulse-ring");
+    assert.ok(ring);
+
+    const fallback = alarmGroup.getObjectByName("alarm-box-fallback");
+    assert.ok(fallback);
+  });
+
+  it("animateAlarmStationMesh pulses red ring scale and opacity", () => {
+    globalThis.window.THREE = mockTHREE;
+    const alarmGroup = createAlarmStationMesh();
+    animateAlarmStationMesh(alarmGroup, 150);
+    const ring = alarmGroup.getObjectByName("alarm-pulse-ring");
+    assert.ok(ring);
+    assert.notStrictEqual(ring.scale.x, 1.0);
+  });
+
+  it("createFireMesh includes fire-flames-group and updates animation mixers", () => {
+    globalThis.window.THREE = mockTHREE;
+    const mesh = createFireMesh();
+    assert.ok(mesh);
+    const flamesGroup = mesh.getObjectByName("fire-flames-group");
+    assert.ok(flamesGroup);
+    assert.strictEqual(flamesGroup.position.y, 0.84);
+    assert.ok(Array.isArray(mesh.userData.mixers));
+  });
+
+  it("animateFireMesh advances animation mixers and scales flames group with extinguishProgress", () => {
+    globalThis.window.THREE = mockTHREE;
+    const fireGroup = new mockTHREE.Group();
+    const flamesGroup = new mockTHREE.Group();
+    flamesGroup.name = "fire-flames-group";
+    fireGroup.add(flamesGroup);
+    fireGroup.userData.flamesGroup = flamesGroup;
+
+    const mockMixer = new MockAnimationMixer();
+    fireGroup.userData.mixers = [mockMixer];
+
+    // active fire
+    fireGroup.userData.extinguishProgress = 0.5;
+    animateFireMesh(fireGroup, 50);
+    assert.strictEqual(mockMixer.timeUpdated, 0.05);
+    assert.strictEqual(flamesGroup.visible, true);
+    assert.strictEqual(flamesGroup.scale.x, 0.5);
+
+    // extinguished fire
+    fireGroup.userData.extinguishProgress = 1.0;
+    animateFireMesh(fireGroup, 50);
+    assert.strictEqual(flamesGroup.visible, false);
   });
 });
