@@ -56,6 +56,21 @@ let _diagHudEl = null;
 let _diagLastError = null;
 let _diagErrorListener = null;
 let _diagRejectionListener = null;
+let _diagDismissed = false;
+
+// dismiss temporary diagnostic hud element
+function dismissWebXRDiag() {
+  _diagDismissed = true;
+  if (_diagHudEl && _diagHudEl.parentNode) {
+    _diagHudEl.parentNode.removeChild(_diagHudEl);
+    _diagHudEl = null;
+  }
+}
+
+// check if diagnostic hud is mounted
+function isDiagHudVisibleWebXR() {
+  return Boolean(_diagHudEl && _diagHudEl.parentNode);
+}
 
 // update temporary on-screen diagnostic hud for tablet verification
 function _updateWebXRDiag(stateText, err = null) {
@@ -65,6 +80,12 @@ function _updateWebXRDiag(stateText, err = null) {
   }
   if (typeof document === "undefined") return;
 
+  // if dismissed and no error, do not recreate HUD
+  if (_diagDismissed && !err) {
+    logger.info({ event: "webxr_diag_state", state: stateText }, stateText);
+    return;
+  }
+
   if (!_diagHudEl) {
     _diagHudEl = document.createElement("div");
     _diagHudEl.id = "webxr-diag-hud";
@@ -73,7 +94,7 @@ function _updateWebXRDiag(stateText, err = null) {
       "background:rgba(15,23,42,0.92)", "color:#f8fafc",
       "border:1.5px solid #38bdf8", "border-radius:6px",
       "padding:6px 10px", "font-family:monospace", "font-size:0.75rem",
-      "z-index:100000", "pointer-events:none", "line-height:1.35",
+      "z-index:100000", "pointer-events:auto", "line-height:1.35",
       "box-shadow:0 4px 14px rgba(0,0,0,0.8)", "word-break:break-word"
     ].join(";");
     const parent = document.body || document.documentElement;
@@ -90,11 +111,30 @@ function _updateWebXRDiag(stateText, err = null) {
     : '<div style="color:#4ade80;margin-top:2px;">✔ Errors: none</div>';
 
   _diagHudEl.innerHTML = `
-    <div style="color:#38bdf8;font-weight:bold;">[TEMPORARY DIAGNOSTIC — WEBXR FIRE RUNTIME]</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;padding-right:24px;">
+      <span style="color:#38bdf8;font-weight:bold;">[TEMPORARY DIAGNOSTIC — WEBXR FIRE RUNTIME]</span>
+    </div>
     <div><strong>State:</strong> ${stateText}</div>
     <div style="color:#94a3b8;"><strong>DOM:</strong> vp=${vpInDom ? "yes" : "NO"} | decision-panel=${decPanelInDom ? "yes" : "no"} | step=${_currentStep}</div>
     ${errSection}
   `;
+
+  let btnClose = document.getElementById("btn-close-webxr-diag");
+  if (!btnClose) {
+    btnClose = document.createElement("button");
+    btnClose.id = "btn-close-webxr-diag";
+    btnClose.type = "button";
+    btnClose.style.cssText = "position:absolute;top:4px;right:6px;background:none;border:none;color:#94a3b8;font-size:1rem;font-weight:bold;cursor:pointer;padding:0 6px;line-height:1;";
+    btnClose.title = "Dismiss diagnostic HUD";
+    btnClose.textContent = "✕";
+    btnClose.addEventListener("click", (ev) => {
+      if (ev && typeof ev.stopPropagation === "function") ev.stopPropagation();
+      dismissWebXRDiag();
+    });
+  }
+  if (_diagHudEl.appendChild) {
+    _diagHudEl.appendChild(btnClose);
+  }
 }
 
 // setup window level error trap for tablet diagnostics
@@ -284,6 +324,7 @@ function cleanupWebXRFireModule() {
       _diagHudEl = null;
     }
   }
+  _diagDismissed = false;
 
   if (typeof window !== "undefined") {
     if (_diagErrorListener) {
@@ -371,6 +412,7 @@ function _setupStep1WebXR(container) {
   ];
 
   function showPlacementScreen() {
+    dismissWebXRDiag();
     if (!overlay) return;
 
     // spawn extinguisher hidden until surface detected or placed
@@ -658,6 +700,7 @@ function _showDecisionWheelStep(container, overlay, onExtinguishProceed) {
           btnProceed.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.4rem;background:#10b981;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;box-shadow:0 0 12px rgba(16,185,129,0.4);";
           btnProceed.textContent = "✔ Proceed to Extinguisher Placement ➜";
           btnProceed.addEventListener("click", () => {
+            dismissWebXRDiag();
             _updateWebXRDiag("Proceed to Extinguisher Placement Screen");
             const decPanel = document.getElementById("fire-decision-panel");
             if (decPanel && decPanel.remove) decPanel.remove();
@@ -671,6 +714,7 @@ function _showDecisionWheelStep(container, overlay, onExtinguishProceed) {
           btnProceed.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.4rem;background:#ef4444;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;box-shadow:0 0 12px rgba(239,68,68,0.4);";
           btnProceed.textContent = "🚨 Confirm Evacuation Order ➜";
           btnProceed.addEventListener("click", () => {
+            dismissWebXRDiag();
             _updateWebXRDiag("Proceed to Evacuation Route Confirmation");
             const decPanel = document.getElementById("fire-decision-panel");
             if (decPanel && decPanel.remove) decPanel.remove();
@@ -688,6 +732,7 @@ function _showDecisionWheelStep(container, overlay, onExtinguishProceed) {
 
 // show branch a evacuation message
 function _showEvacuateConfirmation(container, overlay, reading) {
+  dismissWebXRDiag();
   if (!overlay) return;
   _updateWebXRDiag(`Branch A Evacuation Active | Reading: ${reading}%`);
   const isHigh = reading >= METHANE_EXPLOSIVE_THRESHOLD;
@@ -728,6 +773,7 @@ function _showEvacuateConfirmation(container, overlay, reading) {
 
 // step 2: PASS technique interactions against world-space entities
 function _setupStep2WebXR(container) {
+  dismissWebXRDiag();
   _currentStep = 2;
   _updateWebXRDiag("Step 2 PASS technique active");
   logger.info({ event: "webxr_fire_step_start", step: 2 }, "PASS technique (WebXR)");
@@ -1296,6 +1342,7 @@ function _setupStep3WebXR(container, _step2Passed) {
 
 // completion screen
 function _showCompletionWebXR(overlay, container, passed) {
+  dismissWebXRDiag();
   if (!overlay) return;
   _updateWebXRDiag(`Module Complete | Passed: ${passed}`);
   overlay.innerHTML = `
@@ -1369,6 +1416,8 @@ export {
   startFireModuleWebXR,
   cleanupWebXRFireModule,
   getCurrentStepWebXR,
+  dismissWebXRDiag,
+  isDiagHudVisibleWebXR,
   setZoomScaleWebXR,
   getZoomScaleWebXR,
   getMethaneReadingWebXR,

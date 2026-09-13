@@ -412,5 +412,65 @@ describe("Fire & Explosion Scenario: Methane Reading & Decision Logic (Phase 1)"
       nudge.destroy();
     });
   });
+
+  describe("Mid-session rotation handling (Phase 3)", () => {
+    it("decision wheel maintains active reading and event bindings across rotation events", (t, done) => {
+      const container = document.createElement("div");
+      let fired = false;
+      const panel = renderDecisionWheel(container, {
+        reading: 3.2,
+        onDecision: ({ choice }) => {
+          assert.strictEqual(choice, DECISION_CHOICES.EXTINGUISH);
+          fired = true;
+        }
+      });
+
+      assert.ok(panel);
+      assert.ok(panel.innerHTML.includes("3.2% CH₄"));
+
+      // simulate device orientation rotation from portrait to landscape
+      window.innerWidth = 800;
+      window.innerHeight = 450;
+      window.dispatchEvent(new CustomEvent("resize"));
+      window.dispatchEvent(new CustomEvent("orientationchange"));
+
+      // panel still mounted, reading preserved, button click still triggers onDecision
+      assert.strictEqual(document.getElementById("fire-decision-panel"), panel);
+      assert.ok(panel.innerHTML.includes("3.2% CH₄"));
+
+      const btnExt = document.getElementById("btn-decision-extinguish");
+      assert.ok(btnExt);
+      btnExt.click();
+
+      assert.strictEqual(fired, true);
+      done();
+    });
+
+    it("soft orientation nudge toggles visibility smoothly when user rotates back and forth", () => {
+      // 1. start portrait
+      window.innerWidth = 360;
+      window.innerHeight = 740;
+      const container = document.createElement("div");
+      const nudge = initOrientationNudge(container);
+      const toast = document.getElementById("safear-orientation-nudge");
+      assert.ok(toast);
+      assert.strictEqual(toast.classList.contains("nudge-hidden"), false);
+
+      // 2. rotate to landscape -> toast hides
+      window.innerWidth = 740;
+      window.innerHeight = 360;
+      window.dispatchEvent(new CustomEvent("resize"));
+      assert.strictEqual(toast.classList.contains("nudge-hidden"), true);
+
+      // 3. rotate back to portrait -> toast unhides if within 5s window
+      window.innerWidth = 360;
+      window.innerHeight = 740;
+      window.dispatchEvent(new CustomEvent("resize"));
+      assert.strictEqual(toast.classList.contains("nudge-hidden"), false);
+
+      nudge.destroy();
+    });
+  });
 });
+
 

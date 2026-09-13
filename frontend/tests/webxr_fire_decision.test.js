@@ -91,6 +91,14 @@ function _makeEl(initId) {
       this.children.push(child);
       child.parentNode = this;
     },
+    removeChild(child) {
+      if (child && child.id) delete _elements[child.id];
+      if (Array.isArray(this.children)) {
+        this.children = this.children.filter((c) => c !== child);
+      }
+      if (child) child.parentNode = null;
+      return child;
+    },
     remove() {
       if (_id) delete _elements[_id];
       if (this.parentNode && Array.isArray(this.parentNode.children)) {
@@ -102,7 +110,10 @@ function _makeEl(initId) {
   return el;
 }
 
+const _body = _makeEl("body");
 globalThis.document = {
+  body: _body,
+  documentElement: _body,
   getElementById(id) { return _elements[id] || null; },
   createElement(_tag) { return _makeEl(null); },
   querySelector(sel) {
@@ -116,6 +127,8 @@ import {
   cleanupWebXRFireModule,
   getMethaneReadingWebXR,
   getActiveBranchWebXR,
+  dismissWebXRDiag,
+  isDiagHudVisibleWebXR,
   CP_DECISION_ID,
   DECISION_CHOICES
 } from "../modules/fire-response/webxr_fire_module.js";
@@ -267,6 +280,100 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
 
       const cpPass = checkpointsFired.filter((c) => c.checkpointId === CP_DECISION_ID && c.passed === true);
       assert.strictEqual(cpPass.length, 1);
+      assert.strictEqual(getActiveBranchWebXR(), "evacuate");
+      done();
+    }, 300);
+  });
+
+  it("diagnostic HUD is present during gas meter, but automatically dismissed when proceeding to next step", (t, done) => {
+    const container = _makeEl("container");
+    const mockController = {};
+    startFireModuleWebXR(container, mockController, { reading: 2.8 });
+
+    const overlay = document.getElementById("fire-module-overlay");
+    for (let i = 0; i < 3; i++) {
+      overlay.querySelector("#btn-step-next").click();
+    }
+    document.getElementById("fire-alert-overlay").click();
+
+    setTimeout(() => {
+      // confirm diagnostic HUD is present during gas meter step
+      const hudEl = document.getElementById("webxr-diag-hud");
+      assert.ok(hudEl, "Diagnostic HUD must be present during gas meter / decision phase");
+      assert.strictEqual(isDiagHudVisibleWebXR(), true);
+
+      // click correct extinguish choice
+      const btnExt = document.getElementById("btn-decision-extinguish");
+      assert.ok(btnExt);
+      btnExt.click();
+
+      // proceed to placement
+      const btnProceed = document.getElementById("btn-decision-proceed");
+      assert.ok(btnProceed, "Proceed button must mount in feedback slot");
+      btnProceed.click();
+
+      // after gas meter, diagnostic HUD must be completely removed from DOM
+      assert.strictEqual(document.getElementById("webxr-diag-hud"), null, "Diagnostic HUD must be removed after gas meter");
+      assert.strictEqual(isDiagHudVisibleWebXR(), false, "isDiagHudVisibleWebXR must report false");
+      done();
+    }, 300);
+  });
+
+  it("diagnostic HUD close button [✕] dismisses HUD immediately", () => {
+    const container = _makeEl("container");
+    const mockController = {};
+    startFireModuleWebXR(container, mockController, { reading: 4.1 });
+
+    const hudEl = document.getElementById("webxr-diag-hud");
+    assert.ok(hudEl, "Diagnostic HUD mounted on module start");
+    const closeBtn = document.getElementById("btn-close-webxr-diag");
+    assert.ok(closeBtn, "Close button [✕] must exist on diagnostic HUD");
+
+    closeBtn.click();
+    assert.strictEqual(document.getElementById("webxr-diag-hud"), null, "Diagnostic HUD removed after close click");
+    assert.strictEqual(isDiagHudVisibleWebXR(), false);
+  });
+
+  it("dismissWebXRDiag prevents normal state updates from recreating HUD", () => {
+    const container = _makeEl("container");
+    const mockController = {};
+    startFireModuleWebXR(container, mockController, { reading: 3.5 });
+
+    dismissWebXRDiag();
+    assert.strictEqual(isDiagHudVisibleWebXR(), false);
+
+    // subscreen advancement or other state calls must NOT recreate it
+    const overlay = document.getElementById("fire-module-overlay");
+    overlay.querySelector("#btn-step-next").click();
+    assert.strictEqual(document.getElementById("webxr-diag-hud"), null, "HUD must not reappear on subsequent state changes");
+  });
+
+  it("mid-session rotation (resize / orientationchange) preserves decision panel, gauge, and state", (t, done) => {
+    const container = _makeEl("container");
+    const mockController = {};
+    startFireModuleWebXR(container, mockController, { reading: 6.2 });
+
+    const overlay = document.getElementById("fire-module-overlay");
+    for (let i = 0; i < 3; i++) {
+      overlay.querySelector("#btn-step-next").click();
+    }
+    document.getElementById("fire-alert-overlay").click();
+
+    setTimeout(() => {
+      const panel = document.getElementById("fire-decision-panel");
+      assert.ok(panel, "Decision panel present before rotation");
+
+      // simulate device orientation change to landscape then portrait
+      window.dispatchEvent(new CustomEvent("resize"));
+      window.dispatchEvent(new CustomEvent("orientationchange"));
+
+      // panel and options remain intact and functional without resetting
+      assert.strictEqual(document.getElementById("fire-decision-panel"), panel);
+      assert.strictEqual(getMethaneReadingWebXR(), 6.2);
+
+      const btnEvac = document.getElementById("btn-decision-evacuate");
+      assert.ok(btnEvac);
+      btnEvac.click();
       assert.strictEqual(getActiveBranchWebXR(), "evacuate");
       done();
     }, 300);

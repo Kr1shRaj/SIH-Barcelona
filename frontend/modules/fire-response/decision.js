@@ -463,7 +463,12 @@ export function initOrientationNudge(container) {
 
   function showToast() {
     if (userDismissed || !isPortraitMode()) return;
-    if (toastEl && toastEl.parentNode) return;
+    if (toastEl && toastEl.parentNode) {
+      if (toastEl.classList && toastEl.classList.remove) {
+        toastEl.classList.remove("nudge-hidden");
+      }
+      return;
+    }
 
     const mountTarget = (container && container.appendChild)
       ? container
