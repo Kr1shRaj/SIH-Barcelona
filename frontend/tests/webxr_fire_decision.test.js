@@ -729,6 +729,21 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     assert.strictEqual(document.getElementById("fire-module-overlay"), null, "Overlay cleaned up");
   });
 
+  it("debrief card includes overflow-safe styles and minmax grid columns to prevent right-edge clipping", () => {
+    const container = _makeEl("container");
+    const overlay = _makeEl("fire-module-overlay");
+    container.appendChild(overlay);
+
+    _renderDebriefCardWebXR(overlay);
+    const card = document.getElementById("debrief-summary-card");
+    assert.ok(card);
+    assert.ok(card.style.cssText.includes("overflow:hidden"), "Card must have overflow:hidden");
+    assert.ok(card.style.cssText.includes("word-break:break-word"), "Card must have word-break:break-word");
+    assert.ok(card.style.cssText.includes("box-sizing:border-box"), "Card must have box-sizing:border-box");
+    assert.ok(card.innerHTML.includes("minmax(0,1fr)"), "KPI grid must use minmax(0,1fr) to prevent column blowout");
+    assert.ok(card.innerHTML.includes("min-width:0"), "KPI cells must declare min-width:0 to allow shrinking");
+  });
+
   it("_computePlacementPose snaps to vertical surface when wall hit detected", () => {
     const container = _makeEl("container");
     const mockHitPose = {

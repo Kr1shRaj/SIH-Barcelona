@@ -1835,9 +1835,10 @@ function _renderDebriefCardWebXR(overlay, passed = true) {
   card.id = "debrief-summary-card";
   card.style.cssText = [
     "background:#0f172a", "border:2px solid " + (isExplosive ? "#ef4444" : "#10b981"),
-    "border-radius:10px", "padding:0.6rem 0.8rem", "margin:0 auto",
-    "max-width:620px", "color:#fff", "box-shadow:0 4px 14px rgba(0,0,0,0.5)",
-    "box-sizing:border-box"
+    "border-radius:10px", "padding:0.5rem 0.65rem", "margin:0 auto",
+    "width:100%", "max-width:min(600px, calc(100vw - 1rem))",
+    "color:#fff", "box-shadow:0 4px 14px rgba(0,0,0,0.5)",
+    "box-sizing:border-box", "overflow:hidden", "word-break:break-word"
   ].join(";");
 
   const branchLabel = _currentBranch === "evacuate"
@@ -1847,31 +1848,31 @@ function _renderDebriefCardWebXR(overlay, passed = true) {
   const alarmStatus = _alarmPulled ? "✔ Sounded & Activated" : (_currentBranch === "evacuate" ? "N/A (Evacuated Immediately)" : "Completed");
 
   card.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem;">
-      <div style="font-size:0.75rem;font-weight:bold;color:${isExplosive ? "#f87171" : "#34d399"};letter-spacing:0.5px;">📋 DRILL DEBRIEF &amp; MINE SAFETY LOG</div>
-      <div style="font-size:0.72rem;font-weight:bold;color:${passed ? "#10b981" : "#f59e0b"};background:rgba(30,41,59,0.9);padding:2px 8px;border-radius:8px;border:1px solid ${passed ? "rgba(16,185,129,0.3)" : "rgba(245,158,11,0.3)"};">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem;gap:0.4rem;flex-wrap:wrap;">
+      <div style="font-size:0.75rem;font-weight:bold;color:${isExplosive ? "#f87171" : "#34d399"};letter-spacing:0.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;">📋 DRILL DEBRIEF &amp; MINE SAFETY LOG</div>
+      <div style="font-size:0.72rem;font-weight:bold;color:${passed ? "#10b981" : "#f59e0b"};background:rgba(30,41,59,0.9);padding:2px 8px;border-radius:8px;border:1px solid ${passed ? "rgba(16,185,129,0.3)" : "rgba(245,158,11,0.3)"};white-space:nowrap;flex-shrink:0;">
         ${passed ? "✔ PASSED" : "REVIEW NEEDED"}
       </div>
     </div>
-    <div class="debrief-kpi-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;margin:0.3rem 0;font-size:0.78rem;">
-      <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;">
-        <span style="color:#94a3b8;display:block;font-size:0.7rem;">Methane Level:</span>
-        <strong style="color:${isExplosive ? "#ef4444" : "#10b981"};">${reading.toFixed(1)}% CH₄ (${isExplosive ? "EXPLOSIVE" : "SAFE/INCIPIENT"})</strong>
+    <div class="debrief-kpi-grid" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0.35rem;margin:0.3rem 0;font-size:0.76rem;width:100%;box-sizing:border-box;">
+      <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;min-width:0;overflow:hidden;box-sizing:border-box;">
+        <span style="color:#94a3b8;display:block;font-size:0.68rem;">Methane Level:</span>
+        <strong style="color:${isExplosive ? "#ef4444" : "#10b981"};display:block;word-break:break-word;overflow-wrap:break-word;">${reading.toFixed(1)}% CH₄ (${isExplosive ? "EXPLOSIVE" : "SAFE/INCIPIENT"})</strong>
       </div>
-      <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;">
-        <span style="color:#94a3b8;display:block;font-size:0.7rem;">Action Taken:</span>
-        <strong>${branchLabel}</strong>
+      <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;min-width:0;overflow:hidden;box-sizing:border-box;">
+        <span style="color:#94a3b8;display:block;font-size:0.68rem;">Action Taken:</span>
+        <strong style="display:block;word-break:break-word;overflow-wrap:break-word;">${branchLabel}</strong>
       </div>
-      <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;">
-        <span style="color:#94a3b8;display:block;font-size:0.7rem;">Alarm Station:</span>
-        <strong>${alarmStatus}</strong>
+      <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;min-width:0;overflow:hidden;box-sizing:border-box;">
+        <span style="color:#94a3b8;display:block;font-size:0.68rem;">Alarm Station:</span>
+        <strong style="display:block;word-break:break-word;overflow-wrap:break-word;">${alarmStatus}</strong>
       </div>
-      <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;">
-        <span style="color:#94a3b8;display:block;font-size:0.7rem;">Evacuation Status:</span>
-        <strong style="color:#10b981;">✔ Safe Exit Reached</strong>
+      <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;min-width:0;overflow:hidden;box-sizing:border-box;">
+        <span style="color:#94a3b8;display:block;font-size:0.68rem;">Evacuation Status:</span>
+        <strong style="color:#10b981;display:block;word-break:break-word;overflow-wrap:break-word;">✔ Safe Exit Reached</strong>
       </div>
     </div>
-    <div style="font-size:0.72rem;color:#cbd5e1;line-height:1.3;margin:0.25rem 0 0.4rem 0;">
+    <div style="font-size:0.71rem;color:#cbd5e1;line-height:1.3;margin:0.25rem 0 0.35rem 0;word-break:break-word;overflow-wrap:break-word;">
       ${isExplosive
         ? "Mines Act Compliance: Trainee correctly recognized explosive atmosphere above 5.0% LEL and executed immediate evacuation without risking secondary blast."
         : "Mines Act Compliance: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit."
@@ -1906,6 +1907,8 @@ function _showCompletionWebXR(overlay, container, passed) {
   _hideAimCrosshair();
   dismissWebXRDiag();
   if (!overlay) return;
+  overlay.style.padding = "0.5rem";
+  overlay.style.boxSizing = "border-box";
   _updateWebXRDiag(`Module Complete | Passed: ${passed}`);
   overlay.innerHTML = "";
   _renderDebriefCardWebXR(overlay, passed);

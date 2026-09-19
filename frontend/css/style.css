@@ -1518,15 +1518,21 @@ canvas.a-canvas {
 
   /* 6. Debrief summary card in landscape */
   #debrief-summary-card {
-    max-width: 620px !important;
+    width: 100% !important;
+    max-width: min(620px, calc(100vw - 1.5rem)) !important;
     margin: 0.2rem auto 0.3rem auto !important;
-    padding: 0.45rem 0.75rem !important;
+    padding: 0.45rem 0.65rem !important;
     font-size: 0.75rem !important;
+    box-sizing: border-box !important;
+    overflow: hidden !important;
+    word-break: break-word !important;
   }
 
   #debrief-summary-card .debrief-kpi-grid {
-    grid-template-columns: repeat(4, 1fr) !important;
-    gap: 0.35rem !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 0.3rem !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
   }
 
   /* 7. WebXR diagnostic HUD in landscape (Corner positioning, docked below header) */
@@ -1546,6 +1552,39 @@ canvas.a-canvas {
     padding: 0.4rem 0.8rem !important;
     font-size: 0.85rem !important;
   }
+}
+
+/* Debrief summary card: responsive layout for mobile and desktop */
+#debrief-summary-card {
+  width: 100% !important;
+  max-width: min(600px, calc(100vw - 1rem)) !important;
+  margin: 0 auto !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+  word-break: break-word !important;
+}
+
+#debrief-summary-card .debrief-kpi-grid {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  gap: 0.35rem !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+#debrief-summary-card .debrief-kpi-grid > div {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+  box-sizing: border-box !important;
+}
+
+#debrief-summary-card .debrief-kpi-grid strong {
+  display: block !important;
+  word-break: break-word !important;
+  overflow-wrap: break-word !important;
+  line-height: 1.25 !important;
 }
 
 /* Center-screen AR aiming and raycasting crosshair */
