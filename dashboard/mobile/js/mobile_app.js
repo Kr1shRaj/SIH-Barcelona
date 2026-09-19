@@ -6,7 +6,6 @@ import { renderSupervisor } from "./supervisor.js";
 import { renderWorkerHub } from "./worker.js";
 import { openStageModal } from "./stages.js";
 
-const shell = document.querySelector(".app-shell");
 const loginView = document.getElementById("login-view");
 const supervisorView = document.getElementById("supervisor-view");
 const workerView = document.getElementById("worker-view");

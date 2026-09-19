@@ -1,6 +1,35 @@
 import { t } from "../../js/i18n.js";
 
-// build 3d realistic industrial fire entity matching SENAR benchmark
+// cluster animated fire gltf instances into corner fire
+function buildFireClusterEntity() {
+  const cluster = document.createElement("a-entity");
+  cluster.id = "fire-cluster";
+  if (typeof cluster.setAttribute === "function") {
+    cluster.setAttribute("position", "0 0 0");
+  }
+
+  const instances = [
+    { id: "fire-instance-1", x: 0, y: 0, z: 0, rotY: 0, scale: 1.0 },
+    { id: "fire-instance-2", x: -0.22, y: 0, z: 0.15, rotY: 45, scale: 0.85 },
+    { id: "fire-instance-3", x: 0.20, y: 0, z: -0.12, rotY: 110, scale: 1.25 },
+    { id: "fire-instance-4", x: 0.10, y: 0, z: 0.22, rotY: 230, scale: 0.90 },
+    { id: "fire-instance-5", x: -0.15, y: 0, z: -0.18, rotY: 160, scale: 1.10 }
+  ];
+
+  cluster.innerHTML = instances.map((inst) => `
+    <a-entity id="${inst.id}"
+      class="fire-cluster-instance"
+      gltf-model="./assets/models/animated_fire.glb"
+      position="${inst.x} ${inst.y} ${inst.z}"
+      rotation="0 ${inst.rotY} 0"
+      scale="${inst.scale} ${inst.scale} ${inst.scale}">
+    </a-entity>
+  `).join("");
+
+  return cluster;
+}
+
+// build 3d realistic industrial burning dustbin entity on the floor matching SENAR benchmark
 function buildFireEntity() {
   const entity = document.createElement("a-entity");
   entity.id = "fire-graphic";
@@ -14,24 +43,39 @@ function buildFireEntity() {
   }
 
   entity.innerHTML = `
-    <!-- industrial metal waste bin fuel source with charred steel rim -->
-    <a-cylinder id="fire-barrel" position="0 -0.40 0" radius="0.52" height="0.80" material="color: #1e293b; metalness: 0.7; roughness: 0.4"></a-cylinder>
-    <a-torus id="fire-barrel-rim" position="0 0 0" rotation="90 0 0" radius="0.52" radius-tubular="0.025" material="color: #0f172a; metalness: 0.85"></a-torus>
-    <a-cylinder id="fire-embers" position="0 -0.02 0" radius="0.48" height="0.06" material="color: #ff4400; shader: flat; opacity: 0.95" animation="property: material.color; type: color; to: #ff6600; from: #ff2200; dir: alternate; dur: 200; loop: true"></a-cylinder>
+    <!-- Circular floor scorch mark and shadow grounding the dustbin on the floor -->
+    <a-circle id="floor-scorch-decal" rotation="-90 0 0" position="0 -0.80 0" radius="0.85" material="color: #050505; opacity: 0.55; transparent: true"></a-circle>
 
-    <!-- dynamic flickering flame tongues (SENAR realistic fire look with radiant layered glow) -->
-    <a-cone id="fire-outer-cone" position="0 0.85 0" radius-bottom="0.56" radius-top="0.04" height="1.80" material="color: #ff3d00; shader: flat; opacity: 0.90; transparent: true" animation="property: scale; to: 1.08 1.18 1.08; from: 0.92 0.85 0.92; dir: alternate; dur: 220; loop: true; easing: easeInOutSine"></a-cone>
-    <a-cone id="fire-inner-cone" position="0 0.60 0" radius-bottom="0.40" radius-top="0.02" height="1.30" material="color: #ffea00; shader: flat; opacity: 0.95; transparent: true" animation="property: scale; to: 1.15 1.25 1.15; from: 0.85 0.80 0.85; dir: alternate; dur: 170; loop: true; easing: easeInOutQuad"></a-cone>
-    <a-cone id="fire-tongue-left" position="0.08 0.70 -0.04" rotation="8 40 -12" radius-bottom="0.36" radius-top="0.02" height="1.45" material="color: #ff6d00; shader: flat; opacity: 0.88; transparent: true" animation="property: rotation; to: 6 40 -16; from: 12 40 -8; dir: alternate; dur: 250; loop: true"></a-cone>
-    <a-cone id="fire-tongue-right" position="-0.08 0.72 0.04" rotation="-10 -40 10" radius-bottom="0.34" radius-top="0.02" height="1.38" material="color: #ff9100; shader: flat; opacity: 0.88; transparent: true" animation="property: rotation; to: -14 -40 6; from: -6 -40 14; dir: alternate; dur: 190; loop: true"></a-cone>
-    <a-cone id="fire-core-flame" position="0 0.45 0" radius-bottom="0.25" radius-top="0.01" height="0.95" material="color: #ffffff; shader: flat; opacity: 0.92; transparent: true" animation="property: scale; to: 1.2 1.3 1.2; from: 0.8 0.8 0.8; dir: alternate; dur: 130; loop: true"></a-cone>
+    <!-- Industrial corrugated metal waste dustbin resting on the floor -->
+    <a-cylinder id="fire-barrel" position="0 -0.38 0" radius-bottom="0.44" radius-top="0.52" height="0.84" material="color: #475569; metalness: 0.8; roughness: 0.35"></a-cylinder>
+    <!-- Corrugated reinforcement hoop ribs around dustbin body -->
+    <a-torus id="dustbin-rib-1" position="0 -0.55 0" rotation="90 0 0" radius="0.46" radius-tubular="0.018" material="color: #334155; metalness: 0.85"></a-torus>
+    <a-torus id="dustbin-rib-2" position="0 -0.35 0" rotation="90 0 0" radius="0.485" radius-tubular="0.018" material="color: #334155; metalness: 0.85"></a-torus>
+    <a-torus id="dustbin-rib-3" position="0 -0.15 0" rotation="90 0 0" radius="0.51" radius-tubular="0.018" material="color: #334155; metalness: 0.85"></a-torus>
+    <!-- Reinforced rolled steel top rim lip -->
+    <a-torus id="fire-barrel-rim" position="0 0.04 0" rotation="90 0 0" radius="0.53" radius-tubular="0.026" material="color: #1e293b; metalness: 0.9"></a-torus>
+    <!-- Base foot ring -->
+    <a-cylinder id="dustbin-base-foot" position="0 -0.79 0" radius="0.46" height="0.04" material="color: #1e293b; metalness: 0.85"></a-cylinder>
+    <!-- Side metal drop handles -->
+    <a-torus id="dustbin-handle-l" position="-0.53 -0.15 0" rotation="0 0 90" radius="0.09" radius-tubular="0.016" material="color: #334155; metalness: 0.8"></a-torus>
+    <a-torus id="dustbin-handle-r" position="0.53 -0.15 0" rotation="0 0 90" radius="0.09" radius-tubular="0.016" material="color: #334155; metalness: 0.8"></a-torus>
 
-    <!-- dynamic real-time fire point light casting flickering orange illumination -->
-    <a-light id="fire-light" type="point" color="#ff7700" intensity="2.0" distance="5" position="0 0.8 0" animation="property: intensity; to: 2.6; from: 1.5; dir: alternate; dur: 140; loop: true"></a-light>
+    <!-- Burning debris/trash heap inside the dustbin -->
+    <a-dodecahedron id="fire-trash-heap" position="0 -0.02 0" radius="0.46" material="color: #1c1917; roughness: 0.9"></a-dodecahedron>
+    <a-cylinder id="fire-embers" position="0 0.01 0" radius="0.47" height="0.05" material="color: #ff4400; shader: flat; opacity: 0.95" animation="property: material.color; type: color; to: #ff6600; from: #ff2200; dir: alternate; dur: 200; loop: true"></a-cylinder>
+
+    <!-- Dynamic fire flames group (contains 3D clustered GLTF fire models scaled during sweep) -->
+    <a-entity id="fire-flames-group" position="0 0.05 0">
+      <!-- dynamic real-time fire point light casting flickering orange illumination -->
+      <a-light id="fire-light" type="point" color="#ff7700" intensity="2.2" distance="5" position="0 0.8 0" animation="property: intensity; to: 2.8; from: 1.6; dir: alternate; dur: 140; loop: true"></a-light>
+    </a-entity>
 
     <!-- rising smoke plume puffs drifting upward -->
     <a-sphere id="fire-smoke-1" position="0 1.6 0" radius="0.32" material="color: #334155; opacity: 0.35; transparent: true" animation="property: position; to: 0.08 2.4 0.04; dur: 1600; loop: true; easing: linear" animation__fade="property: material.opacity; to: 0; from: 0.35; dur: 1600; loop: true; easing: linear"></a-sphere>
     <a-sphere id="fire-smoke-2" position="-0.06 1.8 0" radius="0.38" material="color: #1e293b; opacity: 0.30; transparent: true" animation="property: position; to: -0.12 2.7 -0.04; dur: 2000; loop: true; easing: linear" animation__fade="property: material.opacity; to: 0; from: 0.30; dur: 2000; loop: true; easing: linear"></a-sphere>
+
+    <!-- white extinguishing powder steam cloud (activated during sweep finish) -->
+    <a-sphere id="fire-extinguish-steam" position="0 0.5 0" radius="0.55" material="color: #f1f5f9; opacity: 0; transparent: true"></a-sphere>
 
     <!-- generous aim target collision cylinder covering entire base -->
     <a-cylinder id="fire-target-base" class="clickable aim-target" data-raycast-target="aim" position="0 -0.20 0" radius="0.95" height="0.75" material="color: #00e676; opacity: 0.01; transparent: true"></a-cylinder>
@@ -39,6 +83,15 @@ function buildFireEntity() {
     <!-- 3D visual target label at ground base -->
     <a-text id="aim-ground-label" value="${t("graphics.aim_flame_base", "👇 AIM AT BASE OF FLAMES")}" align="center" position="0 -0.62 0.50" rotation="-20 0 0" scale="0.50 0.50 0.50" color="#00e676" material="shader: flat"></a-text>
   `;
+
+  // append clustered animated fire gltf instances to flames group
+  const flameGroup = entity.querySelector ? entity.querySelector("#fire-flames-group") : null;
+  const cluster = buildFireClusterEntity();
+  if (flameGroup && typeof flameGroup.appendChild === "function") {
+    flameGroup.appendChild(cluster);
+  } else {
+    entity.appendChild(cluster);
+  }
 
   // 3d neon green aim reticle facing user at the base of the fire container
   const aimReticle = document.createElement("a-ring");
@@ -60,7 +113,7 @@ function buildFireEntity() {
   return entity;
 }
 
-// build 3d exit sign entity for a-frame marker anchor
+// build 3d exit sign entity using glb model
 function buildExitEntity() {
   const entity = document.createElement("a-entity");
   entity.id = "exit-graphic";
@@ -73,11 +126,9 @@ function buildExitEntity() {
     entity.className = "clickable";
   }
 
-  // standard ISO green emergency exit board with unmistakable white directional arrow silhouette
+  // low poly green running man exit sign 3D model replacing primitive geometry
   entity.innerHTML = `
-    <a-box id="exit-board" position="0 0 0" width="1.10" height="0.55" depth="0.06" material="color: #00c853; shader: flat"></a-box>
-    <a-box id="exit-arrow-shaft" position="-0.13 0 0.035" width="0.42" height="0.15" depth="0.01" material="color: #ffffff; shader: flat"></a-box>
-    <a-triangle id="exit-arrow-head" vertex-a="0.36 0 0.035" vertex-b="0.08 0.20 0.035" vertex-c="0.08 -0.20 0.035" material="color: #ffffff; shader: flat"></a-triangle>
+    <a-entity id="exit-model" gltf-model="./assets/models/low_poly_green_running_man_exit_sign.glb" position="0 0 0" rotation="0 0 0" scale="0.5 0.5 0.5"></a-entity>
   `;
 
   return entity;
@@ -96,35 +147,9 @@ function buildExtinguisherEntity() {
     entity.className = "clickable";
   }
 
-  // extinguisher centered directly at (0, 0, 0) on Hiro marker with PBR composite detailing
+  // realistic 3D extinguisher model replacing primitive cylinder body
   entity.innerHTML = `
-    <!-- realistic crimson powder-coat cylinder with curved dome ends -->
-    <a-cylinder id="ext-body" position="0 0 0" radius="0.38" height="1.30" material="color: #ef4444; shader: flat"></a-cylinder>
-    <a-sphere id="ext-top-dome" position="0 0.65 0" radius="0.38" scale="1 0.40 1" material="color: #ef4444; shader: flat"></a-sphere>
-    <a-sphere id="ext-bottom-dome" position="0 -0.65 0" radius="0.38" scale="1 0.30 1" material="color: #ef4444; shader: flat"></a-sphere>
-    <a-cylinder id="ext-base" position="0 -0.74 0" radius="0.41" height="0.14" material="color: #1e293b; shader: flat"></a-cylinder>
-
-    <!-- industrial pass instruction decal plate on front cylinder body -->
-    <a-plane id="ext-decal-plate" position="0 0 0.385" width="0.46" height="0.65" material="color: #ffffff; roughness: 0.3"></a-plane>
-    <a-plane id="ext-decal-header" position="0 0.24 0.388" width="0.44" height="0.12" material="color: #1e3a8a; roughness: 0.25"></a-plane>
-    <a-text position="0 0.24 0.390" value="${t("graphics.abc_chemical", "ABC DRY CHEMICAL")}" align="center" scale="0.36 0.36 0.36" color="#ffffff"></a-text>
-    <a-text position="0 0.08 0.390" value="${t("graphics.pass_instructions", "1. PULL PIN\\n2. AIM AT BASE\\n3. SQUEEZE LEVER\\n4. SWEEP HAZARD")}" align="center" scale="0.30 0.30 0.30" color="#0f172a"></a-text>
-
-    <!-- brass valve block assembly -->
-    <a-cylinder id="ext-neck" position="0 0.74 0" radius="0.12" height="0.16" material="color: #d97706; metalness: 0.85; roughness: 0.2"></a-cylinder>
-    <a-cylinder id="ext-valve-block" position="0 0.84 0" radius="0.13" height="0.14" material="color: #d97706; metalness: 0.85; roughness: 0.2"></a-cylinder>
-
-    <!-- operational pressure gauge dial on valve front -->
-    <a-cylinder id="ext-gauge-bezel" position="0 0.80 0.15" rotation="90 0 0" radius="0.085" height="0.03" material="color: #d97706; metalness: 0.9; roughness: 0.15"></a-cylinder>
-    <a-cylinder id="ext-gauge-face" position="0 0.80 0.168" rotation="90 0 0" radius="0.075" height="0.008" material="color: #ffffff; roughness: 0.2"></a-cylinder>
-    <a-cylinder id="ext-gauge-green-zone" position="0 0.80 0.172" rotation="90 0 0" radius="0.05" height="0.009" theta-start="60" theta-length="60" material="color: #10b981; shader: flat"></a-cylinder>
-    <a-box id="ext-gauge-needle" position="0 0.812 0.176" width="0.007" height="0.045" depth="0.004" rotation="0 0 -15" material="color: #ef4444; shader: flat"></a-box>
-
-    <!-- flexible rubber discharge hose with chrome mounting bracket and horn -->
-    <a-cylinder id="ext-hose-joint" position="-0.13 0.82 0" radius="0.045" height="0.09" rotation="0 0 90" material="color: #d97706; metalness: 0.8"></a-cylinder>
-    <a-cylinder id="ext-hose" position="-0.32 0.35 0.18" radius="0.055" height="1.05" rotation="15 0 -25" material="color: #18181b; roughness: 0.9"></a-cylinder>
-    <a-cone id="ext-nozzle" position="-0.46 -0.22 0.26" radius-bottom="0.11" radius-top="0.045" height="0.28" rotation="40 0 -40" material="color: #09090b; roughness: 0.7"></a-cone>
-    <a-box id="ext-hose-bracket" position="-0.36 0.10 0.08" width="0.06" height="0.10" depth="0.08" material="color: #e2e8f0; metalness: 0.9; roughness: 0.2"></a-box>
+    <a-entity id="extinguisher-model" gltf-model="./assets/models/fire_extinguisher.glb" position="0 -0.20 0" rotation="0 0 0" scale="1.8 1.8 1.8"></a-entity>
   `;
 
   // 3d operating handle lever on top of extinguisher
@@ -143,7 +168,7 @@ function buildExtinguisherEntity() {
     handle.className = "clickable";
   }
 
-  // generous invisible touch hit target for lever (65cm x 35cm x 35cm box)
+  // generous touch hit target for lever
   const handleHitArea = document.createElement("a-box");
   handleHitArea.id = "handle-hit-area";
   if (typeof handleHitArea.setAttribute === "function") {
@@ -170,7 +195,7 @@ function buildExtinguisherEntity() {
     pin.className = "clickable";
   }
 
-  // visible pin shaft (golden metal)
+  // visible pin shaft
   const pinShaft = document.createElement("a-cylinder");
   pinShaft.id = "ext-pin-shaft";
   if (typeof pinShaft.setAttribute === "function") {
@@ -211,7 +236,7 @@ function buildExtinguisherEntity() {
     tamperSeal.setAttribute("material", "color: #eab308; shader: flat");
   }
 
-  // generous invisible touch hit target for pin (45cm radius sphere centered on ring)
+  // generous touch hit target for pin
   const pinHitArea = document.createElement("a-sphere");
   pinHitArea.id = "pin-hit-area";
   if (typeof pinHitArea.setAttribute === "function") {
@@ -229,7 +254,7 @@ function buildExtinguisherEntity() {
   pin.appendChild(tamperSeal);
   pin.appendChild(pinHitArea);
 
-  // looping holographic ghost pin demonstrating pull motion path (Scope AR benchmark)
+  // looping holographic ghost pin demonstrating pull motion path
   const phantomPin = document.createElement("a-entity");
   phantomPin.id = "phantom-ghost-pin";
   if (typeof phantomPin.setAttribute === "function") {
@@ -341,7 +366,7 @@ function buildExtinguisherEntity() {
   progressContainer.appendChild(progressBg);
   progressContainer.appendChild(progressFill);
 
-  // world-anchored 3d spatial step billboard (hidden by default to avoid visual clutter)
+  // world-anchored 3d spatial step billboard
   const spatialBillboard = document.createElement("a-entity");
   spatialBillboard.id = "spatial-step-billboard";
   if (typeof spatialBillboard.setAttribute === "function") {
@@ -359,18 +384,21 @@ function buildExtinguisherEntity() {
     <a-text id="billboard-pill-text" value="⚪ AWAITING PIN SELECTION" align="center" position="0 -0.20 0.035" scale="0.32 0.32 0.32" color="#94a3b8"></a-text>
   `;
 
-  // volumetric powder discharge cone (activated during squeeze & sweep)
-  const powderSpray = document.createElement("a-cone");
+  // volumetric powder discharge cone & particle clouds (activated during squeeze & sweep)
+  const powderSpray = document.createElement("a-entity");
   powderSpray.id = "powder-spray-cone";
   if (typeof powderSpray.setAttribute === "function") {
     powderSpray.setAttribute("position", "-0.75 -0.65 0.55");
     powderSpray.setAttribute("rotation", "45 -30 -35");
-    powderSpray.setAttribute("radius-bottom", "0.65");
-    powderSpray.setAttribute("radius-top", "0.05");
-    powderSpray.setAttribute("height", "1.35");
-    powderSpray.setAttribute("material", "color: #f8fafc; opacity: 0; transparent: true");
     powderSpray.setAttribute("visible", "false");
   }
+  powderSpray.innerHTML = `
+    <a-cone id="powder-core-cone" position="0 0 0" radius-bottom="0.65" radius-top="0.06" height="1.45" material="color: #ffffff; opacity: 0.78; transparent: true; shader: flat"></a-cone>
+    <a-sphere id="powder-puff-1" position="0 0.35 0.05" radius="0.16" material="color: #f8fafc; opacity: 0.70; transparent: true; shader: flat" animation="property: scale; to: 1.4 1.4 1.4; dir: alternate; dur: 180; loop: true"></a-sphere>
+    <a-sphere id="powder-puff-2" position="-0.12 -0.25 -0.05" radius="0.22" material="color: #f1f5f9; opacity: 0.65; transparent: true; shader: flat" animation="property: scale; to: 1.3 1.3 1.3; dir: alternate; dur: 220; loop: true"></a-sphere>
+    <a-sphere id="powder-puff-3" position="0.14 -0.55 0.08" radius="0.30" material="color: #e2e8f0; opacity: 0.60; transparent: true; shader: flat" animation="property: scale; to: 1.35 1.35 1.35; dir: alternate; dur: 200; loop: true"></a-sphere>
+    <a-sphere id="powder-puff-4" position="-0.08 -0.85 -0.02" radius="0.38" material="color: #cbd5e1; opacity: 0.55; transparent: true; shader: flat" animation="property: scale; to: 1.4 1.4 1.4; dir: alternate; dur: 240; loop: true"></a-sphere>
+  `;
 
   entity.appendChild(handle);
   entity.appendChild(pin);
@@ -383,16 +411,46 @@ function buildExtinguisherEntity() {
   return entity;
 }
 
+// build 3d fire alarm pull station entity
+function buildFireAlarmEntity() {
+  const entity = document.createElement("a-entity");
+  entity.id = "fire-alarm-station";
+  if (typeof entity.setAttribute === "function") {
+    entity.setAttribute("class", "clickable");
+    entity.setAttribute("data-raycast-target", "alarm");
+    entity.setAttribute("position", "0 0 0");
+    entity.setAttribute("rotation", "0 0 0");
+  } else {
+    entity.className = "clickable";
+  }
+
+  entity.innerHTML = `
+    <!-- 3D pull station model -->
+    <a-entity id="fire-alarm-model" gltf-model="./assets/models/notifier_rsg_t-bar_fire_alarm_pull_station.glb" position="0 0 0" scale="0.08 0.08 0.08"></a-entity>
+    <!-- generous touch hit box -->
+    <a-box id="fire-alarm-hit-box" class="clickable" data-raycast-target="alarm" position="0 0 0" width="0.6" height="0.8" depth="0.3" material="opacity: 0.0; transparent: true"></a-box>
+    <!-- pulsing pull affordance ring -->
+    <a-ring id="fire-alarm-pulse" position="0 0 0.16" radius-inner="0.25" radius-outer="0.35" material="color: #ef4444; shader: flat; side: double; opacity: 0.8" animation="property: scale; to: 1.3 1.3 1.3; from: 0.9 0.9 0.9; dir: alternate; dur: 600; loop: true; easing: easeInOutSine"></a-ring>
+    <a-text id="fire-alarm-label" value="${t("graphics.pull_alarm", "PULL ALARM")}" align="center" position="0 0.55 0.1" scale="0.45 0.45 0.45" color="#ef4444" material="shader: flat"></a-text>
+  `;
+
+  return entity;
+}
+
 // aliases for backward compatibility
 const buildFireGraphic = buildFireEntity;
 const buildExitGraphic = buildExitEntity;
 const buildExtinguisherGraphic = buildExtinguisherEntity;
+const buildFireAlarmGraphic = buildFireAlarmEntity;
 
 export {
   buildFireEntity,
   buildExitEntity,
   buildExtinguisherEntity,
+  buildFireClusterEntity,
+  buildFireAlarmEntity,
   buildFireGraphic,
   buildExitGraphic,
-  buildExtinguisherGraphic
+  buildExtinguisherGraphic,
+  buildFireAlarmGraphic
 };

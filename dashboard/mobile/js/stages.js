@@ -1,7 +1,7 @@
 // SafeAR Mobile — 3-Stage Progressive Unlock Modal
 // Interactive prerequisite checklist, solo drill simulator, and group incident drill
 
-import { MODULE_CATALOG, loadState, getModuleProgress, completeStage, saveState } from "./state.js";
+import { MODULE_CATALOG, loadState, getModuleProgress, completeStage } from "./state.js";
 
 function esc(val) {
   if (val === null || val === undefined) return "";
@@ -109,7 +109,7 @@ function renderStageContent(overlayEl, mod, progress, state, onClose) {
   });
 }
 
-function renderAllStages(mod, progress, state) {
+function renderAllStages(mod, progress, _state) {
   const stage = progress.stage;
 
   return `
@@ -123,7 +123,6 @@ function renderAllStages(mod, progress, state) {
 // ── Stage 1: Prerequisites ──
 function renderStage1Section(mod, currentStage) {
   const isCompleted = currentStage >= 1;
-  const isLocked = false; // Stage 1 is never locked
 
   if (isCompleted) {
     return `

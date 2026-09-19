@@ -40,7 +40,6 @@ export function renderWorkerHub(container, { user, onLogout, onOpenModule }) {
     const p = getModuleProgress(state, m.id);
     return p.status === "completed";
   }).length;
-  const overallPercent = Math.round((completedModules / totalModules) * 100);
 
   // Total stages completed across all modules
   const totalStages = MODULE_CATALOG.reduce((sum, m) => {

@@ -3,7 +3,7 @@ import { detectDeviceCaps, selectArTier } from "../ar/tier.js";
 import { initWebXRSession, loadModule3DScene, WebXRPlacementController } from "../ar/webxr.js";
 import { initMarkerTracking, loadMarkerModuleScene } from "../ar/marker.js";
 import { setTierLoaders, loadModule, unloadModule } from "./module-loader.js";
-import { t, loadLocale, setLocale } from "./i18n.js";
+import { t, loadLocale, setLocale, getLocale, storeLocale, clearStoredLocale } from "./i18n.js";
 import { registerScreens, showScreen } from "../screens/router.js";
 import { mountLanguageScreen, readLocalePreference } from "../screens/language.js";
 import { mountSplashScreen } from "../screens/splash.js";
@@ -131,6 +131,8 @@ function renderArShell(container, tierResult) {
         </a-entity>
       </a-scene>`;
 
+  const currentLocale = (typeof getLocale === "function" ? getLocale() : "en").toUpperCase();
+
   container.innerHTML = `
     <div id="ar-viewport" class="ar-viewport">
       ${tierMarkup}
@@ -139,7 +141,8 @@ function renderArShell(container, tierResult) {
       <div style="width:100%;display:flex;flex-direction:column;pointer-events:none;">
         <header class="header-bar">
           <div class="app-title">🛡️ SafeAR <span class="connection-dot"></span></div>
-          <div style="margin-left:auto;display:flex;align-items:center;gap:10px;">
+          <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+            <button id="lang-switch-btn" class="lang-switch-btn" title="Change Language / भाषा बदलें">🌐 ${currentLocale}</button>
             <span class="tier-badge ${tierClass}">${tierLabel}</span>
           </div>
         </header>
@@ -151,6 +154,21 @@ function renderArShell(container, tierResult) {
       </div>
     </div>
   `;
+
+  if (typeof container.querySelector === "function") {
+    const langBtn = container.querySelector("#lang-switch-btn");
+    if (langBtn) {
+      langBtn.addEventListener("click", () => {
+        clearStoredLocale();
+        renderLanguageSelectionScreen(container, (newLocale) => {
+          storeLocale(newLocale);
+          if (typeof window !== "undefined") {
+            window.location.reload();
+          }
+        });
+      });
+    }
+  }
 
   if (typeof document === "undefined") {
     return { viewport: null, canvas: null, statusCard: null };
@@ -301,7 +319,89 @@ async function bootTier1(container, decision, caps, moduleId = null) {
 
 let _appInitPromise = null;
 
-// start mobile app and init audio and ar
+// render language picker before module or tier boot
+function renderLanguageSelectionScreen(container, onLocaleChosen) {
+  if (!container) return;
+  container.innerHTML = `
+    <div class="lang-screen">
+      <div class="lang-card">
+        <div class="lang-header">
+          <div class="lang-globe">🌐</div>
+          <h1 class="lang-title">Select Training Language</h1>
+          <p class="lang-subtitle">प्रशिक्षण भाषा चुनें / ᱯᱟᱹᱨᱥᱤ ᱵᱟᱪᱷᱟᱣ ᱢᱮ</p>
+        </div>
+        <div class="lang-options">
+          <button id="lang-opt-en" class="lang-option-btn" data-locale="en">
+            <div class="lang-btn-left">
+              <span class="lang-btn-name">English</span>
+              <span class="lang-btn-sub">Full Safety Training</span>
+            </div>
+            <span class="lang-btn-badge badge-complete">Ready</span>
+          </button>
+          <button id="lang-opt-hi" class="lang-option-btn" data-locale="hi">
+            <div class="lang-btn-left">
+              <span class="lang-btn-name">हिंदी (Hindi)</span>
+              <span class="lang-btn-sub">पूर्ण सुरक्षा प्रशिक्षण</span>
+            </div>
+            <span class="lang-btn-badge badge-complete">उपलब्ध</span>
+          </button>
+          <button id="lang-opt-sat" class="lang-option-btn" data-locale="sat">
+            <div class="lang-btn-left">
+              <span class="lang-btn-name">ᱥᱟᱱᱛᱟᱲᱤ (Santali)</span>
+              <span class="lang-btn-sub">Ol Chiki — ᱨᱩᱠᱷᱤᱭᱟᱹ ᱥᱮᱪᱮᱫ</span>
+            </div>
+            <span class="lang-btn-badge badge-partial">⚠️ Incomplete / Partial</span>
+          </button>
+        </div>
+        <div class="lang-footer-note">
+          Selection is saved. You can switch language anytime from the top bar.
+        </div>
+      </div>
+    </div>
+  `;
+
+  let chosen = false;
+  const choose = (loc, targetBtn) => {
+    if (chosen) return;
+    chosen = true;
+    if (targetBtn && targetBtn.classList && typeof targetBtn.classList.add === "function") {
+      targetBtn.classList.add("selected");
+    }
+    if (typeof onLocaleChosen === "function") {
+      onLocaleChosen(loc);
+    }
+  };
+
+  ["en", "hi", "sat"].forEach((loc) => {
+    const btn = container.querySelector ? container.querySelector(`#lang-opt-${loc}`) : null;
+    if (btn && typeof btn.addEventListener === "function") {
+      btn.addEventListener("click", (e) => {
+        if (e && typeof e.preventDefault === "function") {
+          e.preventDefault();
+        }
+        choose(loc, btn);
+      });
+      btn.addEventListener("pointerdown", (e) => {
+        if (e && e.pointerType === "touch") {
+          choose(loc, btn);
+        }
+      });
+    }
+  });
+
+  if (container && typeof container.addEventListener === "function") {
+    container.addEventListener("click", (e) => {
+      const targetBtn = e && e.target && typeof e.target.closest === "function"
+        ? e.target.closest(".lang-option-btn")
+        : null;
+      if (targetBtn && targetBtn.dataset && targetBtn.dataset.locale) {
+        choose(targetBtn.dataset.locale, targetBtn);
+      }
+    });
+  }
+}
+
+// boot safeAR app with explicit language selection first
 async function initApp() {
   if (_appInitPromise) {
     return _appInitPromise;
@@ -314,12 +414,11 @@ async function initApp() {
     }
 
     // bootstrap default and fallback locales and bind assessment listeners.
-    // loadLocale needs a locale name: called bare it throws and no dictionary
-    // registers, which leaves every t() call rendering its raw key.
     try {
       await Promise.allSettled([
+        loadLocale("en"),
         loadLocale("hi"),
-        loadLocale("en")
+        loadLocale("sat")
       ]);
 
       // a phone that has already been set to a language stays on it. the picker still
@@ -510,6 +609,7 @@ export {
   initApp,
   renderUnsupportedView,
   renderArShell,
+  renderLanguageSelectionScreen,
   bindModuleLifecycleUI,
   registerServiceWorker,
   syncAttemptsThenCertificates,
