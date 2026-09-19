@@ -47,7 +47,10 @@ export default [
         URL: "readonly",
         URLSearchParams: "readonly",
         setTimeout: "readonly",
-        clearTimeout: "readonly"
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
+        localStorage: "readonly"
       }
     },
     rules: {

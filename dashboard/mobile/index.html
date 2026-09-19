@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+  <title>SafeAR — Mine Safety Training Portal</title>
+  <meta name="description" content="AR-based industrial safety training for underground and opencast mine workers. Login, train, and get certified.">
+  <meta name="theme-color" content="#090d16">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <base href="/mobile/">
+  <link rel="icon" type="image/png" href="../img/favicon.png">
+  <script>
+    // Ensure trailing slash so relative paths and history states stay clean
+    if (window.location.pathname.endsWith('/mobile')) {
+      window.location.replace(window.location.pathname + '/' + window.location.search + window.location.hash);
+    }
+  </script>
+  <link rel="stylesheet" href="./css/mobile.css">
+</head>
+<body class="safear-mobile">
+
+  <!-- Ambient background orbs -->
+  <div class="ambient-bg" aria-hidden="true">
+    <div class="ambient-orb ambient-orb--amber"></div>
+    <div class="ambient-orb ambient-orb--cyan"></div>
+    <div class="ambient-orb ambient-orb--crimson"></div>
+  </div>
+
+  <div class="app-shell">
+    <!-- Login View -->
+    <div class="view active" id="login-view"></div>
+
+    <!-- Supervisor Dashboard View -->
+    <div class="view" id="supervisor-view"></div>
+
+    <!-- Worker Training Hub View -->
+    <div class="view" id="worker-view"></div>
+  </div>
+
+  <!-- 3-Stage Modal Overlay -->
+  <div class="stage-overlay" id="stage-overlay"></div>
+
+  <script src="./js/mobile_app.js" type="module"></script>
+</body>
+</html>

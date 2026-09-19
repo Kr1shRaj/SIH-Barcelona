@@ -6,10 +6,12 @@ import {
   bindModuleLifecycleUI,
   registerServiceWorker,
   bootTier1,
-  bootTier2,
   handleWebXRFallback,
-  buildWebXRDiagnosticMessage
+  bootTier2,
+  buildWebXRDiagnosticMessage,
+  renderLanguageSelectionScreen
 } from "../js/app.js";
+import { getLocale, getStoredLocale, storeLocale, clearStoredLocale } from "../js/i18n.js";
 
 // mock minimal dom element
 function createMockElement() {
@@ -287,7 +289,7 @@ describe("App UI Shell and Error States", () => {
     assert.ok(mockContainer.innerHTML.includes("isSessionSupported('immersive-ar')=false"));
   });
 
-  it("bootTier1 renders Tier 1 shell with user-activation button and module buttons", async () => {
+  it("bootTier1 renders Tier 1 shell with user-activation button", async () => {
     const mockContainer = {
       innerHTML: "",
       children: [],
@@ -323,3 +325,137 @@ describe("App UI Shell and Error States", () => {
   });
 });
 
+// build interactive mock container to test button clicks and event delegation
+function createInteractiveMockContainer() {
+  const listeners = {};
+  const buttons = {};
+  const container = {
+    innerHTML: "",
+    addEventListener: (type, fn) => {
+      listeners[type] = listeners[type] || [];
+      listeners[type].push(fn);
+    },
+    trigger: (type, ev) => {
+      if (listeners[type]) listeners[type].forEach((fn) => fn(ev));
+    },
+    querySelector: (sel) => {
+      if (typeof sel === "string" && sel.startsWith("#lang-opt-")) {
+        const loc = sel.replace("#lang-opt-", "");
+        if (!buttons[loc]) {
+          const btnListeners = {};
+          buttons[loc] = {
+            id: `lang-opt-${loc}`,
+            dataset: { locale: loc },
+            classList: {
+              classes: [],
+              add: function(c) { this.classes.push(c); },
+              contains: function(c) { return this.classes.includes(c); }
+            },
+            addEventListener: (evType, fn) => {
+              btnListeners[evType] = btnListeners[evType] || [];
+              btnListeners[evType].push(fn);
+            },
+            click: (e = {}) => {
+              if (btnListeners.click) {
+                btnListeners.click.forEach((fn) => fn({ preventDefault: () => {}, ...e }));
+              }
+            }
+          };
+        }
+        return buttons[loc];
+      }
+      return null;
+    }
+  };
+  return { container, buttons };
+}
+
+describe("Language Selection Screen Responsiveness and State Transition", () => {
+  it("renderLanguageSelectionScreen renders markup for all three language choices", () => {
+    const { container } = createInteractiveMockContainer();
+    renderLanguageSelectionScreen(container, () => {});
+
+    assert.ok(container.innerHTML.includes("lang-screen"));
+    assert.ok(container.innerHTML.includes("lang-card"));
+    assert.ok(container.innerHTML.includes('id="lang-opt-en"'));
+    assert.ok(container.innerHTML.includes('id="lang-opt-hi"'));
+    assert.ok(container.innerHTML.includes('id="lang-opt-sat"'));
+    assert.ok(container.innerHTML.includes("badge-complete"));
+    assert.ok(container.innerHTML.includes("badge-partial"));
+  });
+
+  it("clicking English button responds immediately and invokes callback with 'en'", () => {
+    const { container, buttons } = createInteractiveMockContainer();
+    let chosen = null;
+    renderLanguageSelectionScreen(container, (picked) => {
+      chosen = picked;
+    });
+
+    const enBtn = buttons.en || container.querySelector("#lang-opt-en");
+    assert.ok(enBtn, "English button must exist");
+    enBtn.click();
+
+    assert.strictEqual(chosen, "en");
+    assert.ok(enBtn.classList.contains("selected"), "button must receive visual selected class");
+  });
+
+  it("clicking Hindi button responds immediately and invokes callback with 'hi'", () => {
+    const { container, buttons } = createInteractiveMockContainer();
+    let chosen = null;
+    renderLanguageSelectionScreen(container, (picked) => {
+      chosen = picked;
+    });
+
+    const hiBtn = buttons.hi || container.querySelector("#lang-opt-hi");
+    assert.ok(hiBtn, "Hindi button must exist");
+    hiBtn.click();
+
+    assert.strictEqual(chosen, "hi");
+    assert.ok(hiBtn.classList.contains("selected"));
+  });
+
+  it("clicking Santali button responds immediately and invokes callback with 'sat'", () => {
+    const { container, buttons } = createInteractiveMockContainer();
+    let chosen = null;
+    renderLanguageSelectionScreen(container, (picked) => {
+      chosen = picked;
+    });
+
+    const satBtn = buttons.sat || container.querySelector("#lang-opt-sat");
+    assert.ok(satBtn, "Santali button must exist");
+    satBtn.click();
+
+    assert.strictEqual(chosen, "sat");
+    assert.ok(satBtn.classList.contains("selected"));
+  });
+
+  it("persisting user language selection transitions storage and active locale forward", () => {
+    const mockStorage = {};
+    globalThis.localStorage = {
+      getItem: (k) => mockStorage[k] || null,
+      setItem: (k, v) => { mockStorage[k] = String(v); },
+      removeItem: (k) => { delete mockStorage[k]; }
+    };
+
+    clearStoredLocale();
+    assert.strictEqual(getStoredLocale(), null);
+
+    // pick english
+    storeLocale("en");
+    assert.strictEqual(getStoredLocale(), "en");
+    assert.strictEqual(getLocale(), "en");
+
+    // pick hindi
+    storeLocale("hi");
+    assert.strictEqual(getStoredLocale(), "hi");
+    assert.strictEqual(getLocale(), "hi");
+
+    // pick santali
+    storeLocale("sat");
+    assert.strictEqual(getStoredLocale(), "sat");
+    assert.strictEqual(getLocale(), "sat");
+
+    clearStoredLocale();
+    assert.strictEqual(getStoredLocale(), null);
+  });
+});

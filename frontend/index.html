@@ -1,15 +1,21 @@
 <!DOCTYPE html>
-<html lang="hi">
+<html lang="en" class="notranslate">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <!-- the android status bar takes this, so the shell stops flashing white before
+       the app's own ground appears. same value as --color-bg in style.css. -->
+  <meta name="theme-color" content="#111315">
+  <meta name="google" content="notranslate">
+  <meta name="robots" content="notranslate">
   <title>SafeAR — Industrial Safety Training</title>
   <link rel="stylesheet" href="./css/style.css">
+  <link rel="stylesheet" href="./css/prerequisite.css">
   <!-- vendored, not cdn: a mine has no signal. aframe must load before ar.js -->
   <script src="./vendor/aframe.min.js"></script>
   <script src="./vendor/aframe-ar.js"></script>
 </head>
-<body>
+<body class="notranslate">
   <div id="app">
     <!-- audio/icon first navigation for workers -->
   </div>

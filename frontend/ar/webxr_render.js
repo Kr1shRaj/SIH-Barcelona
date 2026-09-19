@@ -27,99 +27,219 @@ function createPlacementReticle() {
   return mesh;
 }
 
-// build fire barrel + flames + smoke as three.js group
+// load glb 3d model with pivot fix and flush floor drop
+function loadGLBModel(path, options = {}) {
+  const THREE = getTHREE();
+  if (!THREE || !THREE.GLTFLoader) {
+    return Promise.reject(new Error("THREE or GLTFLoader not available"));
+  }
+
+  const {
+    targetHeight = null,
+    scale = 1.0,
+    flushFloor = true,
+    centerHorizontal = true,
+    rotation = null,
+    position = null,
+    animOffsetSec = 0
+  } = options;
+
+  return new Promise((resolve, reject) => {
+    const loader = new THREE.GLTFLoader();
+    loader.load(
+      path,
+      (gltf) => {
+        const root = gltf.scene || (gltf.scenes && gltf.scenes[0]) || gltf;
+        const container = new THREE.Group();
+        container.name = `${root.name || "model"}-container`;
+        container.add(root);
+
+        if (rotation) {
+          if (rotation.x !== undefined) root.rotation.x = rotation.x;
+          if (rotation.y !== undefined) root.rotation.y = rotation.y;
+          if (rotation.z !== undefined) root.rotation.z = rotation.z;
+        }
+
+        if (typeof root.updateMatrixWorld === "function") {
+          root.updateMatrixWorld(true);
+        }
+
+        if (THREE.Box3) {
+          const box = new THREE.Box3().setFromObject(root);
+          const size = new THREE.Vector3();
+          box.getSize(size);
+
+          let s = scale;
+          if (targetHeight && size.y > 0) {
+            s = (targetHeight / size.y) * scale;
+          }
+          root.scale.set(s, s, s);
+          if (typeof root.updateMatrixWorld === "function") {
+            root.updateMatrixWorld(true);
+          }
+
+          const scaledBox = new THREE.Box3().setFromObject(root);
+          if (flushFloor) {
+            root.position.y = (-scaledBox.min.y) || 0;
+          }
+          if (centerHorizontal) {
+            root.position.x = (-((scaledBox.min.x + scaledBox.max.x) / 2)) || 0;
+            root.position.z = (-((scaledBox.min.z + scaledBox.max.z) / 2)) || 0;
+          }
+        }
+
+        if (position) {
+          if (position.x !== undefined) container.position.x = position.x;
+          if (position.y !== undefined) container.position.y = position.y;
+          if (position.z !== undefined) container.position.z = position.z;
+        }
+
+        let mixer = null;
+        if (gltf.animations && gltf.animations.length > 0 && THREE.AnimationMixer) {
+          mixer = new THREE.AnimationMixer(root);
+          gltf.animations.forEach((clip) => {
+            const action = mixer.clipAction(clip);
+            action.play();
+          });
+          if (animOffsetSec && typeof mixer.update === "function") {
+            mixer.update(animOffsetSec);
+          }
+          container.userData.mixer = mixer;
+        }
+
+        container.userData.gltf = gltf;
+        container.userData.model = root;
+        resolve({ container, root, mixer, gltf });
+      },
+      undefined,
+      (err) => reject(err)
+    );
+  });
+}
+
+// build corner fire cluster with varied flames and floor scorch
 function createFireMesh() {
   const THREE = getTHREE();
   if (!THREE) return null;
 
   const group = new THREE.Group();
   group.name = "fire-graphic";
+  group.userData.mixers = [];
 
-  // barrel
-  const barrelGeo = new THREE.CylinderGeometry(0.52, 0.52, 0.80, 24);
-  const barrelMat = new THREE.MeshStandardMaterial({
-    color: 0x1e293b, metalness: 0.7, roughness: 0.4
+  // asymmetrical floor scorch mark decal spreading from corner
+  const scorchGeo = new THREE.CircleGeometry(1.25, 32);
+  const scorchMat = new THREE.MeshBasicMaterial({
+    color: 0x050505, transparent: true, opacity: 0.65
   });
-  const barrel = new THREE.Mesh(barrelGeo, barrelMat);
-  barrel.position.set(0, 0.40, 0);
-  barrel.name = "fire-barrel";
-  group.add(barrel);
+  const scorch = new THREE.Mesh(scorchGeo, scorchMat);
+  scorch.rotation.x = -Math.PI / 2;
+  scorch.position.set(-0.15, 0.01, -0.15);
+  scorch.scale.set(1.15, 0.95, 1.0);
+  scorch.name = "floor-scorch-decal";
+  group.add(scorch);
 
-  // barrel rim
-  const rimGeo = new THREE.TorusGeometry(0.52, 0.025, 8, 32);
-  const rimMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.85 });
-  const rim = new THREE.Mesh(rimGeo, rimMat);
-  rim.rotation.x = Math.PI / 2;
-  rim.position.set(0, 0.80, 0);
-  rim.name = "fire-barrel-rim";
-  group.add(rim);
+  // container for 3d animated fire gltf cluster flush on floor plane Y=0
+  const flamesGroup = new THREE.Group();
+  flamesGroup.name = "fire-flames-group";
+  flamesGroup.position.set(0, 0, 0);
+  group.add(flamesGroup);
+  group.userData.flamesGroup = flamesGroup;
 
-  // ember bed
-  const emberGeo = new THREE.CylinderGeometry(0.48, 0.48, 0.06, 24);
-  const emberMat = new THREE.MeshBasicMaterial({ color: 0xff4400 });
-  const ember = new THREE.Mesh(emberGeo, emberMat);
-  ember.position.set(0, 0.82, 0);
-  ember.name = "fire-embers";
-  group.add(ember);
-
-  // outer flame cone
-  const outerGeo = new THREE.ConeGeometry(0.56, 1.80, 16);
+  // outer flame cone (procedural fallback flush on floor)
+  const outerGeo = new THREE.ConeGeometry(0.56, 1.60, 16);
   const outerMat = new THREE.MeshBasicMaterial({
     color: 0xff3d00, transparent: true, opacity: 0.90
   });
   const outer = new THREE.Mesh(outerGeo, outerMat);
-  outer.position.set(0, 1.75, 0);
+  outer.position.set(0, 0.80, 0);
   outer.name = "fire-outer-cone";
   group.add(outer);
 
-  // inner flame cone
-  const innerGeo = new THREE.ConeGeometry(0.40, 1.30, 16);
+  // inner flame cone (procedural fallback flush on floor)
+  const innerGeo = new THREE.ConeGeometry(0.40, 1.20, 16);
   const innerMat = new THREE.MeshBasicMaterial({
     color: 0xffea00, transparent: true, opacity: 0.95
   });
   const inner = new THREE.Mesh(innerGeo, innerMat);
-  inner.position.set(0, 1.45, 0);
+  inner.position.set(0, 0.60, 0);
   inner.name = "fire-inner-cone";
   group.add(inner);
 
-  // tongue left
-  const tongueGeoL = new THREE.ConeGeometry(0.36, 1.45, 12);
-  const tongueMat = new THREE.MeshBasicMaterial({
+  // tongue left (procedural fallback)
+  const tongueGeoL = new THREE.ConeGeometry(0.36, 1.15, 12);
+  const tongueMatL = new THREE.MeshBasicMaterial({
     color: 0xff6d00, transparent: true, opacity: 0.88
   });
-  const tongueL = new THREE.Mesh(tongueGeoL, tongueMat);
-  tongueL.position.set(0.08, 1.55, -0.04);
+  const tongueL = new THREE.Mesh(tongueGeoL, tongueMatL);
+  tongueL.position.set(-0.25, 0.58, 0.08);
   tongueL.rotation.set(0.14, 0.70, -0.21);
   tongueL.name = "fire-tongue-left";
   group.add(tongueL);
 
-  // tongue right
-  const tongueGeoR = new THREE.ConeGeometry(0.34, 1.38, 12);
+  // tongue right (procedural fallback)
+  const tongueGeoR = new THREE.ConeGeometry(0.34, 1.10, 12);
   const tongueMatR = new THREE.MeshBasicMaterial({
     color: 0xff9100, transparent: true, opacity: 0.88
   });
   const tongueR = new THREE.Mesh(tongueGeoR, tongueMatR);
-  tongueR.position.set(-0.08, 1.57, 0.04);
+  tongueR.position.set(0.18, 0.55, -0.22);
   tongueR.rotation.set(-0.17, -0.70, 0.17);
   tongueR.name = "fire-tongue-right";
   group.add(tongueR);
 
   // point light for fire illumination
-  const fireLight = new THREE.PointLight(0xff7700, 2.0, 5);
-  fireLight.position.set(0, 1.6, 0);
+  const fireLight = new THREE.PointLight(0xff7700, 2.2, 5);
+  fireLight.position.set(-0.1, 0.8, -0.1);
   fireLight.name = "fire-light";
   group.add(fireLight);
 
-  // aim target (invisible cylinder for raycasting)
-  const targetGeo = new THREE.CylinderGeometry(0.70, 0.70, 0.12, 16);
+  // aim target (invisible cylinder for raycasting at base of fire cluster)
+  const targetGeo = new THREE.CylinderGeometry(0.85, 0.85, 0.25, 16);
   const targetMat = new THREE.MeshBasicMaterial({
     transparent: true, opacity: 0.0
   });
   const target = new THREE.Mesh(targetGeo, targetMat);
-  target.position.set(0, 0.85, 0);
+  target.position.set(0, 0.12, 0);
   target.name = "fire-target-base";
   target.userData.raycastTarget = "aim";
   group.add(target);
+
+  // load GLB animated fire cluster if loader present
+  if (THREE.GLTFLoader) {
+    const clusterConfigs = [
+      // 1. corner core apex flame
+      { scale: 1.10, targetHeight: 1.60, x: 0, y: 0, z: 0, rotY: 0.2, animOffset: 0.0 },
+      // 2. wall-flank spread along left wall (-X)
+      { scale: 0.88, targetHeight: 1.30, x: -0.36, y: 0, z: 0.08, rotY: 1.15, animOffset: 0.45 },
+      // 3. creeping left tail spreading outward
+      { scale: 0.62, targetHeight: 0.90, x: -0.65, y: 0, z: 0.18, rotY: 2.60, animOffset: 1.10 },
+      // 4. wall-flank spread along rear wall (-Z)
+      { scale: 0.96, targetHeight: 1.40, x: 0.14, y: 0, z: -0.32, rotY: 3.45, animOffset: 0.75 },
+      // 5. creeping rear tail spreading along wall corner
+      { scale: 0.65, targetHeight: 0.95, x: 0.28, y: 0, z: -0.58, rotY: 4.80, animOffset: 1.55 }
+    ];
+    clusterConfigs.forEach((cfg) => {
+      loadGLBModel("./assets/models/animated_fire.glb", {
+        targetHeight: cfg.targetHeight,
+        scale: cfg.scale,
+        flushFloor: true,
+        centerHorizontal: true,
+        rotation: { y: cfg.rotY },
+        position: { x: cfg.x, y: cfg.y, z: cfg.z },
+        animOffsetSec: cfg.animOffset
+      }).then(({ container, mixer }) => {
+        flamesGroup.add(container);
+        if (mixer && group.userData.mixers) {
+          group.userData.mixers.push(mixer);
+        }
+        [outer, inner, tongueL, tongueR].forEach((c) => {
+          if (c) c.visible = false;
+        });
+      }).catch(() => {
+        // retain procedural cones on error
+      });
+    });
+  }
 
   // store animation state
   group.userData._animTime = 0;
@@ -127,41 +247,84 @@ function createFireMesh() {
   return group;
 }
 
-// animate fire flames (call each frame with delta)
+// update fire flames scale and tick animation mixers
 function animateFireMesh(fireGroup, deltaMs) {
   if (!fireGroup || !fireGroup.userData) return;
   fireGroup.userData._animTime = (fireGroup.userData._animTime || 0) + deltaMs;
   const t = fireGroup.userData._animTime;
+  const deltaSec = Math.min(0.1, (deltaMs || 16) / 1000);
 
+  // update all active animation mixers
+  if (Array.isArray(fireGroup.userData.mixers)) {
+    fireGroup.userData.mixers.forEach((m) => {
+      if (m && typeof m.update === "function") m.update(deltaSec);
+    });
+  }
+
+  const extProgress = typeof fireGroup.userData.extinguishProgress === "number"
+    ? fireGroup.userData.extinguishProgress
+    : 0;
+  const flameFactor = Math.max(0, 1.0 - extProgress * 1.0);
+
+  // update GLB flames cluster if loaded
+  const flamesGroup = fireGroup.userData.flamesGroup || fireGroup.getObjectByName("fire-flames-group");
+  if (flamesGroup) {
+    if (flameFactor <= 0.02) {
+      flamesGroup.visible = false;
+    } else {
+      flamesGroup.visible = true;
+      flamesGroup.scale.set(flameFactor, flameFactor, flameFactor);
+    }
+  }
+
+  // update procedural cones if present
   const outer = fireGroup.getObjectByName("fire-outer-cone");
   const inner = fireGroup.getObjectByName("fire-inner-cone");
   const tongueL = fireGroup.getObjectByName("fire-tongue-left");
   const tongueR = fireGroup.getObjectByName("fire-tongue-right");
   const light = fireGroup.getObjectByName("fire-light");
-  const ember = fireGroup.getObjectByName("fire-embers");
 
-  if (outer) {
-    const s = 0.92 + 0.16 * Math.sin(t * 0.0285);
-    const sy = 0.85 + 0.33 * Math.sin(t * 0.0285);
-    outer.scale.set(s, sy, s);
+  if (flameFactor <= 0.02) {
+    if (outer) outer.visible = false;
+    if (inner) inner.visible = false;
+    if (tongueL) tongueL.visible = false;
+    if (tongueR) tongueR.visible = false;
+    if (light) light.intensity = 0;
+    return;
   }
-  if (inner) {
-    const s = 0.85 + 0.30 * Math.sin(t * 0.037);
-    const sy = 0.80 + 0.45 * Math.sin(t * 0.037);
-    inner.scale.set(s, sy, s);
+
+  const hasGLBFlames = Boolean(flamesGroup && flamesGroup.children && flamesGroup.children.length > 0);
+  if (!hasGLBFlames) {
+    if (outer) {
+      outer.visible = true;
+      const s = (0.92 + 0.16 * Math.sin(t * 0.0285)) * flameFactor;
+      const sy = (0.85 + 0.33 * Math.sin(t * 0.0285)) * flameFactor;
+      outer.scale.set(s, sy, s);
+      outer.position.y = 0.80 * sy;
+    }
+    if (inner) {
+      inner.visible = true;
+      const s = (0.85 + 0.30 * Math.sin(t * 0.037)) * flameFactor;
+      const sy = (0.80 + 0.45 * Math.sin(t * 0.037)) * flameFactor;
+      inner.scale.set(s, sy, s);
+      inner.position.y = 0.60 * sy;
+    }
+    if (tongueL) {
+      tongueL.visible = true;
+      tongueL.rotation.z = -0.21 + 0.14 * Math.sin(t * 0.025);
+      tongueL.scale.set(flameFactor, flameFactor, flameFactor);
+      tongueL.position.y = 0.58 * flameFactor;
+    }
+    if (tongueR) {
+      tongueR.visible = true;
+      tongueR.rotation.z = 0.17 - 0.14 * Math.sin(t * 0.033);
+      tongueR.scale.set(flameFactor, flameFactor, flameFactor);
+      tongueR.position.y = 0.55 * flameFactor;
+    }
   }
-  if (tongueL) {
-    tongueL.rotation.z = -0.21 + 0.14 * Math.sin(t * 0.025);
-  }
-  if (tongueR) {
-    tongueR.rotation.z = 0.17 - 0.14 * Math.sin(t * 0.033);
-  }
+
   if (light) {
-    light.intensity = 1.5 + 1.1 * Math.sin(t * 0.045);
-  }
-  if (ember && ember.material) {
-    const r = 0.27 + 0.13 * Math.sin(t * 0.031);
-    ember.material.color.setRGB(1.0, r, 0.0);
+    light.intensity = (1.5 + 1.1 * Math.sin(t * 0.045)) * flameFactor;
   }
 }
 
@@ -177,7 +340,7 @@ function createExtinguisherMesh() {
   const bodyGeo = new THREE.CylinderGeometry(0.38, 0.38, 1.30, 24);
   const bodyMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
   const body = new THREE.Mesh(bodyGeo, bodyMat);
-  body.position.set(0, 0.65, 0);
+  body.position.set(0, 0.79, 0);
   body.name = "ext-body";
   group.add(body);
 
@@ -186,7 +349,7 @@ function createExtinguisherMesh() {
   const topMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
   const top = new THREE.Mesh(topGeo, topMat);
   top.scale.set(1, 0.40, 1);
-  top.position.set(0, 1.30, 0);
+  top.position.set(0, 1.44, 0);
   top.name = "ext-top-dome";
   group.add(top);
 
@@ -195,15 +358,15 @@ function createExtinguisherMesh() {
   const botMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
   const bot = new THREE.Mesh(botGeo, botMat);
   bot.scale.set(1, 0.30, 1);
-  bot.position.set(0, 0.0, 0);
+  bot.position.set(0, 0.14, 0);
   bot.name = "ext-bottom-dome";
   group.add(bot);
 
-  // base ring
+  // base ring (rests flush on Y=0)
   const baseGeo = new THREE.CylinderGeometry(0.41, 0.41, 0.14, 24);
   const baseMat = new THREE.MeshBasicMaterial({ color: 0x1e293b });
   const base = new THREE.Mesh(baseGeo, baseMat);
-  base.position.set(0, -0.07, 0);
+  base.position.set(0, 0.07, 0);
   base.name = "ext-base";
   group.add(base);
 
@@ -213,14 +376,14 @@ function createExtinguisherMesh() {
     color: 0xd97706, metalness: 0.85, roughness: 0.2
   });
   const valve = new THREE.Mesh(valveGeo, valveMat);
-  valve.position.set(0, 1.49, 0);
+  valve.position.set(0, 1.63, 0);
   valve.name = "ext-valve-block";
   group.add(valve);
 
   // neck
   const neckGeo = new THREE.CylinderGeometry(0.12, 0.12, 0.16, 16);
   const neck = new THREE.Mesh(neckGeo, valveMat.clone());
-  neck.position.set(0, 1.39, 0);
+  neck.position.set(0, 1.53, 0);
   neck.name = "ext-neck";
   group.add(neck);
 
@@ -230,7 +393,7 @@ function createExtinguisherMesh() {
     color: 0x334155, metalness: 0.5, roughness: 0.3
   });
   const handle = new THREE.Mesh(handleGeo, handleMat);
-  handle.position.set(0.15, 1.53, 0);
+  handle.position.set(0.15, 1.67, 0);
   handle.rotation.z = -0.21;
   handle.name = "extinguisher-handle";
   handle.userData.raycastTarget = "handle";
@@ -239,7 +402,7 @@ function createExtinguisherMesh() {
   // safety pin (gold)
   const pinGroup = new THREE.Group();
   pinGroup.name = "extinguisher-pin";
-  pinGroup.position.set(0.06, 1.53, 0.15);
+  pinGroup.position.set(0.06, 1.67, 0.15);
 
   const pinShaftGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.38, 12);
   const pinMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
@@ -263,7 +426,7 @@ function createExtinguisherMesh() {
   // guide arrow pointing at pin
   const arrowGroup = new THREE.Group();
   arrowGroup.name = "extinguisher-guide-arrow";
-  arrowGroup.position.set(0.26, 2.10, 0.15);
+  arrowGroup.position.set(0.26, 2.24, 0.15);
 
   const arrowConeGeo = new THREE.ConeGeometry(0.16, 0.36, 12);
   const arrowMat = new THREE.MeshBasicMaterial({ color: 0xfacc15, side: THREE.DoubleSide });
@@ -279,22 +442,246 @@ function createExtinguisherMesh() {
 
   group.add(arrowGroup);
 
+  // discharge hose
+  const hoseGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.70, 8);
+  const hoseMat = new THREE.MeshBasicMaterial({ color: 0x0f172a });
+  const hose = new THREE.Mesh(hoseGeo, hoseMat);
+  hose.position.set(0.26, 1.29, -0.10);
+  hose.rotation.set(0.35, 0, -0.42);
+  hose.name = "ext-hose";
+  group.add(hose);
+
+  // discharge nozzle horn pointing toward fire (-Z)
+  const nozzleGroup = new THREE.Group();
+  nozzleGroup.name = "extinguisher-nozzle";
+  nozzleGroup.position.set(0.40, 1.02, -0.28);
+  nozzleGroup.rotation.set(-0.15, 0.10, 0);
+
+  const hornGeo = new THREE.ConeGeometry(0.11, 0.34, 12);
+  const hornMat = new THREE.MeshBasicMaterial({ color: 0x1e293b });
+  const horn = new THREE.Mesh(hornGeo, hornMat);
+  horn.rotation.x = -Math.PI / 2;
+  horn.position.set(0, 0, -0.17);
+  horn.name = "ext-nozzle-horn";
+  nozzleGroup.add(horn);
+
+  // attach white chemical powder spray at tip of horn
+  const spray = createPowderSprayMesh();
+  if (spray) {
+    spray.position.set(0, 0, -0.34);
+    nozzleGroup.add(spray);
+  }
+  group.add(nozzleGroup);
+
+  // load realistic GLB extinguisher model if loader available
+  if (THREE.GLTFLoader) {
+    loadGLBModel("./assets/models/fire_extinguisher.glb", {
+      targetHeight: 1.75,
+      flushFloor: true,
+      centerHorizontal: true
+    }).then(({ container }) => {
+      container.name = "extinguisher-glb-model";
+      group.add(container);
+      // hide procedural cylinder body parts
+      const partsToHide = ["ext-body", "ext-top-dome", "ext-bottom-dome", "ext-base", "ext-valve-block", "ext-neck"];
+      partsToHide.forEach((name) => {
+        const obj = group.getObjectByName(name);
+        if (obj) obj.visible = false;
+      });
+    }).catch(() => {
+      // retain procedural body if load fails
+    });
+  }
+
   // store animation state
   group.userData._animTime = 0;
   group.userData._pinPulled = false;
+  group.userData._discharging = false;
 
   return group;
 }
 
-// animate extinguisher guide arrow bounce (call each frame)
-function animateExtinguisherMesh(extGroup, deltaMs) {
+// build white chemical powder gas spray stream
+function createPowderSprayMesh() {
+  const THREE = getTHREE();
+  if (!THREE) return null;
+
+  const sprayGroup = new THREE.Group();
+  sprayGroup.name = "powder-spray";
+  sprayGroup.visible = false;
+
+  // expanding white translucent plume cone
+  const coneGeo = new THREE.ConeGeometry(0.55, 2.2, 16, 1, true);
+  const coneMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.65,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  });
+  const cone = new THREE.Mesh(coneGeo, coneMat);
+  cone.rotation.x = Math.PI / 2;
+  cone.position.set(0, 0, -1.1);
+  cone.name = "powder-spray-cone";
+  sprayGroup.add(cone);
+
+  // dense inner core cone
+  const coreGeo = new THREE.ConeGeometry(0.24, 1.6, 12, 1, true);
+  const coreMat = new THREE.MeshBasicMaterial({
+    color: 0xf8fafc,
+    transparent: true,
+    opacity: 0.85,
+    side: THREE.DoubleSide,
+    depthWrite: false
+  });
+  const core = new THREE.Mesh(coreGeo, coreMat);
+  core.rotation.x = Math.PI / 2;
+  core.position.set(0, 0, -0.8);
+  core.name = "powder-spray-core";
+  sprayGroup.add(core);
+
+  // individual high-speed powder particle puffs
+  const puffGeo = new THREE.SphereGeometry(0.08, 8, 8);
+  const particles = [];
+  for (let i = 0; i < 20; i++) {
+    const puffMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.75,
+      depthWrite: false
+    });
+    const puff = new THREE.Mesh(puffGeo, puffMat);
+    puff.userData = {
+      offsetZ: -(i * 0.11 + Math.random() * 0.08),
+      speed: 2.2 + Math.random() * 1.5,
+      spreadX: (Math.random() - 0.5) * 0.28,
+      spreadY: (Math.random() - 0.5) * 0.28,
+      baseScale: 0.8 + Math.random() * 0.6
+    };
+    puff.position.set(puff.userData.spreadX, puff.userData.spreadY, puff.userData.offsetZ);
+    sprayGroup.add(puff);
+    particles.push(puff);
+  }
+  sprayGroup.userData.particles = particles;
+  sprayGroup.userData._animTime = 0;
+
+  return sprayGroup;
+}
+
+// animate powder spray particles
+function animatePowderSpray(sprayGroup, active, deltaMs) {
+  if (!sprayGroup || !sprayGroup.userData) return;
+  sprayGroup.visible = Boolean(active);
+  if (!active) return;
+
+  sprayGroup.userData._animTime = (sprayGroup.userData._animTime || 0) + deltaMs;
+  const t = sprayGroup.userData._animTime;
+
+  const cone = sprayGroup.getObjectByName("powder-spray-cone");
+  if (cone && cone.material) {
+    cone.material.opacity = 0.45 + 0.25 * Math.sin(t * 0.04);
+    const s = 1.0 + 0.12 * Math.sin(t * 0.05);
+    cone.scale.set(s, 1.0, s);
+  }
+
+  const core = sprayGroup.getObjectByName("powder-spray-core");
+  if (core && core.material) {
+    core.material.opacity = 0.70 + 0.20 * Math.sin(t * 0.06);
+  }
+
+  const particles = sprayGroup.userData.particles || [];
+  const dt = Math.min(0.05, deltaMs / 1000);
+  particles.forEach((p) => {
+    p.position.z -= p.userData.speed * dt;
+    const progress = Math.min(1.0, Math.abs(p.position.z) / 2.2);
+    const s = p.userData.baseScale * (1.0 + progress * 2.8);
+    p.scale.set(s, s, s);
+    p.position.x = p.userData.spreadX * (1.0 + progress * 2.2);
+    p.position.y = p.userData.spreadY * (1.0 + progress * 2.2);
+    if (p.material) {
+      p.material.opacity = Math.max(0, 0.85 * (1.0 - progress));
+    }
+    if (p.position.z < -2.2) {
+      p.position.z = 0;
+      p.position.x = (Math.random() - 0.5) * 0.05;
+      p.position.y = (Math.random() - 0.5) * 0.05;
+    }
+  });
+}
+
+// point extinguisher nozzle and spray at fire base
+function orientNozzleTowardTarget(nozzleGroup, extGroup, targetWorldPos) {
+  if (!nozzleGroup || !targetWorldPos) return;
+  const THREE = getTHREE();
+  if (!THREE) return;
+
+  let nx = nozzleGroup.position ? nozzleGroup.position.x : 0.40;
+  let ny = nozzleGroup.position ? nozzleGroup.position.y : 1.02;
+  let nz = nozzleGroup.position ? nozzleGroup.position.z : -0.28;
+
+  if (extGroup) {
+    const s = extGroup.scale ? extGroup.scale.x || 1 : 1;
+    nx = (extGroup.position ? extGroup.position.x : 0) + nx * s;
+    ny = (extGroup.position ? extGroup.position.y : 0) + ny * s;
+    nz = (extGroup.position ? extGroup.position.z : 0) + nz * s;
+  }
+
+  const tx = typeof targetWorldPos.x === "number" ? targetWorldPos.x : 0;
+  const ty = typeof targetWorldPos.y === "number" ? targetWorldPos.y : 0.12;
+  const tz = typeof targetWorldPos.z === "number" ? targetWorldPos.z : -3.0;
+
+  const dx = tx - nx;
+  const dy = ty - ny;
+  const dz = tz - nz;
+  const dist = Math.hypot(dx, dy, dz) || 1;
+
+  const dirX = dx / dist;
+  const dirY = dy / dist;
+  const dirZ = dz / dist;
+
+  nozzleGroup.userData.aimDirection = { x: dirX, y: dirY, z: dirZ, dist };
+
+  const yaw = Math.atan2(-dirX, -dirZ);
+  const pitch = Math.asin(Math.max(-1, Math.min(1, dirY)));
+
+  if (nozzleGroup.rotation && typeof nozzleGroup.rotation.set === "function") {
+    nozzleGroup.rotation.set(pitch, yaw, 0, "YXZ");
+  } else if (nozzleGroup.rotation) {
+    nozzleGroup.rotation.x = pitch;
+    nozzleGroup.rotation.y = yaw;
+    nozzleGroup.rotation.z = 0;
+  }
+
+  if (nozzleGroup.quaternion && typeof nozzleGroup.quaternion.setFromUnitVectors === "function" && THREE.Vector3) {
+    const vForward = new THREE.Vector3(0, 0, -1);
+    const vTarget = new THREE.Vector3(dirX, dirY, dirZ);
+    if (extGroup && extGroup.quaternion && typeof extGroup.quaternion.clone === "function") {
+      const qInv = extGroup.quaternion.clone();
+      if (typeof qInv.invert === "function") {
+        qInv.invert();
+        vTarget.applyQuaternion(qInv);
+        vTarget.normalize();
+      }
+    }
+    nozzleGroup.quaternion.setFromUnitVectors(vForward, vTarget);
+  }
+
+  const spray = nozzleGroup.getObjectByName("powder-spray");
+  if (spray && spray.scale) {
+    const coneScaleZ = Math.max(0.5, Math.min(2.5, dist / 2.2));
+    spray.scale.set(1, 1, coneScaleZ);
+  }
+}
+
+// animate extinguisher parts and gas spray
+function animateExtinguisherMesh(extGroup, deltaMs, discharging = false, targetWorldPos = null) {
   if (!extGroup || !extGroup.userData) return;
   extGroup.userData._animTime = (extGroup.userData._animTime || 0) + deltaMs;
   const t = extGroup.userData._animTime;
 
   const arrow = extGroup.getObjectByName("extinguisher-guide-arrow");
   if (arrow && !extGroup.userData._pinPulled) {
-    arrow.position.y = 2.10 + 0.15 * Math.sin(t * 0.008);
+    arrow.position.y = 2.24 + 0.15 * Math.sin(t * 0.008);
   }
 
   const ring = extGroup.getObjectByName("ext-pin-ring");
@@ -302,9 +689,153 @@ function animateExtinguisherMesh(extGroup, deltaMs) {
     const s = 1.0 + 0.25 * Math.sin(t * 0.009);
     ring.scale.set(s, s, s);
   }
+
+  const target = targetWorldPos || extGroup.userData.targetWorldPos;
+  const nozzle = extGroup.getObjectByName("extinguisher-nozzle");
+  if (nozzle && target) {
+    orientNozzleTowardTarget(nozzle, extGroup, target);
+  }
+
+  const spray = extGroup.getObjectByName("powder-spray");
+  if (spray) {
+    const isDischarging = discharging || Boolean(extGroup.userData._discharging);
+    animatePowderSpray(spray, isDischarging, deltaMs);
+  }
 }
 
-// compute fire spawn position 2m in front of placed extinguisher
+// build exit sign with running man glb model
+function createExitSignMesh(options = {}) {
+  const THREE = getTHREE();
+  if (!THREE) return null;
+
+  const group = new THREE.Group();
+  group.name = "exit-graphic";
+  group.userData.raycastTarget = "exit";
+  group.userData._animTime = 0;
+
+  const targetHeight = options.targetHeight || 0.20;
+  const initialPos = options.position || { x: 0, y: 1.8, z: -1.8 };
+  group.position.set(initialPos.x, initialPos.y, initialPos.z);
+
+  // procedural fallback geometry (green sign with border)
+  const signGeo = new THREE.BoxGeometry(0.28, 0.18, 0.04);
+  const signMat = new THREE.MeshBasicMaterial({ color: 0x10b981 });
+  const signBox = new THREE.Mesh(signGeo, signMat);
+  signBox.name = "exit-sign-fallback";
+  group.add(signBox);
+
+  // exit sign hit area for touch/raycasting
+  const hitGeo = new THREE.BoxGeometry(0.40, 0.28, 0.20);
+  const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.0 });
+  const hitMesh = new THREE.Mesh(hitGeo, hitMat);
+  hitMesh.name = "exit-hit-area";
+  hitMesh.userData.raycastTarget = "exit";
+  group.add(hitMesh);
+
+  // load GLB model if loader available
+  if (THREE.GLTFLoader) {
+    loadGLBModel("./assets/models/low_poly_green_running_man_exit_sign.glb", {
+      targetHeight,
+      flushFloor: false,
+      centerHorizontal: true
+    }).then(({ container }) => {
+      container.name = "exit-sign-model";
+      group.add(container);
+      if (signBox) signBox.visible = false;
+    }).catch(() => {
+      // retain procedural signBox on failure
+    });
+  }
+
+  return group;
+}
+
+// float exit sign gently up and down
+function animateExitSignMesh(exitGroup, deltaMs) {
+  if (!exitGroup || !exitGroup.userData) return;
+  exitGroup.userData._animTime = (exitGroup.userData._animTime || 0) + deltaMs;
+  const t = exitGroup.userData._animTime;
+  const basePosY = exitGroup.userData.basePosY !== undefined ? exitGroup.userData.basePosY : exitGroup.position.y;
+  exitGroup.userData.basePosY = basePosY;
+  exitGroup.position.y = basePosY + 0.03 * Math.sin(t * 0.003);
+}
+
+// build fire alarm station with notifier pull glb
+function createAlarmStationMesh(options = {}) {
+  const THREE = getTHREE();
+  if (!THREE) return null;
+
+  const group = new THREE.Group();
+  group.name = "fire-alarm-station";
+  group.userData.raycastTarget = "alarm";
+  group.userData._animTime = 0;
+
+  const targetHeight = options.targetHeight || 0.15;
+  const initialPos = options.position || { x: 0.8, y: 1.15, z: -1.2 };
+  group.position.set(initialPos.x, initialPos.y, initialPos.z);
+
+  // procedural fallback (red alarm box)
+  const boxGeo = new THREE.BoxGeometry(0.12, 0.15, 0.06);
+  const boxMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.4 });
+  const box = new THREE.Mesh(boxGeo, boxMat);
+  box.name = "alarm-box-fallback";
+  group.add(box);
+
+  // pulsing red pull affordance ring
+  const ringGeo = new THREE.RingGeometry(0.09, 0.13, 24);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0xef4444,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.8
+  });
+  const ring = new THREE.Mesh(ringGeo, ringMat);
+  ring.name = "alarm-pulse-ring";
+  ring.position.set(0, 0, 0.05);
+  group.add(ring);
+
+  // touch hit box
+  const hitGeo = new THREE.BoxGeometry(0.24, 0.26, 0.18);
+  const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.0 });
+  const hit = new THREE.Mesh(hitGeo, hitMat);
+  hit.name = "alarm-hit-box";
+  hit.userData.raycastTarget = "alarm";
+  group.add(hit);
+
+  // load GLB model if loader available
+  if (THREE.GLTFLoader) {
+    loadGLBModel("./assets/models/notifier_rsg_t-bar_fire_alarm_pull_station.glb", {
+      targetHeight,
+      flushFloor: false,
+      centerHorizontal: true
+    }).then(({ container }) => {
+      container.name = "alarm-model";
+      group.add(container);
+      if (box) box.visible = false;
+    }).catch(() => {
+      // retain procedural box on failure
+    });
+  }
+
+  return group;
+}
+
+// pulse red alarm pull circle ring
+function animateAlarmStationMesh(alarmGroup, deltaMs) {
+  if (!alarmGroup || !alarmGroup.userData) return;
+  alarmGroup.userData._animTime = (alarmGroup.userData._animTime || 0) + deltaMs;
+  const t = alarmGroup.userData._animTime;
+  const ring = alarmGroup.getObjectByName("alarm-pulse-ring");
+  if (ring) {
+    const s = 1.0 + 0.25 * Math.sin(t * 0.006);
+    ring.scale.set(s, s, s);
+    if (ring.material) {
+      ring.material.opacity = 0.5 + 0.35 * Math.sin(t * 0.006);
+    }
+  }
+}
+
+// drop fire two meters in front of worker
 function calcFireOffsetPosition(placedPosition, placedQuaternion) {
   const THREE = getTHREE();
   if (!THREE || !placedPosition) return null;
@@ -327,10 +858,18 @@ function calcFireOffsetPosition(placedPosition, placedQuaternion) {
 
 export {
   getTHREE,
+  loadGLBModel,
   createPlacementReticle,
   createFireMesh,
   animateFireMesh,
   createExtinguisherMesh,
   animateExtinguisherMesh,
+  orientNozzleTowardTarget,
+  createPowderSprayMesh,
+  animatePowderSpray,
+  createExitSignMesh,
+  animateExitSignMesh,
+  createAlarmStationMesh,
+  animateAlarmStationMesh,
   calcFireOffsetPosition
 };

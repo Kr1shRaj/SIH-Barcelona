@@ -1,7 +1,10 @@
 {
   "app": {
     "title": "SafeAR — Industrial Safety Training",
+    "tagline": "Ready before it's real.",
+    "splash_loading": "Preparing your training environment",
     "select_language": "Select Language",
+    "select_language_hint": "Choose your preferred language",
     "start_training": "Start Training",
     "step_indicator": "STEP {current} / {total}",
     "tier1_ready": "AR Tier 1 Ready (WebXR)",
@@ -35,7 +38,9 @@
       "complete_pass": "✅ MODULE COMPLETE",
       "complete_review": "⚠ MODULE COMPLETE — Review step 3",
       "complete_desc": "All checkpoints fired. Assessment engine will score your attempt.",
-      "btn_exit_module": "✖ Exit Module"
+      "btn_exit_module": "✖ Exit Module",
+      "landscape_nudge": "Tip: rotate your device to landscape for a better experience",
+      "nudge_dismiss": "Dismiss"
     },
     "gas_leak": {
       "title": "Gas Leak & Confined Space Protocol",
@@ -60,7 +65,10 @@
       "complete_review": "⚠ MODULE COMPLETE — Review step 3",
       "complete_desc": "All gas protocol checkpoints fired. Assessment engine will score your attempt.",
       "btn_exit_module": "✖ Exit Module"
-    }
+    },
+    "select_title": "Choose Your Training",
+    "select_subtitle": "Pick a module to begin",
+    "locked": "Complete equipment familiarization first"
   },
   "marker": {
     "camera_denied": "Camera Permission Denied",
@@ -82,7 +90,8 @@
   "graphics": {
     "aim_flame_base": "👇 AIM AT BASE OF FLAMES",
     "abc_chemical": "ABC DRY CHEMICAL",
-    "pass_instructions": "1. PULL PIN\\n2. AIM AT BASE\\n3. SQUEEZE LEVER\\n4. SWEEP HAZARD"
+    "pass_instructions": "1. PULL PIN\\n2. AIM AT BASE\\n3. SQUEEZE LEVER\\n4. SWEEP HAZARD",
+    "pull_alarm": "PULL ALARM"
   },
   "fire": {
     "exit_badge_1": "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (1/4)",
@@ -183,5 +192,194 @@
     "not_passed_desc": "You did not reach the pass mark. You can try again.",
     "scan_hint": "Show this code to your supervisor",
     "preparing": "Training passed. Preparing your certificate…"
+  },
+  "prerequisite": {
+    "title": "Equipment Familiarization",
+    "subtitle": "Learn the equipment before training begins",
+    "progress": "{viewed} of {total} viewed",
+    "card_open_hint": "Tap to open",
+    "card_viewed": "Viewed",
+    "badge_fire": "Fire & Explosion",
+    "badge_gas": "Gas Leak & Confined Space",
+    "badge_both": "Both modules",
+    "complete_title": "Equipment Familiarization Complete",
+    "complete_desc": "You may now begin training.",
+    "locked_notice": "Open every item to unlock training",
+    "detail_components": "Key parts",
+    "btn_listen": "Listen",
+    "audio_unavailable": "Narration not yet recorded",
+    "btn_prev": "Previous",
+    "btn_next": "Next",
+    "btn_done": "Done",
+    "btn_close": "Close",
+    "translation_pending": "Santali translation pending",
+    "item_position": "{current} / {total}",
+    "btn_reassemble": "Reassemble",
+    "explode_hint": "Tap a part to read about it",
+    "tap_to_dismantle": "Tap the equipment to take it apart"
+  },
+  "equipment": {
+    "fire_extinguisher": {
+      "name": "Fire Extinguisher",
+      "purpose": "Puts out a small fire before it spreads. Aim at the base of the flames.",
+      "components": {
+        "pressure_gauge": {
+          "label": "Pressure Gauge",
+          "desc": "The needle must sit in the green band. In the red, the cylinder will not discharge."
+        },
+        "handle": {
+          "label": "Handle / Lever",
+          "desc": "Squeeze to discharge. Release to stop."
+        },
+        "safety_pin": {
+          "label": "Safety Pin",
+          "desc": "Pull this out first. The lever will not move until it is removed."
+        },
+        "valve_block": {
+          "label": "Valve Block",
+          "desc": "Holds the pressure in. Never strike it or loosen it."
+        },
+        "hose": {
+          "label": "Hose",
+          "desc": "Carries the powder from the cylinder to the nozzle. Check it for cracks."
+        },
+        "nozzle": {
+          "label": "Nozzle",
+          "desc": "Point this at the base of the fire, not at the flames."
+        }
+      }
+    },
+    "ppe_kit": {
+      "name": "PPE Kit",
+      "purpose": "The protective clothing worn before entering a fire or hot work area.",
+      "components": {
+        "safety_goggles": {
+          "label": "Safety Goggles",
+          "desc": "Shield the eyes from smoke, sparks and flying debris."
+        },
+        "high_vis_vest": {
+          "label": "High-Visibility Vest",
+          "desc": "Reflective strips let rescuers find you in heavy smoke."
+        },
+        "flame_resistant_coverall": {
+          "label": "Flame-Resistant Coverall",
+          "desc": "Does not melt onto skin. Ordinary synthetic clothing does."
+        },
+        "safety_gloves": {
+          "label": "Safety Gloves",
+          "desc": "Protect the hands from hot metal and from the extinguisher's cold horn."
+        }
+      }
+    },
+    "safety_helmet": {
+      "name": "Safety Helmet",
+      "purpose": "Protects the head from falling rock, tools and impact. Wear it underground at all times.",
+      "components": {
+        "outer_shell": {
+          "label": "Outer Shell",
+          "desc": "Spreads the force of an impact. Replace it after any hard blow."
+        },
+        "brim": {
+          "label": "Brim",
+          "desc": "Keeps falling dust and water off the face."
+        },
+        "suspension_harness": {
+          "label": "Suspension Harness",
+          "desc": "The inner cradle. It holds a gap between shell and skull — never remove it."
+        },
+        "chin_strap": {
+          "label": "Chin Strap",
+          "desc": "Keeps the helmet on your head when you bend or fall. Fasten it every time."
+        }
+      }
+    },
+    "safety_shoes": {
+      "name": "Safety Shoes",
+      "purpose": "Protect the feet from falling loads, sharp scrap and slippery ground.",
+      "components": {
+        "ankle_collar": {
+          "label": "Ankle Collar",
+          "desc": "Supports the ankle on uneven mine floors."
+        },
+        "steel_toe_cap": {
+          "label": "Steel Toe Cap",
+          "desc": "Takes the weight of a dropped load off your toes."
+        },
+        "penetration_resistant_midsole": {
+          "label": "Penetration-Resistant Midsole",
+          "desc": "Stops nails and sharp scrap coming up through the sole."
+        },
+        "anti_slip_sole": {
+          "label": "Anti-Slip Sole",
+          "desc": "Grips wet and oily floors. Check the tread is not worn smooth."
+        }
+      }
+    },
+    "multi_gas_detector": {
+      "name": "Multi-Gas Detector",
+      "purpose": "Reads the air before you enter. It finds gases you cannot smell.",
+      "components": {
+        "alarm_indicator": {
+          "label": "Alarm Indicator",
+          "desc": "Flashes and sounds when gas rises or oxygen falls. Leave at once."
+        },
+        "display_screen": {
+          "label": "Display Screen",
+          "desc": "Shows the live reading for each gas."
+        },
+        "sensor_intake": {
+          "label": "Sensor Intake",
+          "desc": "Air enters here. Never cover it with a hand or a glove."
+        },
+        "control_buttons": {
+          "label": "Control Buttons",
+          "desc": "Power on, move through the readings, and confirm. Test before every shift."
+        }
+      }
+    },
+    "scba": {
+      "name": "SCBA / Breathing Apparatus",
+      "purpose": "Supplies clean air from a cylinder. The only protection in a toxic or low-oxygen space.",
+      "components": {
+        "cylinder_valve": {
+          "label": "Cylinder Valve",
+          "desc": "Open it fully before entry and check the gauge reads full."
+        },
+        "face_mask": {
+          "label": "Face Mask",
+          "desc": "Must seal against the skin. A beard breaks the seal."
+        },
+        "air_cylinder": {
+          "label": "Air Cylinder",
+          "desc": "Holds your air supply. Know how many minutes it gives you."
+        },
+        "pressure_regulator": {
+          "label": "Pressure Regulator",
+          "desc": "Steps the cylinder pressure down to air you can breathe."
+        }
+      }
+    },
+    "safety_harness": {
+      "name": "Safety Harness & Lifeline",
+      "purpose": "Lets the attendant pull you out of a confined space without entering it.",
+      "components": {
+        "dorsal_d_ring": {
+          "label": "Dorsal D-Ring",
+          "desc": "The lifeline attaches here, between the shoulder blades."
+        },
+        "chest_strap": {
+          "label": "Chest Strap",
+          "desc": "Keeps the shoulder straps from sliding off."
+        },
+        "leg_straps": {
+          "label": "Leg Straps",
+          "desc": "Carry your weight during a rescue. Snug, about two fingers of slack."
+        },
+        "lifeline": {
+          "label": "Lifeline",
+          "desc": "Runs to the winch outside. It stays attached the whole time you are inside."
+        }
+      }
+    }
   }
 }

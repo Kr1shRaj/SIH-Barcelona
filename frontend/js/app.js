@@ -3,7 +3,12 @@ import { detectDeviceCaps, selectArTier } from "../ar/tier.js";
 import { initWebXRSession, loadModule3DScene, WebXRPlacementController } from "../ar/webxr.js";
 import { initMarkerTracking, loadMarkerModuleScene } from "../ar/marker.js";
 import { setTierLoaders, loadModule, unloadModule } from "./module-loader.js";
-import { t, loadLocale } from "./i18n.js";
+import { t, loadLocale, setLocale, getLocale, storeLocale, clearStoredLocale } from "./i18n.js";
+import { registerScreens, showScreen } from "../screens/router.js";
+import { mountLanguageScreen, readLocalePreference } from "../screens/language.js";
+import { mountSplashScreen } from "../screens/splash.js";
+import { mountModulesScreen } from "../screens/modules.js";
+import { mountPrerequisiteScreen } from "../prerequisite/screen.js";
 import { queueEligibleCertificates, flushPendingCertificates } from "./certificates.js";
 import {
   bindAssessmentSessionListeners,
@@ -39,19 +44,16 @@ function buildWebXRDiagnosticMessage(decision) {
     if (!caps.hasWebXR) {
       failedChecks.push("navigator.xr missing (WebXR API not available in browser)");
     }
-    if (caps.hasWebXR && !caps.supportsImmersiveAr) {
-      const errNote = caps.sessionSupportedError ? ` error: ${caps.sessionSupportedError}` : "";
-      failedChecks.push(`isSessionSupported('immersive-ar')=false${errNote}`);
+    if (!caps.isImmersiveArSupported) {
+      failedChecks.push("isSessionSupported('immersive-ar')=false");
     }
-    if (!caps.hasGetUserMedia) {
-      failedChecks.push("camera getUserMedia missing (camera permission blocked)");
+    if (!caps.hasCamera) {
+      failedChecks.push("navigator.mediaDevices.getUserMedia missing or blocked");
     }
 
-    const reasonSummary = failedChecks.length > 0
-      ? failedChecks.join(" | ")
-      : (decision.reason || "unknown_precheck_failure");
-
-    return `WebXR check: ${reasonSummary} [secureContext=${caps.isSecureContext}, navigator.xr=${caps.hasWebXR}, immersive-ar=${caps.supportsImmersiveAr}, camera=${caps.hasGetUserMedia}]`;
+    if (failedChecks.length > 0) {
+      return `WebXR check: ${failedChecks.join("; ")}`;
+    }
   }
 
   if (decision.tier === 0) {
@@ -115,7 +117,9 @@ function renderArShell(container, tierResult) {
     // calibration and both patterns come from ./vendor, never ar-js-org.github.io.
     // preset="hiro" would fetch them off the internet, which a mine does not have.
     : `<a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3; cameraParametersUrl: ./vendor/arjs-data/camera_para.dat;" vr-mode-ui="enabled: false" renderer="logarithmicDepthBuffer: true;">
-        <a-marker type="pattern" url="./vendor/arjs-data/pattern-hiro.patt" id="hiro-marker"></a-marker>
+        <a-marker type="pattern" url="./vendor/arjs-data/pattern-hiro.patt" id="hiro-marker">
+          <a-entity id="ar-root" position="0 0 0" scale="1 1 1"></a-entity>
+        </a-marker>
         <a-marker type="pattern" url="./vendor/arjs-data/pattern-kanji.patt" id="kanji-marker"></a-marker>
         <a-light type="ambient" color="#ffffff" intensity="1.2"></a-light>
         <a-light type="directional" position="1 4 2" intensity="1.0"></a-light>
@@ -127,6 +131,8 @@ function renderArShell(container, tierResult) {
         </a-entity>
       </a-scene>`;
 
+  const currentLocale = (typeof getLocale === "function" ? getLocale() : "en").toUpperCase();
+
   container.innerHTML = `
     <div id="ar-viewport" class="ar-viewport">
       ${tierMarkup}
@@ -134,19 +140,35 @@ function renderArShell(container, tierResult) {
     <div class="ui-overlay">
       <div style="width:100%;display:flex;flex-direction:column;pointer-events:none;">
         <header class="header-bar">
-          <div class="app-title">🛡️ SafeAR</div>
-          <div style="margin-left:auto;display:flex;align-items:center;gap:10px;">
+          <div class="app-title">🛡️ SafeAR <span class="connection-dot"></span></div>
+          <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
+            <button id="lang-switch-btn" class="lang-switch-btn" title="Change Language / भाषा बदलें">🌐 ${currentLocale}</button>
             <span class="tier-badge ${tierClass}">${tierLabel}</span>
           </div>
         </header>
         ${diagBanner}
       </div>
       <div id="status-card" class="status-card">
-        <h3>AR Mode Initializing</h3>
-        <p>Checking module assets...</p>
+        <h3>${t("app.initializing", {}, "AR Mode Initializing")}</h3>
+        <p>${t("app.checking_assets", {}, "Checking module assets...")}</p>
       </div>
     </div>
   `;
+
+  if (typeof container.querySelector === "function") {
+    const langBtn = container.querySelector("#lang-switch-btn");
+    if (langBtn) {
+      langBtn.addEventListener("click", () => {
+        clearStoredLocale();
+        renderLanguageSelectionScreen(container, (newLocale) => {
+          storeLocale(newLocale);
+          if (typeof window !== "undefined") {
+            window.location.reload();
+          }
+        });
+      });
+    }
+  }
 
   if (typeof document === "undefined") {
     return { viewport: null, canvas: null, statusCard: null };
@@ -159,8 +181,8 @@ function renderArShell(container, tierResult) {
   };
 }
 
-// boot tier 2 marker tracking flow
-async function bootTier2(container, decision) {
+// boot tier 2 marker tracking flow, loading moduleId once tracking is live
+async function bootTier2(container, decision, moduleId = null) {
   const { viewport, statusCard } = renderArShell(container, decision);
   bindModuleLifecycleUI(statusCard);
 
@@ -181,12 +203,18 @@ async function bootTier2(container, decision) {
         : "";
 
       statusCard.innerHTML = `
-        <h3>${t("app.tier2_active", "AR Tier 2 Active (Hiro Marker)")}</h3>
-        ${diagNotice}
-        <p>${t("app.tier2_active_desc", "Point camera at Hiro marker. Pick a module to begin.")}</p>
-        ${_scaffoldModuleButton()}
+        <div class="welcome-section">
+          <span class="welcome-label">${t("app.tier2_label", {}, "Marker Tracking")}</span>
+          <h3>${t("app.tier2_active", {}, "AR Tier 2 Active (Hiro Marker)")}</h3>
+          ${diagNotice}
+          <p>${t("app.tier2_active_desc", {}, "Point camera at Hiro marker. Pick a module to begin.")}</p>
+        </div>
       `;
-      _bindScaffoldButton(statusCard);
+    }
+
+    // marker tracking needs no user gesture, so the chosen module can start at once
+    if (moduleId) {
+      await _startChosenModule(moduleId);
     }
     return trackingState;
   } catch (err) {
@@ -226,8 +254,8 @@ async function handleWebXRFallback(container, caps, err, loggerInstance = logger
   return await bootTier2(container, fallbackDecision);
 }
 
-// boot tier 1 webxr flow with user activation button
-async function bootTier1(container, decision, caps) {
+// boot tier 1 webxr flow with user activation button, then load moduleId
+async function bootTier1(container, decision, caps, moduleId = null) {
   const { canvas, statusCard } = renderArShell(container, decision);
   bindModuleLifecycleUI(statusCard);
 
@@ -250,11 +278,16 @@ async function bootTier1(container, decision, caps) {
 
       if (statusCard) {
         statusCard.innerHTML = `
-          <h3>${t("app.tier1_active", "AR Tier 1 Active (WebXR)")}</h3>
-          <p>${t("app.tier1_active_desc", "Point at a flat surface and tap to place the extinguisher.")}</p>
-          ${_scaffoldModuleButton()}
+          <div class="welcome-section">
+            <span class="welcome-label">${t("app.webxr_label", {}, "Surface Tracking")}</span>
+            <h3>${t("app.tier1_active", {}, "AR Tier 1 Active (WebXR)")}</h3>
+            <p>${t("app.tier1_active_desc", {}, "Point at a flat surface and tap to place the extinguisher.")}</p>
+          </div>
         `;
-        _bindScaffoldButton(statusCard);
+      }
+
+      if (moduleId) {
+        await _startChosenModule(moduleId);
       }
       return controller;
     } catch (err) {
@@ -265,21 +298,20 @@ async function bootTier1(container, decision, caps) {
 
   if (statusCard) {
     statusCard.innerHTML = `
-      <h3>${t("app.tier1_ready", "AR Tier 1 Ready (WebXR)")}</h3>
-      <p>${t("app.tier1_ready_desc", "Real-world surface tracking supported on your tablet. Tap below to start AR:")}</p>
-      <button id="btn-start-webxr" style="display:block;width:100%;max-width:340px;padding:14px 20px;border-radius:10px;border:2px solid #38bdf8;background:linear-gradient(135deg,#0284c7,#0369a1);color:#ffffff;font-size:1.05rem;font-weight:bold;cursor:pointer;margin:10px 0;box-shadow:0 4px 16px rgba(56,189,248,0.4);pointer-events:auto !important;text-align:center;">${t("app.start_ar_session", "🚀 START AR SESSION (WEBXR)")}</button>
-      <p style="font-size:0.8rem;color:#94a3b8;margin-top:4px;">${t("app.launch_module_direct", "Or tap a module to launch directly:")}</p>
-      ${_scaffoldModuleButton()}
+      <div class="welcome-section">
+        <span class="welcome-label">${t("app.webxr_label", {}, "Surface Tracking")}</span>
+        <h3>${t("app.tier1_ready", {}, "AR Tier 1 Ready (WebXR)")}</h3>
+        <p>${t("app.tier1_ready_desc", {}, "Real-world surface tracking supported on your tablet. Tap below to start AR:")}</p>
+      </div>
+      <button id="btn-start-webxr" class="webxr-start-btn">${t("app.start_ar_session", {}, "🚀 START AR SESSION (WEBXR)")}</button>
     `;
 
+    // webxr will only hand out a session inside a user gesture, so the module waits
+    // behind this tap rather than starting the moment the screen is chosen
     const startBtn = statusCard.querySelector("#btn-start-webxr");
     if (startBtn) {
       startBtn.addEventListener("click", () => activateWebXR());
     }
-
-    _bindScaffoldButton(statusCard, async () => {
-      await activateWebXR();
-    });
   }
 
   return { canvas, statusCard, activateWebXR };
@@ -287,7 +319,89 @@ async function bootTier1(container, decision, caps) {
 
 let _appInitPromise = null;
 
-// start mobile app and init audio and ar
+// render language picker before module or tier boot
+function renderLanguageSelectionScreen(container, onLocaleChosen) {
+  if (!container) return;
+  container.innerHTML = `
+    <div class="lang-screen">
+      <div class="lang-card">
+        <div class="lang-header">
+          <div class="lang-globe">🌐</div>
+          <h1 class="lang-title">Select Training Language</h1>
+          <p class="lang-subtitle">प्रशिक्षण भाषा चुनें / ᱯᱟᱹᱨᱥᱤ ᱵᱟᱪᱷᱟᱣ ᱢᱮ</p>
+        </div>
+        <div class="lang-options">
+          <button id="lang-opt-en" class="lang-option-btn" data-locale="en">
+            <div class="lang-btn-left">
+              <span class="lang-btn-name">English</span>
+              <span class="lang-btn-sub">Full Safety Training</span>
+            </div>
+            <span class="lang-btn-badge badge-complete">Ready</span>
+          </button>
+          <button id="lang-opt-hi" class="lang-option-btn" data-locale="hi">
+            <div class="lang-btn-left">
+              <span class="lang-btn-name">हिंदी (Hindi)</span>
+              <span class="lang-btn-sub">पूर्ण सुरक्षा प्रशिक्षण</span>
+            </div>
+            <span class="lang-btn-badge badge-complete">उपलब्ध</span>
+          </button>
+          <button id="lang-opt-sat" class="lang-option-btn" data-locale="sat">
+            <div class="lang-btn-left">
+              <span class="lang-btn-name">ᱥᱟᱱᱛᱟᱲᱤ (Santali)</span>
+              <span class="lang-btn-sub">Ol Chiki — ᱨᱩᱠᱷᱤᱭᱟᱹ ᱥᱮᱪᱮᱫ</span>
+            </div>
+            <span class="lang-btn-badge badge-partial">⚠️ Incomplete / Partial</span>
+          </button>
+        </div>
+        <div class="lang-footer-note">
+          Selection is saved. You can switch language anytime from the top bar.
+        </div>
+      </div>
+    </div>
+  `;
+
+  let chosen = false;
+  const choose = (loc, targetBtn) => {
+    if (chosen) return;
+    chosen = true;
+    if (targetBtn && targetBtn.classList && typeof targetBtn.classList.add === "function") {
+      targetBtn.classList.add("selected");
+    }
+    if (typeof onLocaleChosen === "function") {
+      onLocaleChosen(loc);
+    }
+  };
+
+  ["en", "hi", "sat"].forEach((loc) => {
+    const btn = container.querySelector ? container.querySelector(`#lang-opt-${loc}`) : null;
+    if (btn && typeof btn.addEventListener === "function") {
+      btn.addEventListener("click", (e) => {
+        if (e && typeof e.preventDefault === "function") {
+          e.preventDefault();
+        }
+        choose(loc, btn);
+      });
+      btn.addEventListener("pointerdown", (e) => {
+        if (e && e.pointerType === "touch") {
+          choose(loc, btn);
+        }
+      });
+    }
+  });
+
+  if (container && typeof container.addEventListener === "function") {
+    container.addEventListener("click", (e) => {
+      const targetBtn = e && e.target && typeof e.target.closest === "function"
+        ? e.target.closest(".lang-option-btn")
+        : null;
+      if (targetBtn && targetBtn.dataset && targetBtn.dataset.locale) {
+        choose(targetBtn.dataset.locale, targetBtn);
+      }
+    });
+  }
+}
+
+// boot safeAR app with explicit language selection first
 async function initApp() {
   if (_appInitPromise) {
     return _appInitPromise;
@@ -300,13 +414,20 @@ async function initApp() {
     }
 
     // bootstrap default and fallback locales and bind assessment listeners.
-    // loadLocale needs a locale name: called bare it throws and no dictionary
-    // registers, which leaves every t() call rendering its raw key.
     try {
       await Promise.allSettled([
+        loadLocale("en"),
         loadLocale("hi"),
-        loadLocale("en")
+        loadLocale("sat")
       ]);
+
+      // a phone that has already been set to a language stays on it. the picker still
+      // opens, so a different worker can change it on a shared handset.
+      const saved = readLocalePreference();
+      if (saved) {
+        setLocale(saved);
+        await loadLocale(saved);
+      }
     } catch (err) {
       logger.warn({ event: "locale_bootstrap_error", error: err.message }, "Locale bootstrap warning");
     }
@@ -331,24 +452,10 @@ async function initApp() {
     // register service worker for offline use in mines
     registerServiceWorker().catch(() => {});
 
-    // probe device hardware caps
-    const caps = await detectDeviceCaps(window);
-    const decision = selectArTier(caps);
-
-    // log tier selection once at module initialization per Rule 3078729
-    logger.info(decision, "AR tier selected");
-
-    if (decision.tier === 0) {
-      renderUnsupportedView(appContainer, decision);
-      return decision;
-    }
-
-    if (decision.tier === 1) {
-      await bootTier1(appContainer, decision, caps);
-    } else if (decision.tier === 2) {
-      await bootTier2(appContainer, decision);
-    }
-    return decision;
+    // the camera stays off until a module actually starts. device caps are probed in
+    // startTraining, not here, so the language and equipment screens never trigger a
+    // permission prompt a worker has no context for yet.
+    return startScreenFlow(appContainer);
   })();
 
   return _appInitPromise;
@@ -367,48 +474,97 @@ function bindModuleLifecycleUI(statusCard) {
   });
 }
 
-// SCAFFOLDING — remove when real module-selection UI exists
-function _scaffoldModuleButton() {
-  return `<div style="display:flex;gap:0.6rem;margin-top:0.8rem;flex-wrap:wrap;width:100%;">
-    <button id="scaffold-load-btn" style="flex:1;min-width:130px;padding:12px 14px;background:#ef4444;color:#fff;border:none;border-radius:10px;font-weight:bold;font-size:0.95rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(0,0,0,0.6);">${t("app.fire_btn", "🔥 Fire Response")}</button>
-    <button id="scaffold-gas-btn" style="flex:1;min-width:130px;padding:12px 14px;background:#f59e0b;color:#000;border:none;border-radius:10px;font-weight:bold;font-size:0.95rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(0,0,0,0.6);">${t("app.gas_btn", "☣️ Gas Leak")}</button>
-  </div>`;
+// hand the chosen module to the loader. the loader re-checks the prerequisite gate
+// and refuses if it is not done, so a failure here is reported, never swallowed.
+async function _startChosenModule(moduleId) {
+  try {
+    await loadModule(moduleId);
+    return true;
+  } catch (err) {
+    logger.warn({ event: "module_start_failed", moduleId, error: err.message }, "Module start failed");
+    return false;
+  }
 }
 
-// SCAFFOLDING — bind scaffold buttons to loadModule
-function _bindScaffoldButton(container, onBeforeLoad) {
-  const btnFire = container.querySelector("#scaffold-load-btn");
-  if (btnFire) {
-    btnFire.addEventListener("click", async () => {
-      try {
-        if (typeof onBeforeLoad === "function") {
-          await onBeforeLoad();
-        }
-        await loadModule("fire-response");
-      } catch (err) {
-        logger.warn({ event: "scaffold_load_threw", error: err.message }, "Module load threw");
-      }
-    });
+// turn the camera on and run the module. this is the first point at which SafeAR asks
+// for camera permission — the language and equipment screens never do.
+async function startTraining(container, moduleId) {
+  if (typeof document !== "undefined" && container && container.classList) {
+    container.classList.remove("screen-mode");
   }
 
-  const btnGas = container.querySelector("#scaffold-gas-btn");
-  if (btnGas) {
-    btnGas.addEventListener("click", async () => {
-      try {
-        if (typeof onBeforeLoad === "function") {
-          await onBeforeLoad();
-        }
-        await loadModule("gas-leak");
-      } catch (err) {
-        logger.warn({ event: "scaffold_load_threw", error: err.message }, "Module load threw");
-      }
-    });
+  const caps = await detectDeviceCaps(window);
+  const decision = selectArTier(caps);
+  logger.info(decision, "AR tier selected");
+
+  if (decision.tier === 0) {
+    renderUnsupportedView(container, decision);
+    return decision;
+  }
+
+  if (decision.tier === 1) {
+    await bootTier1(container, decision, caps, moduleId);
+  } else {
+    await bootTier2(container, decision, moduleId);
   }
 
   // expose unloadModule on window for manual dev testing
   if (typeof window !== "undefined") {
     window.__safear_unloadModule = unloadModule;
   }
+
+  return decision;
+}
+
+// wire the pre-AR flow: pick a language, meet the equipment, then choose a module.
+// each screen only hands control on when its own precondition is satisfied.
+function startScreenFlow(container) {
+  const workerId = getEffectiveWorkerId();
+
+  const enterScreenMode = () => {
+    if (container && container.classList) {
+      container.classList.add("screen-mode");
+    }
+  };
+
+  registerScreens(container, {
+    language: (host) => {
+      enterScreenMode();
+      return mountLanguageScreen({
+        container: host,
+        onPicked: () => showScreen("prerequisite")
+      });
+    },
+    prerequisite: (host) => {
+      enterScreenMode();
+      return mountPrerequisiteScreen({
+        container: host,
+        workerId,
+        onContinue: () => showScreen("modules")
+      });
+    },
+    modules: (host) => {
+      enterScreenMode();
+      return mountModulesScreen({
+        container: host,
+        workerId,
+        onStart: (moduleId) => showScreen("training", { moduleId }),
+        onBack: () => showScreen("prerequisite")
+      });
+    },
+    training: (host, params) => startTraining(host, params && params.moduleId)
+  });
+
+  // The loading screen goes up first and hands over to the same first screen the
+  // flow has always started on. It is not a step in SCREEN_ORDER and it gates
+  // nothing — if its timers never fire, the handover still runs.
+  enterScreenMode();
+  return new Promise((resolve) => {
+    mountSplashScreen({
+      container,
+      onDone: () => resolve(showScreen("language"))
+    });
+  });
 }
 
 
@@ -453,9 +609,12 @@ export {
   initApp,
   renderUnsupportedView,
   renderArShell,
+  renderLanguageSelectionScreen,
   bindModuleLifecycleUI,
   registerServiceWorker,
   syncAttemptsThenCertificates,
+  startScreenFlow,
+  startTraining,
   bootTier1,
   bootTier2,
   handleWebXRFallback,

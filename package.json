@@ -11,6 +11,9 @@
   "scripts": {
     "start:backend": "npm run start --workspace=backend",
     "dev:backend": "npm run dev --workspace=backend",
+    "keygen": "npm run keygen --workspace=backend",
+    "keygen:dev": "npm run keygen:dev --workspace=backend",
+    "seed": "npm run seed --workspace=backend",
     "test:backend": "npm run test --workspace=backend",
     "test:frontend": "npm run test --workspace=frontend",
     "test:dashboard": "npm run test --workspace=dashboard",

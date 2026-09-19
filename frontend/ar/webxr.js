@@ -154,8 +154,6 @@ class WebXRPlacementController {
 
   // confirm placement either from hit-test or custom/fallback position
   confirmPlacement(customPos = null, customQuat = null) {
-    if (this.state === PLACEMENT_STATES.PLACED) return;
-
     let pos = customPos;
     let quat = customQuat;
 
@@ -172,6 +170,9 @@ class WebXRPlacementController {
           z: this._lastHitPose.transform.orientation.z,
           w: this._lastHitPose.transform.orientation.w
         };
+      } else if (this._placedTransform) {
+        pos = this._placedTransform;
+        quat = this._placedQuaternion;
       } else {
         // robust fallback: 1.2m forward, 0.45m down
         pos = { x: 0, y: -0.45, z: -1.20 };
