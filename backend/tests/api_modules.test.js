@@ -24,12 +24,14 @@ describe("GET /api/modules", () => {
     assert.doesNotThrow(() => validateModuleManifestList(res.body));
   });
 
-  it("carries three required checkpoints per module", async () => {
+  it("carries every checkpoint the module defines", async () => {
     const res = await request(ctx.app).get("/api/modules");
+    const counts = Object.fromEntries(
+      res.body.map((manifest) => [manifest.moduleId, manifest.requiredCheckpoints.length])
+    );
 
-    res.body.forEach((manifest) => {
-      assert.strictEqual(manifest.requiredCheckpoints.length, 3, `${manifest.moduleId} must expose 3 checkpoints`);
-    });
+    // fire-response carries four because the evacuation question is split per tier
+    assert.deepStrictEqual(counts, { "fire-response": 4, "gas-leak": 3 });
   });
 
   it("exposes the checkpoint ids the AR modules actually emit", async () => {
@@ -38,7 +40,12 @@ describe("GET /api/modules", () => {
 
     assert.deepStrictEqual(
       fire.requiredCheckpoints.map((c) => c.checkpointId).sort(),
-      ["fire_evacuation_sequence", "fire_exit_identification", "fire_extinguisher_aim"]
+      [
+        "fire_evacuation_sequence_marker",
+        "fire_evacuation_sequence_webxr",
+        "fire_exit_identification",
+        "fire_extinguisher_aim"
+      ]
     );
   });
 

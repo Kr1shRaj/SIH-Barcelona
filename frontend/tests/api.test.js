@@ -286,12 +286,14 @@ describe("every caller reaches the resolved backend", () => {
     });
     globalThis.window.fetch = globalThis.fetch;
 
+    // this test only cares which url the queue posts to, so the attempt is a stub.
+    // it still carries the v2 label the rest of the app speaks.
     queueAttemptForSync({
-      contractVersion: "1.0",
+      contractVersion: "2.0",
       attemptId: "a3f1c9e2-5b47-4d18-9e6a-2c8b7f0d4e51",
       workerId: "WRK-0001",
       moduleId: "fire-response",
-      checkpoints: []
+      checkpoints: [{ checkpointId: "fire_exit_identification", observedAt: new Date().toISOString(), observation: { kind: "selection_single", selected: "x" } }]
     });
     await syncQueuedAttempts();
 

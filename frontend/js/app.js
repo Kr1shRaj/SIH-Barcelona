@@ -109,11 +109,15 @@ function renderArShell(container, tierResult) {
 
   const tierMarkup = tierResult.tier === 1
     ? '<canvas id="xr-canvas" class="ar-canvas"></canvas>'
-    : `<a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false; trackingMethod: best;" vr-mode-ui="enabled: false" renderer="logarithmicDepthBuffer: true; antialias: true;">
-        <a-marker preset="hiro" id="hiro-marker">
+    // calibration and both patterns come from ./vendor, never ar-js-org.github.io.
+    // preset="hiro" would fetch them off the internet, which a mine does not have.
+    : `<a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3; cameraParametersUrl: ./vendor/arjs-data/camera_para.dat;" vr-mode-ui="enabled: false" renderer="logarithmicDepthBuffer: true;">
+        <a-marker type="pattern" url="./vendor/arjs-data/pattern-hiro.patt" id="hiro-marker">
           <a-entity id="ar-root" position="0 0 0" scale="1 1 1"></a-entity>
         </a-marker>
-        <a-marker preset="kanji" id="kanji-marker"></a-marker>
+        <a-marker type="pattern" url="./vendor/arjs-data/pattern-kanji.patt" id="kanji-marker"></a-marker>
+        <a-light type="ambient" color="#ffffff" intensity="1.2"></a-light>
+        <a-light type="directional" position="1 4 2" intensity="1.0"></a-light>
         <a-entity id="main-camera" camera cursor="rayOrigin: mouse" raycaster="objects: .clickable, [data-raycast-target]">
           <a-entity id="gaze-laser" raycaster="objects: .aim-target, [data-raycast-target='aim'], #aim-reticle; showLine: true; far: 30; lineColor: #00e5ff; lineOpacity: 0.85;" position="0 0 0" rotation="0 0 0">
             <a-ring id="gaze-dot" position="0 0 -1" radius-inner="0.008" radius-outer="0.016" material="color: #00e5ff; shader: flat; opacity: 0.9; side: double"></a-ring>

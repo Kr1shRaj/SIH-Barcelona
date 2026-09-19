@@ -18,6 +18,7 @@ import {
   clearSyncRejections
 } from "../assessment/engine.js";
 import { validateSyncPayload } from "../../backend/models/sync.js";
+import { selectionSingle, aimDwell, spatialAlignment } from "../assessment/observations.js";
 
 // mock local storage for the node test runner
 if (typeof globalThis.localStorage === "undefined") {
@@ -39,7 +40,7 @@ const END = "2026-09-03T10:00:40.000Z";
 // a complete, contract-valid fire attempt ready for evaluateAssessment
 function buildFireAttempt() {
   return {
-    contractVersion: "1.0",
+    contractVersion: "2.0",
     attemptId: globalThis.crypto.randomUUID(),
     workerId: "WRK-0001",
     moduleId: "fire-response",
@@ -58,7 +59,11 @@ function buildFireAttempt() {
         score: 1,
         weight: 1,
         timestamp: T1,
-        context: { method: "button_confirm" }
+        context: { method: "button_confirm" },
+        observation: spatialAlignment({
+          anchorId: "fire_exit_sign", angularErrorRad: null, dwellMs: 2000,
+          frameCount: 0, trackingSource: "arjs_marker"
+        })
       },
       {
         checkpointId: "fire_extinguisher_aim",
@@ -67,16 +72,21 @@ function buildFireAttempt() {
         score: 0.75,
         weight: 1,
         timestamp: T2,
-        context: { accuracy: 0.75, target: "base", distance: 0.2 }
+        context: { accuracy: 0.75, target: "base", distance: 0.2 },
+        observation: aimDwell({
+          hitDistanceM: 0.2, dwellMs: 900, sweepCoverage: 0.82,
+          frameCount: 54, trackingSource: "arjs_marker"
+        })
       },
       {
-        checkpointId: "fire_evacuation_sequence",
+        checkpointId: "fire_evacuation_sequence_marker",
         type: "select",
         passed: true,
         score: 1,
         weight: 1,
         timestamp: T3,
-        context: { selected: "sound_alarm_then_evacuate" }
+        context: { selected: "sound_alarm_then_evacuate" },
+        observation: selectionSingle("sound_alarm_then_evacuate")
       }
     ],
     passThresholdUsed: 0.7

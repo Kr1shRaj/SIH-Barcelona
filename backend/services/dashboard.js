@@ -22,7 +22,7 @@ function getComplianceMetrics(db, { now = new Date().toISOString() } = {}) {
   const attempts = db.prepare(`
     SELECT attempt_id, worker_id, module_id, server_percentage, server_passed, completed_at, ar_tier, locale
     FROM attempt
-    ORDER BY completed_at DESC
+    ORDER BY completed_at DESC, attempt_id DESC
   `).all();
 
   // oldest first, so the plain overwrite below lands on the newest. the order is

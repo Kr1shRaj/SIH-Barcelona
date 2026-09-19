@@ -1,9 +1,16 @@
 import { createLogger } from "../../js/logger.js";
 import { registerCheckpoint, fireCheckpointResult } from "../../ar/interactions.js";
+import { startAlignmentSampler } from "../../ar/alignment.js";
+import { selectionSingle, selectionMulti, spatialAlignment, trackingSourceForTier } from "../../assessment/observations.js";
 import { unloadModule } from "../../js/module-loader.js";
 import { requestCertificateForAttempt, flushPendingCertificates } from "../../js/certificates.js";
 import { renderCompletionPanel } from "../../js/certificate-panel.js";
-import { buildHazardZoneEntity, buildPpeDisplayEntity } from "./graphics.js";
+import {
+  buildHazardZoneEntity,
+  buildPpeDisplayEntity,
+  createHazardZoneThreeMesh,
+  createPpeThreeMesh
+} from "./graphics.js";
 import { t } from "../../js/i18n.js";
 import { playNarration, stopNarration } from "../../js/audio.js";
 import {
@@ -30,8 +37,19 @@ const FORBIDDEN_PPE = ["dust_mask", "welding_shield"];
 // correct buddy system procedure answer
 const CORRECT_BUDDY_PROCEDURE = "standby_outside_with_lifeline";
 
+// anchor id must match checkpoint_definition.anchor_id on the server
+const HAZARD_ANCHOR_ID = "gas_hazard_zone";
+
 // track active step
 let _currentStep = 0;
+
+// running alignment sampler for step 1, stopped when the trainee confirms
+let _hazardSampler = null;
+
+// track active tier info and webxr three.js mesh handles
+let _currentTierInfo = null;
+let _threeHazardMesh = null;
+let _threePpeMesh = null;
 
 // get active step index
 function getCurrentStep() { return _currentStep; }
@@ -81,8 +99,19 @@ function _createOverlay(container, html) {
   return panel;
 }
 
-// render 3d hazard zone in a-marker or fallback container
+// render 3d hazard zone in a-marker, webxr three scene, or fallback container
 function _renderHazardZoneGraphic(container) {
+  if (_currentTierInfo && _currentTierInfo.tier === 1 && _currentTierInfo.controller) {
+    if (_threeHazardMesh) {
+      _currentTierInfo.controller.removeFromScene(_threeHazardMesh);
+    }
+    _threeHazardMesh = createHazardZoneThreeMesh();
+    if (_threeHazardMesh) {
+      _threeHazardMesh.position.set(0, -0.2, -1.0);
+      _currentTierInfo.controller.addToScene(_threeHazardMesh);
+    }
+  }
+
   const marker = typeof document !== "undefined" && typeof document.querySelector === "function"
     ? document.querySelector("a-marker")
     : null;
@@ -95,20 +124,43 @@ function _renderHazardZoneGraphic(container) {
   }
 
   const graphic = buildHazardZoneEntity();
-  const parent = marker || container;
+  let parent = marker;
+  if (!parent && typeof document !== "undefined" && typeof document.querySelector === "function") {
+    parent = document.querySelector("a-scene");
+  }
+  if (!parent) {
+    parent = container;
+  }
   if (parent && parent.appendChild) {
     parent.appendChild(graphic);
   }
   return graphic;
 }
 
-// render 3d ppe visual in a-marker or fallback container
+// render 3d ppe visual in a-marker, webxr three scene, or fallback container
 function _renderPpeGraphic(container) {
+  if (_currentTierInfo && _currentTierInfo.tier === 1 && _currentTierInfo.controller) {
+    if (_threePpeMesh) {
+      _currentTierInfo.controller.removeFromScene(_threePpeMesh);
+    }
+    _threePpeMesh = createPpeThreeMesh();
+    if (_threePpeMesh) {
+      _threePpeMesh.position.set(0, -0.2, -0.9);
+      _currentTierInfo.controller.addToScene(_threePpeMesh);
+    }
+  }
+
   const marker = typeof document !== "undefined" && typeof document.querySelector === "function"
     ? document.querySelector("a-marker")
     : null;
   const el = buildPpeDisplayEntity();
-  const parent = marker || container;
+  let parent = marker;
+  if (!parent && typeof document !== "undefined" && typeof document.querySelector === "function") {
+    parent = document.querySelector("a-scene");
+  }
+  if (!parent) {
+    parent = container;
+  }
   if (parent && parent.appendChild) {
     parent.appendChild(el);
   }
@@ -225,15 +277,134 @@ function _renderSubscreen(overlay, { badge, title, desc, buttonText, onNext }) {
   btnNext.id = "btn-step-next";
   btnNext.style.cssText = "margin-top:0.4rem;padding:0.75rem 1.4rem;background:#f59e0b;color:#000;border:none;border-radius:8px;font-size:0.95rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
   btnNext.textContent = buttonText || "Next ➜";
-  btnNext.addEventListener("click", onNext);
+  btnNext.addEventListener("click", () => {
+    if (typeof btnNext.remove === "function") btnNext.remove();
+    onNext();
+  });
   overlay.appendChild(btnNext);
 }
 
-// step 1: proximity — user learns atmospheric hazards before acknowledging 3D hazard zone
-function _setupStep1(container, tierInfo) {
+// show transition screen between teach and test phase
+function _renderTransitionScreen(overlay, onStartTest) {
+  if (!overlay) return;
+  overlay.innerHTML = `
+    <div style="font-size:0.95rem;font-weight:bold;color:#f59e0b;letter-spacing:0.5px;">${t("gas.teach_complete_badge", {}, "🎓 TEACH PHASE COMPLETE")}</div>
+    <div style="font-size:1.2rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("gas.test_ready_title", {}, "Ready for your assessment?")}</div>
+    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("gas.test_ready_desc", {}, "You will now execute the 3 critical protocol steps without educational hints. Demonstrate proper hazard recognition, PPE selection, and buddy communication.")}</div>
+  `;
+  const btnNext = document.createElement("button");
+  btnNext.id = "btn-step-next";
+  btnNext.dataset.action = "start-test";
+  btnNext.style.cssText = "margin-top:0.4rem;padding:0.75rem 1.4rem;background:#10b981;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
+  btnNext.textContent = t("gas.btn_start_test", {}, "Begin Graded Test ➜");
+  btnNext.addEventListener("click", () => {
+    if (typeof btnNext.remove === "function") btnNext.remove();
+    onStartTest();
+  });
+  overlay.appendChild(btnNext);
+}
+
+// run all educational briefing subscreens back to back without checkpoints
+function _startTeachPhase(container, tierInfo) {
+  _currentStep = 0;
+  logger.info({ event: "gas_teach_phase_start", tier: tierInfo && tierInfo.tier }, "Gas leak module teach phase start");
+
+  const overlay = document.getElementById("gas-module-overlay");
+  playNarration({ moduleId: "gas-leak", stepKey: "step_1_hazard" });
+
+  const screens = [
+    {
+      badge: t("gas.step1_badge_1", {}, "☣ STEP 1 / 3 — HAZARD ZONE RECOGNITION (1/3)"),
+      title: t("gas.step1_title_1", {}, "Confined Space Atmospheric Hazards"),
+      desc: t("gas.step1_desc_1", {}, "Confined spaces (tanks, sumps, silos, underground pits) trap invisible lethal gases like H₂S, methane, or CO. Low oxygen (<19.5%) causes sudden loss of consciousness without warning."),
+      buttonText: t("gas.step1_next_1", {}, "Next: Testing & Permits ➜")
+    },
+    {
+      badge: t("gas.step1_badge_2", {}, "☣ STEP 1 / 3 — HAZARD ZONE RECOGNITION (2/3)"),
+      title: t("gas.step1_title_2", {}, "Atmospheric Testing & Entry Permits"),
+      desc: t("gas.step1_desc_2", {}, "Never enter without a signed Confined Space Entry Permit. Calibrated gas detectors must sample the atmosphere at top (light gases), middle, and bottom (heavy gases) levels before entry."),
+      buttonText: t("gas.step1_next_2", {}, "Next: Protective Equipment ➜"),
+      onAfter: () => playNarration({ moduleId: "gas-leak", stepKey: "step_2_ppe" })
+    },
+    {
+      badge: t("gas.step2_badge_1", {}, "☣ STEP 2 / 3 — PPE SELECTION (1/3)"),
+      title: t("gas.step2_title_1", {}, "Respiratory Protection for Toxic Gas"),
+      desc: t("gas.step2_desc_1", {}, "In oxygen-deficient (<19.5% O₂) or unknown toxic gas atmospheres, only a Self-Contained Breathing Apparatus (SCBA) provides clean air. Cloth or dust masks offer zero protection against gases."),
+      buttonText: t("gas.step2_next_1", {}, "Next: Gas Monitoring & Retrieval ➜")
+    },
+    {
+      badge: t("gas.step2_badge_2", {}, "☣ STEP 2 / 3 — PPE SELECTION (2/3)"),
+      title: t("gas.step2_title_2", {}, "Continuous Monitoring & Retrieval Lifeline"),
+      desc: t("gas.step2_desc_2", {}, "A multi-gas monitor must continuously alert the entrant to rising toxic levels. A full-body harness and retrieval lifeline allow non-entry rescue if a worker collapses inside."),
+      buttonText: t("gas.step2_next_2", {}, "Next: Buddy Protocol ➜"),
+      onAfter: () => playNarration({ moduleId: "gas-leak", stepKey: "step_3_buddy" })
+    },
+    {
+      badge: t("gas.step3_badge_1", {}, "☣ STEP 3 / 3 — BUDDY SYSTEM PROTOCOL (1/3)"),
+      title: t("gas.step3_title_1", {}, "The Standby Buddy Role"),
+      desc: t("gas.step3_desc_1", {}, "The safety attendant (buddy) remains stationed strictly outside the entrance opening. Over 60% of confined space fatalities are would-be rescuers entering without protection."),
+      buttonText: t("gas.step3_next_1", {}, "Next: Communication & Emergency Rescue ➜")
+    },
+    {
+      badge: t("gas.step3_badge_2", {}, "☣ STEP 3 / 3 — BUDDY SYSTEM PROTOCOL (2/3)"),
+      title: t("gas.step3_title_2", {}, "Continuous Comms & Non-Entry Rescue"),
+      desc: t("gas.step3_desc_2", {}, "The attendant maintains unbroken visual or radio communication at fixed intervals. If an entrant becomes unresponsive, the attendant immediately initiates external winch retrieval and summons emergency response."),
+      buttonText: t("gas.step3_next_2", {}, "Next: Assessment ➜"),
+      onAfter: () => stopNarration()
+    }
+  ];
+
+  let subIndex = 0;
+  function renderCurrentSubscreen() {
+    if (subIndex < screens.length) {
+      const item = screens[subIndex];
+      _renderSubscreen(overlay, {
+        badge: item.badge,
+        title: item.title,
+        desc: item.desc,
+        buttonText: item.buttonText,
+        onNext: () => {
+          if (typeof item.onAfter === "function") item.onAfter();
+          subIndex++;
+          renderCurrentSubscreen();
+        }
+      });
+    } else {
+      stopNarration();
+      _renderTransitionScreen(overlay, () => {
+        _startTestPhase(container, tierInfo);
+      });
+    }
+  }
+
+  renderCurrentSubscreen();
+}
+
+// start graded test phase with session and cold replay of actions
+function _startTestPhase(container, tierInfo) {
+  logger.info({ event: "gas_test_phase_start", tier: tierInfo && tierInfo.tier }, "Gas leak module test phase starting");
+  stopNarration();
+
+  // initialize assessment session if not already active for gas leak
+  if (!getActiveSession() || getActiveSession().moduleId !== "gas-leak") {
+    if (getActiveSession()) {
+      abortAssessmentSession();
+    }
+    bindAssessmentSessionListeners();
+    startAssessmentSession({ moduleId: "gas-leak" });
+  }
+
+  _setupTestAction1(container, tierInfo);
+}
+
+// action 1: hazard zone confirm in test phase
+function _setupTestAction1(container, tierInfo) {
   _currentStep = 1;
   logger.info({ event: "gas_step_start", step: 1, tier: tierInfo && tierInfo.tier }, "Hazard zone recognition");
-  playNarration({ moduleId: "gas-leak", stepKey: "step_1_hazard" });
+
+  if (typeof document !== "undefined") {
+    document.getElementById("btn-step-next")?.remove();
+  }
 
   registerCheckpoint({
     id: CP_HAZARD_ZONE_ID,
@@ -243,69 +414,53 @@ function _setupStep1(container, tierInfo) {
     }
   });
 
-  _renderHazardZoneGraphic(container);
+  const hazardGraphic = _renderHazardZoneGraphic(container);
+  // the hazard zone hangs off the printed marker, so the angle between where the
+  // phone points and where the zone is really is measurable. sample it while the
+  // trainee reads the briefing; report nothing measured if the scene cannot answer.
+  _hazardSampler = startAlignmentSampler({ targetEl: hazardGraphic, anchorId: HAZARD_ANCHOR_ID });
 
   const overlay = document.getElementById("gas-module-overlay");
-  playNarration({ moduleId: "gas-leak", stepKey: "step_1_hazard" });
+  if (overlay) {
+    overlay.innerHTML = `
+      <div style="font-size:0.95rem;font-weight:bold;color:#f59e0b;letter-spacing:0.5px;">${t("gas.step1_action_badge", {}, "☣ STEP 1 / 3 — HAZARD ZONE RECOGNITION")}</div>
+      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("gas.step1_action_title", {}, "Identify Confined Hazard Perimeter")}</div>
+      <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("gas.step1_action_desc", {}, "Identify marked toxic/confined gas perimeter in AR space. Confirm you recognize the hazard boundary.")}</div>
+    `;
 
-  const screens = [
-    {
-      badge: t("gas.step1_badge_1", "☣ STEP 1 / 3 — HAZARD ZONE RECOGNITION (1/3)"),
-      title: t("gas.step1_title_1", "Confined Space Atmospheric Hazards"),
-      desc: t("gas.step1_desc_1", "Confined spaces (tanks, sumps, silos, underground pits) trap invisible lethal gases like H₂S, methane, or CO. Low oxygen (<19.5%) causes sudden loss of consciousness without warning."),
-      buttonText: t("gas.step1_next_1", "Next: Testing & Permits ➜")
-    },
-    {
-      badge: t("gas.step1_badge_2", "☣ STEP 1 / 3 — HAZARD ZONE RECOGNITION (2/3)"),
-      title: t("gas.step1_title_2", "Atmospheric Testing & Entry Permits"),
-      desc: t("gas.step1_desc_2", "Never enter without a signed Confined Space Entry Permit. Calibrated gas detectors must sample the atmosphere at top (light gases), middle, and bottom (heavy gases) levels before entry."),
-      buttonText: t("gas.step1_next_2", "Next: Confirm Hazard in AR ➜")
-    }
-  ];
-
-  function showActionScreen() {
-    if (overlay) {
-      overlay.innerHTML = `
-        <div style="font-size:0.95rem;font-weight:bold;color:#f59e0b;letter-spacing:0.5px;">☣ STEP 1 / 3 — HAZARD ZONE RECOGNITION (3/3)</div>
-        <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">Identify Confined Hazard Perimeter</div>
-        <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Identify marked toxic/confined gas perimeter in AR space. Confirm you recognize the hazard boundary.</div>
-      `;
-
-      const btn = document.createElement("button");
-      btn.id = "btn-hazard-found";
-      btn.style.cssText = "margin-top:0.4rem;padding:0.8rem 1.5rem;background:#10b981;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
-      btn.textContent = t("modules.gas_leak.btn_hazard", {}, "✔ Hazard Zone Acknowledged");
-      btn.addEventListener("click", () => {
-        fireCheckpointResult(CP_HAZARD_ZONE_ID, true, { method: "button_confirm" });
-        _setupStep2(container, tierInfo);
-      });
-      overlay.appendChild(btn);
-    }
+    const btn = document.createElement("button");
+    btn.id = "btn-hazard-found";
+    btn.style.cssText = "margin-top:0.4rem;padding:0.8rem 1.5rem;background:#10b981;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
+    btn.textContent = t("modules.gas_leak.btn_hazard", {}, "✔ Hazard Zone Acknowledged");
+    btn.addEventListener("click", () => {
+      const sampled = _hazardSampler ? _hazardSampler.stop() : { angularErrorRad: null, dwellMs: 0, frameCount: 0 };
+      _hazardSampler = null;
+      fireCheckpointResult(
+        CP_HAZARD_ZONE_ID,
+        true,
+        { method: "button_confirm", measured: sampled.angularErrorRad !== null },
+        spatialAlignment({
+          anchorId: HAZARD_ANCHOR_ID,
+          angularErrorRad: sampled.angularErrorRad,
+          dwellMs: sampled.dwellMs,
+          frameCount: sampled.frameCount,
+          trackingSource: trackingSourceForTier(tierInfo && tierInfo.tier)
+        })
+      );
+      _setupTestAction2(container, tierInfo);
+    });
+    overlay.appendChild(btn);
   }
-
-  let subIndex = 0;
-  function renderCurrentSubscreen() {
-    if (subIndex < screens.length) {
-      _renderSubscreen(overlay, {
-        ...screens[subIndex],
-        onNext: () => {
-          subIndex++;
-          renderCurrentSubscreen();
-        }
-      });
-    } else {
-      showActionScreen();
-    }
-  }
-
-  renderCurrentSubscreen();
 }
 
-// step 2: select — user learns PPE equipment purposes before selecting bundle
-function _setupStep2(container, tierInfo) {
+// action 2: ppe selection in test phase
+function _setupTestAction2(container, tierInfo) {
   _currentStep = 2;
   logger.info({ event: "gas_step_start", step: 2, tier: tierInfo && tierInfo.tier }, "PPE selection");
-  playNarration({ moduleId: "gas-leak", stepKey: "step_2_ppe" });
+
+  if (typeof document !== "undefined") {
+    document.getElementById("btn-step-next")?.remove();
+  }
 
   registerCheckpoint({
     id: CP_PPE_SELECTION_ID,
@@ -318,66 +473,34 @@ function _setupStep2(container, tierInfo) {
   _renderPpeGraphic(container);
 
   const overlay = document.getElementById("gas-module-overlay");
+  if (overlay) {
+    overlay.innerHTML = `
+      <div style="font-size:0.95rem;font-weight:bold;color:#f59e0b;letter-spacing:0.5px;">${t("gas.step2_action_badge", {}, "☣ STEP 2 / 3 — PPE SELECTION")}</div>
+      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("gas.step2_action_title", {}, "Select Required Gas Entry PPE")}</div>
+      <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("gas.step2_action_desc", {}, "Select all required PPE for hazardous gas entry (select all that apply):")}</div>
+    `;
 
-  const screens = [
-    {
-      badge: t("gas.step2_badge_1", "☣ STEP 2 / 3 — PPE SELECTION (1/3)"),
-      title: t("gas.step2_title_1", "Respiratory Protection for Toxic Gas"),
-      desc: t("gas.step2_desc_1", "In oxygen-deficient (<19.5% O₂) or unknown toxic gas atmospheres, only a Self-Contained Breathing Apparatus (SCBA) provides clean air. Cloth or dust masks offer zero protection against gases."),
-      buttonText: t("gas.step2_next_1", "Next: Gas Monitoring & Retrieval ➜")
-    },
-    {
-      badge: t("gas.step2_badge_2", "☣ STEP 2 / 3 — PPE SELECTION (2/3)"),
-      title: t("gas.step2_title_2", "Continuous Monitoring & Retrieval Lifeline"),
-      desc: t("gas.step2_desc_2", "A multi-gas monitor must continuously alert the entrant to rising toxic levels. A full-body harness and retrieval lifeline allow non-entry rescue if a worker collapses inside."),
-      buttonText: t("gas.step2_next_2", "Next: Select Required PPE ➜")
-    }
-  ];
-
-  function showActionScreen() {
-    if (overlay) {
-      overlay.innerHTML = `
-        <div style="font-size:0.95rem;font-weight:bold;color:#f59e0b;letter-spacing:0.5px;">☣ STEP 2 / 3 — PPE SELECTION (3/3)</div>
-        <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">Select Required Gas Entry PPE</div>
-        <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Select all required PPE for hazardous gas entry (select all that apply):</div>
-      `;
-
-      _renderPpeOptions(overlay, (selectedList) => {
-        const result = evaluatePpeSelection(selectedList);
-        fireCheckpointResult(CP_PPE_SELECTION_ID, result.passed, {
-          selected: selectedList,
-          score: result.score,
-          missing: result.missing,
-          forbidden: result.forbidden
-        });
-        _setupStep3(container);
-      });
-    }
+    _renderPpeOptions(overlay, (selectedList) => {
+      const result = evaluatePpeSelection(selectedList);
+      fireCheckpointResult(
+        CP_PPE_SELECTION_ID,
+        result.passed,
+        { selected: selectedList, score: result.score, missing: result.missing, forbidden: result.forbidden },
+        selectionMulti(selectedList)
+      );
+      _setupTestAction3(container);
+    });
   }
-
-  let subIndex = 0;
-  function renderCurrentSubscreen() {
-    if (subIndex < screens.length) {
-      _renderSubscreen(overlay, {
-        ...screens[subIndex],
-        onNext: () => {
-          subIndex++;
-          renderCurrentSubscreen();
-        }
-      });
-    } else {
-      showActionScreen();
-    }
-  }
-
-  renderCurrentSubscreen();
 }
 
-// step 3: select — user learns buddy system expectations before choosing protocol
-function _setupStep3(_container) {
+// action 3: buddy procedure in test phase
+function _setupTestAction3(_container) {
   _currentStep = 3;
   logger.info({ event: "gas_step_start", step: 3 }, "Buddy procedure");
-  playNarration({ moduleId: "gas-leak", stepKey: "step_3_buddy" });
+
+  if (typeof document !== "undefined") {
+    document.getElementById("btn-step-next")?.remove();
+  }
 
   registerCheckpoint({
     id: CP_BUDDY_PROCEDURE_ID,
@@ -388,65 +511,50 @@ function _setupStep3(_container) {
   });
 
   const overlay = document.getElementById("gas-module-overlay");
+  if (overlay) {
+    overlay.innerHTML = `
+      <div style="font-size:0.95rem;font-weight:bold;color:#f59e0b;letter-spacing:0.5px;">${t("gas.step3_action_badge", {}, "☣ STEP 3 / 3 — BUDDY SYSTEM PROTOCOL")}</div>
+      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("gas.step3_action_title", {}, "Buddy System Protocol Choice")}</div>
+      <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("gas.step3_action_desc", {}, "What is the safety attendant role outside the confined opening?")}</div>
+    `;
 
-  const screens = [
-    {
-      badge: t("gas.step3_badge_1", "☣ STEP 3 / 3 — BUDDY SYSTEM PROTOCOL (1/3)"),
-      title: t("gas.step3_title_1", "The Standby Buddy Role"),
-      desc: t("gas.step3_desc_1", "The safety attendant (buddy) remains stationed strictly outside the entrance opening. Over 60% of confined space fatalities are would-be rescuers entering without protection."),
-      buttonText: t("gas.step3_next_1", "Next: Communication & Emergency Rescue ➜")
-    },
-    {
-      badge: t("gas.step3_badge_2", "☣ STEP 3 / 3 — BUDDY SYSTEM PROTOCOL (2/3)"),
-      title: t("gas.step3_title_2", "Continuous Comms & Non-Entry Rescue"),
-      desc: t("gas.step3_desc_2", "The attendant maintains unbroken visual or radio communication at fixed intervals. If an entrant becomes unresponsive, the attendant immediately initiates external winch retrieval and summons emergency response."),
-      buttonText: t("gas.step3_next_2", "Next: Select Buddy Procedure ➜")
-    }
-  ];
-
-  function showActionScreen() {
-    if (overlay) {
-      overlay.innerHTML = `
-        <div style="font-size:0.95rem;font-weight:bold;color:#f59e0b;letter-spacing:0.5px;">☣ STEP 3 / 3 — BUDDY SYSTEM PROTOCOL (3/3)</div>
-        <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">Buddy System Protocol Choice</div>
-        <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">What is the safety attendant role outside the confined opening?</div>
-      `;
-
-      _renderBuddyOptions(overlay, (selectedOption, passed) => {
-        fireCheckpointResult(CP_BUDDY_PROCEDURE_ID, passed, {
-          selected: selectedOption,
-          correct: CORRECT_BUDDY_PROCEDURE
-        });
-        _showComplete(passed);
-      });
-    }
+    _renderBuddyOptions(overlay, (selectedOption, passed) => {
+      fireCheckpointResult(
+        CP_BUDDY_PROCEDURE_ID,
+        passed,
+        { selected: selectedOption, correct: CORRECT_BUDDY_PROCEDURE },
+        selectionSingle(selectedOption)
+      );
+      _showComplete(passed);
+    });
   }
-
-  let subIndex = 0;
-  function renderCurrentSubscreen() {
-    if (subIndex < screens.length) {
-      _renderSubscreen(overlay, {
-        ...screens[subIndex],
-        onNext: () => {
-          subIndex++;
-          renderCurrentSubscreen();
-        }
-      });
-    } else {
-      showActionScreen();
-    }
-  }
-
-  renderCurrentSubscreen();
 }
 
 // clean up all gas module visuals and overlay from DOM and a-marker
-function cleanupGasLeakModule() {
+function cleanupGasLeakModule(options = {}) {
   _currentStep = 0;
   stopNarration();
-  if (getActiveSession()) {
+  // a sampler left running holds a requestAnimationFrame loop against a scene
+  // that is about to be torn down
+  if (_hazardSampler) {
+    _hazardSampler.stop();
+    _hazardSampler = null;
+  }
+  if (!options.preserveSession && getActiveSession()) {
     abortAssessmentSession();
   }
+
+  if (_currentTierInfo && _currentTierInfo.controller) {
+    if (_threeHazardMesh) {
+      _currentTierInfo.controller.removeFromScene(_threeHazardMesh);
+      _threeHazardMesh = null;
+    }
+    if (_threePpeMesh) {
+      _currentTierInfo.controller.removeFromScene(_threePpeMesh);
+      _threePpeMesh = null;
+    }
+  }
+
   ["gas-module-overlay", "gas-hazard-graphic", "gas-ppe-graphic", "gas-ppe-options", "gas-buddy-options"].forEach((id) => {
     if (typeof document !== "undefined") {
       document.getElementById(id)?.remove();
@@ -459,6 +567,13 @@ function cleanupGasLeakModule() {
       const oldHazard = marker.querySelector("#gas-hazard-graphic");
       if (oldHazard && typeof oldHazard.remove === "function") oldHazard.remove();
       const oldPpe = marker.querySelector("#gas-ppe-graphic");
+      if (oldPpe && typeof oldPpe.remove === "function") oldPpe.remove();
+    }
+    const scene = document.querySelector("a-scene");
+    if (scene && typeof scene.querySelector === "function") {
+      const oldHazard = scene.querySelector("#gas-hazard-graphic");
+      if (oldHazard && typeof oldHazard.remove === "function") oldHazard.remove();
+      const oldPpe = scene.querySelector("#gas-ppe-graphic");
       if (oldPpe && typeof oldPpe.remove === "function") oldPpe.remove();
     }
   }
@@ -517,18 +632,21 @@ function _showComplete(_lastPassed) {
 // start gas leak module entry point
 function startGasLeakModule(container, tierInfo) {
   _currentStep = 0;
+  _currentTierInfo = tierInfo || null;
   logger.info({ event: "gas_module_start", tier: tierInfo && tierInfo.tier }, "Gas leak module starting");
 
-  cleanupGasLeakModule();
+  // preserve only fresh empty session from current loader call; restart with checkpoints must reset
+  const existingSession = getActiveSession();
+  const isFreshLoaderSession = Boolean(
+    existingSession &&
+    existingSession.moduleId === "gas-leak" &&
+    (!existingSession.checkpoints || existingSession.checkpoints.length === 0)
+  );
 
-  // initialize assessment session if not already started by loader
-  if (!getActiveSession()) {
-    bindAssessmentSessionListeners();
-    startAssessmentSession({ moduleId: "gas-leak" });
-  }
+  cleanupGasLeakModule({ preserveSession: isFreshLoaderSession });
 
   _createOverlay(container, `<div>${t("modules.gas_leak.title", {}, "Loading Gas Leak & Confined Space Protocol...")}</div>`);
-  _setupStep1(container, tierInfo);
+  _startTeachPhase(container, tierInfo);
 }
 
 const handlePpeSelection = evaluatePpeSelection;

@@ -1,7 +1,7 @@
 # SafeAR
 
 AR-based vocational safety training and certification platform for mining,
-steel, and mica sector workers in Jharkhand — built for [hackathon name].
+steel, and mica sector workers in Jharkhand — built for SIH 2026.
 
 ## Problem
 

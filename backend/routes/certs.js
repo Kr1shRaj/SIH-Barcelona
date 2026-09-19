@@ -19,7 +19,9 @@ const log = createChildLogger({ component: "certs-api" });
 const ISSUE_STATUS = Object.freeze({
   [ISSUE_ERRORS.ATTEMPT_NOT_FOUND]: 404,
   [ISSUE_ERRORS.ATTEMPT_NOT_PASSED]: 422,
-  [ISSUE_ERRORS.MODULE_NOT_FOUND]: 422
+  [ISSUE_ERRORS.MODULE_NOT_FOUND]: 422,
+  [ISSUE_ERRORS.LEGACY_CONTRACT]: 422,
+  [ISSUE_ERRORS.ATTEMPT_NOT_GRADED]: 422
 });
 
 // only these leave the building. attempt_id, payload_json and the raw signature
@@ -124,6 +126,21 @@ function createCertRouter({ db, keys }) {
       // a 409 would strand it, because there is no endpoint to fetch the cert from.
       if (err.code === ISSUE_ERRORS.ALREADY_ISSUED) {
         const row = getCertificateByAttempt(db, body.attemptId);
+        // the row is normally right there. if it is not, another writer is mid
+        // transaction — say so plainly instead of throwing on an undefined row.
+        if (!row) {
+          log.warn(
+            { event: "cert_issue", attemptId: body.attemptId, result: "already_issued_unreadable", requestId: req.id },
+            "Certificate is claimed but not readable yet, asking the caller to retry"
+          );
+          return res.status(409).json({
+            error: {
+              code: ISSUE_ERRORS.ALREADY_ISSUED,
+              message: "this attempt already holds a certificate, retry to fetch it",
+              requestId: req.id
+            }
+          });
+        }
         const qr = _qrFromRow(row);
         const qrImage = await renderCertificateQr(qr);
 

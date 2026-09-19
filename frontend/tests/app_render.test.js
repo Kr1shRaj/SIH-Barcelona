@@ -60,8 +60,13 @@ describe("App UI Shell and Error States", () => {
 
     assert.ok(mockContainer.innerHTML.includes("Tier 2: Marker (Hiro)"));
     assert.ok(mockContainer.innerHTML.includes("ar-viewport"));
-    assert.ok(mockContainer.innerHTML.includes('preset="hiro"'));
-    assert.ok(mockContainer.innerHTML.includes('preset="kanji"'));
+    // both markers still render, now pointed at the vendored patterns instead of
+    // preset="hiro"/"kanji", which would fetch them from ar-js-org.github.io
+    assert.ok(mockContainer.innerHTML.includes('id="hiro-marker"'));
+    assert.ok(mockContainer.innerHTML.includes('id="kanji-marker"'));
+    assert.ok(mockContainer.innerHTML.includes('url="./vendor/arjs-data/pattern-hiro.patt"'));
+    assert.ok(mockContainer.innerHTML.includes('url="./vendor/arjs-data/pattern-kanji.patt"'));
+    assert.ok(mockContainer.innerHTML.includes("cameraParametersUrl: ./vendor/arjs-data/camera_para.dat"));
     assert.ok(mockContainer.innerHTML.includes('id="gaze-laser"'));
   });
 
