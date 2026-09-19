@@ -12,8 +12,11 @@ import {
   abortAssessmentSession,
   bindAssessmentSessionListeners,
   unbindAssessmentSessionListeners,
-  syncQueuedAttempts
+  syncQueuedAttempts,
+  getEffectiveWorkerId
 } from "../assessment/engine.js";
+import { REQUIRED_EQUIPMENT_IDS } from "../prerequisite/equipment-data.js";
+import { markEquipmentViewed } from "../prerequisite/progress.js";
 import { startFireModule, cleanupFireModule } from "../modules/fire-response/fire-response.js";
 import { startGasLeakModule, cleanupGasLeakModule } from "../modules/gas-leak/gas-leak.js";
 import { loadLocale, setLocale, t, clearLocales } from "../js/i18n.js";
@@ -124,6 +127,10 @@ describe("End-to-End Runtime Integration", () => {
     unbindAssessmentSessionListeners();
     clearLocales();
     setLocale("hi");
+
+    // every module entry runs the equipment gate now. these tests are about what
+    // happens after a worker is let in, so they walk the set first.
+    REQUIRED_EQUIPMENT_IDS.forEach((id) => markEquipmentViewed(getEffectiveWorkerId(), id));
 
     Object.keys(_elements).forEach((k) => delete _elements[k]);
     _mockElement("ar-viewport");

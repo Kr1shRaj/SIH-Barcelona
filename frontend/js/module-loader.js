@@ -4,8 +4,10 @@ import {
   startAssessmentSession,
   abortAssessmentSession,
   getActiveSession,
-  bindAssessmentSessionListeners
+  bindAssessmentSessionListeners,
+  getEffectiveWorkerId
 } from "../assessment/engine.js";
+import { isPrerequisiteComplete } from "../prerequisite/progress.js";
 
 const logger = createLogger("ModuleLoader");
 
@@ -34,6 +36,24 @@ function setTierLoaders(tier, loadSceneFn, tierHandle) {
 async function loadModule(moduleId) {
   if (!moduleId || typeof moduleId !== "string") {
     throw new Error("moduleId required");
+  }
+
+  // the real gate. the module screen disables its own buttons too, but that is
+  // decoration — a worker must not reach a graded module without having been shown
+  // the equipment, whatever route they took to get here.
+  // an android webview with site data blocked throws on the localStorage property
+  // itself. no worker id means no proof anyone read the equipment, so the gate shuts.
+  let workerId = null;
+  try {
+    workerId = getEffectiveWorkerId();
+  } catch (err) {
+    logger.warn({ event: "worker_id_unavailable", moduleId, error: err.message }, "Cannot identify worker, gate stays shut");
+  }
+
+  // the gate is per module: this module's own equipment, not everyone else's
+  if (!isPrerequisiteComplete(workerId, moduleId)) {
+    logger.warn({ event: "module_blocked_prerequisite", moduleId, workerId }, "Module blocked, equipment familiarization not done");
+    throw new Error("equipment familiarization incomplete — finish the prerequisite before starting a module");
   }
 
   // force unload previous module if already active to prevent overlapping state

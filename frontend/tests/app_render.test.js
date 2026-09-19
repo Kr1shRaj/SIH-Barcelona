@@ -287,7 +287,7 @@ describe("App UI Shell and Error States", () => {
     assert.ok(mockContainer.innerHTML.includes("isSessionSupported('immersive-ar')=false"));
   });
 
-  it("bootTier1 renders Tier 1 shell with user-activation button and module buttons", async () => {
+  it("bootTier1 renders Tier 1 shell with user-activation button", async () => {
     const mockContainer = {
       innerHTML: "",
       children: [],
