@@ -1,0 +1,1365 @@
+/* SafeAR — language picker, equipment familiarization, module selection.
+   These screens run before the camera does, so they are ordinary scrolling DOM
+   rather than an overlay on a live AR viewport. Built on the tokens in style.css. */
+
+:root {
+  --eq-surface-raised: #263449;
+  --eq-line: #33445e;
+  --eq-scrim: rgba(6, 12, 24, 0.82);
+  --eq-tap: 48px;
+  --eq-radius: 14px;
+}
+
+/* #app is a pointer-transparent HUD while AR runs. these screens are the app. */
+#app.screen-mode {
+  position: relative;
+  pointer-events: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  justify-content: flex-start;
+  background: var(--color-bg);
+  -webkit-overflow-scrolling: touch;
+}
+
+/* the router hands each screen its own node and throws the old one away, so a
+   screen's click handler cannot outlive the markup it was bound to */
+.screen-host {
+  width: 100%;
+}
+
+/* ---------- shared controls ---------- */
+
+.eq-btn {
+  min-height: var(--eq-tap);
+  padding: 0.85rem 1.2rem;
+  border: none;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.eq-btn--primary {
+  background: var(--color-primary);
+  color: #1a1205;
+}
+
+.eq-btn--ghost {
+  background: transparent;
+  color: var(--color-text-muted);
+  border: 1.5px solid var(--eq-line);
+}
+
+.eq-btn--wide {
+  width: 100%;
+}
+
+.eq-btn[disabled] {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.eq-btn:focus-visible,
+.eq-icon-btn:focus-visible,
+.lang-btn:focus-visible,
+.eq-card__open:focus-visible,
+.eq-card__audio:focus-visible,
+.mod-card__btn:focus-visible {
+  outline: 3px solid var(--color-info);
+  outline-offset: 2px;
+}
+
+/* an untranslated string, shown as what it is rather than passed off as santali */
+.eq-pending {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: rgba(148, 163, 184, 0.55);
+  text-underline-offset: 0.2em;
+  opacity: 0.88;
+}
+
+/* ---------- language picker ----------
+   The first screen a worker ever sees, so it carries the product's name and then
+   gets out of the way. Three choices, each one dominant inside its own card, with
+   the latin name under it as a quiet label for whoever reads neither script well.
+
+   Sizes come from the tokens below rather than being sprinkled through the rules,
+   and the two that need to breathe with the viewport use clamp() so the screen
+   reads the same on a 375px phone and a desktop browser. */
+
+.lang-screen {
+  /* narrow enough that a card never stretches into a banner on a desktop */
+  --lang-width: 26rem;
+  --lang-gap: 0.7rem;
+
+  width: 100%;
+  max-width: var(--lang-width);
+  margin: 0 auto;
+  padding: clamp(1.75rem, 7vh, 3.5rem) 1.25rem clamp(2rem, 6vh, 3rem);
+  text-align: center;
+
+  /* The block sat in the top half with a third of the screen empty under it. The
+     auto margins below centre it in whatever height there is — and because auto
+     margins only ever take POSITIVE free space, a short window simply gets the
+     content from the top and scrolls, rather than having its head cut off the way
+     justify-content: center would. */
+  box-sizing: border-box;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* the mark and the name read as one lockup, not two stacked things */
+.lang-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  margin-top: auto;
+  margin-bottom: 1.5rem;
+}
+
+.lang-brand__logo {
+  display: block;
+  height: 2.5rem;
+  width: auto;
+  max-width: 100%;
+}
+
+.lang-brand__mark {
+  font-size: 1.75rem;
+  line-height: 1;
+}
+
+.lang-brand__name {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--color-text);
+}
+
+.lang-screen__title {
+  margin: 0;
+  font-size: clamp(1.375rem, 5.5vw, 1.625rem);
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+  text-wrap: balance;
+}
+
+.lang-screen__hint {
+  margin: 0.4rem auto 0;
+  max-width: 20rem;
+  font-size: 0.925rem;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+  text-wrap: balance;
+}
+
+.lang-list {
+  list-style: none;
+  margin-top: 1.75rem;
+  margin-bottom: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--lang-gap);
+}
+
+.lang-btn {
+  width: 100%;
+  min-height: 4.5rem;
+  padding: 0.95rem 1.1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  background: var(--color-surface);
+  border: 1px solid var(--eq-line);
+  border-radius: var(--eq-radius);
+  box-shadow: 0 1px 2px rgba(2, 6, 18, 0.5);
+  color: var(--color-text);
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease-out,
+    background-color 160ms ease-out,
+    box-shadow 160ms ease-out,
+    transform 160ms ease-out;
+}
+
+/* a pointer device gets a small lift; a touch screen never sees it */
+@media (hover: hover) {
+  .lang-btn:hover {
+    border-color: var(--color-text-muted);
+    box-shadow: 0 4px 12px rgba(2, 6, 18, 0.55);
+    transform: translateY(-1px);
+  }
+}
+
+.lang-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(2, 6, 18, 0.5);
+}
+
+/* the language already in use. the inset ring thickens the border without moving
+   anything, so the card does not jump a pixel when the choice changes. */
+.lang-btn--active {
+  border-color: var(--color-primary);
+  box-shadow: inset 0 0 0 1px var(--color-primary), 0 1px 2px rgba(2, 6, 18, 0.5);
+}
+
+.lang-btn__native {
+  font-size: clamp(1.25rem, 5vw, 1.5rem);
+  /* devanagari and ol chiki both carry marks above and below the line, so this is
+     roomier than a latin-only screen would need */
+  line-height: 1.35;
+  font-weight: 700;
+}
+
+.lang-btn__roman {
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-text-muted);
+}
+
+@media (min-width: 40rem) {
+  .lang-screen {
+    --lang-width: 28rem;
+  }
+
+  .lang-brand__mark {
+    font-size: 2rem;
+  }
+
+  .lang-brand__name {
+    font-size: 1.2rem;
+  }
+}
+
+/* ---------- equipment familiarization ---------- */
+
+.eq-screen {
+  width: 100%;
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 2.5rem;
+}
+
+.eq-screen__title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.eq-screen__subtitle {
+  margin-top: 0.3rem;
+  font-size: 0.92rem;
+  color: var(--color-text-muted);
+}
+
+.eq-progress {
+  margin-top: 1rem;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--eq-line);
+  overflow: hidden;
+}
+
+.eq-progress__bar {
+  height: 100%;
+  background: var(--color-success);
+  transition: width 240ms ease-out;
+}
+
+.eq-progress__count {
+  margin-top: 0.4rem;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.eq-grid {
+  list-style: none;
+  margin-top: 1.25rem;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.75rem;
+}
+
+.eq-card {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  background: var(--color-surface);
+  border: 1.5px solid var(--eq-line);
+  border-radius: var(--eq-radius);
+  overflow: hidden;
+}
+
+.eq-card--viewed {
+  border-color: var(--color-success);
+}
+
+.eq-card__open {
+  flex: 1;
+  min-height: 5.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.85rem;
+  background: none;
+  border: none;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.eq-card__art {
+  flex: 0 0 4.25rem;
+  width: 4.25rem;
+  height: 4.25rem;
+  display: block;
+  border-radius: 10px;
+  padding: 0.3rem;
+}
+
+/* only the drawn fallback wants a tile behind it; a masked photograph does not */
+.eq-card__art--drawn {
+  background: var(--eq-surface-raised);
+}
+
+.eq-card__art svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.eq-card__text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.eq-card__badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+}
+
+.eq-card__name {
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.eq-card__purpose {
+  font-size: 0.84rem;
+  line-height: 1.35;
+  color: var(--color-text-muted);
+}
+
+.eq-card__hint {
+  margin-top: 0.15rem;
+  font-size: 0.74rem;
+  color: var(--color-info);
+}
+
+.eq-card__state {
+  flex: 0 0 auto;
+  align-self: center;
+  padding-right: 0.4rem;
+  font-size: 1.3rem;
+  color: var(--color-success);
+}
+
+.eq-card__audio {
+  flex: 0 0 var(--eq-tap);
+  min-width: var(--eq-tap);
+  border: none;
+  border-left: 1.5px solid var(--eq-line);
+  background: var(--eq-surface-raised);
+  color: var(--color-text);
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+.eq-card__audio[disabled] {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.eq-screen__foot {
+  margin-top: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.eq-locked {
+  font-size: 0.88rem;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.eq-complete {
+  padding: 0.9rem 1rem;
+  border-radius: var(--eq-radius);
+  background: rgba(16, 185, 129, 0.12);
+  border: 1.5px solid var(--color-success);
+  text-align: center;
+}
+
+.eq-complete__title {
+  font-weight: 700;
+  color: var(--color-success);
+}
+
+.eq-complete__desc {
+  margin-top: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+/* ---------- equipment detail modal ---------- */
+
+.eq-detail-root {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.eq-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--eq-scrim);
+  /* blur is progressive: where it is unsupported the dim alone still does the job */
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.eq-dialog {
+  position: relative;
+  width: 100%;
+  max-width: 34rem;
+  max-height: 94dvh;
+  overflow-y: auto;
+  padding: 1rem 1rem 1.5rem;
+  background: var(--color-bg);
+  border: 1.5px solid var(--eq-line);
+  border-radius: var(--eq-radius) var(--eq-radius) 0 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.eq-dialog:focus {
+  outline: none;
+}
+
+.eq-dialog__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.eq-dialog__title {
+  flex: 1;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.eq-icon-btn {
+  flex: 0 0 var(--eq-tap);
+  width: var(--eq-tap);
+  height: var(--eq-tap);
+  border: none;
+  border-radius: 50%;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.eq-dialog__purpose {
+  margin-top: 0.4rem;
+  font-size: 0.9rem;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+
+/* the stage is square and both svg layers fill it exactly, so a callout at 62% and a
+   leader line ending at 62 land on the same pixel whatever the phone width is */
+.eq-stage {
+  position: relative;
+  width: 100%;
+  max-width: 24rem;
+  margin: 0.85rem auto 0;
+  aspect-ratio: 1 / 1;
+}
+
+/* Every supplied photograph was shot on white paper. Instead of putting the white
+   rectangle on screen — or editing the photograph, which would mean re-encoding it —
+   each one is masked by its own silhouette (see PHOTOS in equipment-data.js). The
+   paper is never painted, so the equipment sits directly on the app background with
+   no plate, no card and no rectangle of any colour behind it.
+
+   The mask image itself is set inline on each element, because a relative url()
+   routed through a custom property resolves against THIS file's folder rather than
+   the document's and would quietly 404. Only the sizing lives here. Where masking is
+   unsupported the photograph still renders in full, which is the old look rather
+   than a broken one. */
+.eq-photo,
+.eq-card__photo,
+.eq-partframe__img {
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+/* The equipment is the control: tapping it is what takes it apart. The button is
+   the photograph and nothing else — no border, no fill, no focus ring except when a
+   keyboard is driving it. */
+.eq-object {
+  position: absolute;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+  transform-origin: 50% 50%;
+}
+
+.eq-object:focus-visible {
+  outline: 3px solid var(--color-info);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+/* a faint rim so a black hose and a black lever still read against a dark screen.
+   drop-shadow follows the mask, so it hugs the equipment rather than boxing it. */
+.eq-photo {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  filter:
+    drop-shadow(0 0 1px rgba(226, 232, 240, 0.55))
+    drop-shadow(0 6px 14px rgba(0, 0, 0, 0.55));
+}
+
+.eq-card__photo {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+.eq-stage__art,
+.eq-stage__leaders {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.eq-stage__leaders {
+  pointer-events: none;
+}
+
+.eq-leader {
+  stroke: var(--color-info);
+  stroke-width: 0.35;
+  stroke-linecap: round;
+  opacity: 0.6;
+}
+
+.eq-leader__anchor {
+  fill: var(--color-info);
+  stroke: var(--color-bg);
+  stroke-width: 0.45;
+}
+
+/* Labels are pinned to their own edge of the stage and grow inward, capped at the
+   gutter width. However long a translated string turns out to be it wraps instead of
+   running off the side of the phone — the old centre-anchored box could be clipped
+   by the viewport, and was. CALLOUT_GUTTER in equipment-data.js is the same 27. */
+.eq-callout {
+  position: absolute;
+  transform: translateY(-50%);
+  width: max-content;
+  max-width: 27%;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.5rem 0.3rem 0.35rem;
+  background: var(--eq-surface-raised);
+  border: 1px solid var(--eq-line);
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(2, 6, 18, 0.45);
+  font-size: 0.7rem;
+  line-height: 1.2;
+  color: var(--color-text);
+  pointer-events: none;
+}
+
+.eq-callout__index {
+  flex: 0 0 1.05rem;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  background: var(--color-info);
+  color: #04121c;
+  font-size: 0.62rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.eq-audio {
+  margin-top: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.eq-btn--audio {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1.5px solid var(--eq-line);
+}
+
+.eq-audio__note {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+.eq-dialog__subhead {
+  margin-top: 1.25rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+}
+
+.eq-parts {
+  list-style: none;
+  margin-top: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.eq-part {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.55rem 0.65rem;
+  background: var(--color-surface);
+  border-radius: 10px;
+}
+
+.eq-part__index {
+  flex: 0 0 1.25rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  background: var(--color-info);
+  color: #04121c;
+  font-size: 0.7rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.eq-part__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.eq-part__name {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.eq-part__desc {
+  font-size: 0.82rem;
+  line-height: 1.4;
+  color: var(--color-text-muted);
+}
+
+.eq-dialog__foot {
+  position: sticky;
+  bottom: 0;
+  margin-top: 1.25rem;
+  padding-top: 0.75rem;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: var(--color-bg);
+  border-top: 1.5px solid var(--eq-line);
+}
+
+.eq-dialog__foot .eq-btn {
+  flex: 1;
+}
+
+.eq-dialog__position {
+  flex: 0 0 auto;
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- module selection ---------- */
+
+.mod-screen {
+  width: 100%;
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: 1.75rem 1rem 2.5rem;
+}
+
+.mod-screen__title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.mod-screen__subtitle {
+  margin-top: 0.3rem;
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}
+
+.mod-locked {
+  margin-top: 1rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 10px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1.5px solid var(--color-primary);
+  font-size: 0.86rem;
+  color: var(--color-text);
+}
+
+.mod-list {
+  list-style: none;
+  margin-top: 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-bottom: 1.15rem;
+}
+
+.mod-card {
+  border-radius: var(--eq-radius);
+  border: 1.5px solid var(--eq-line);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.mod-card--fire {
+  border-left: 5px solid var(--color-danger);
+}
+
+.mod-card--gas {
+  border-left: 5px solid var(--color-primary);
+}
+
+.mod-card--locked {
+  opacity: 0.5;
+}
+
+.mod-card__btn {
+  width: 100%;
+  min-height: 5.5rem;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 1rem;
+  background: none;
+  border: none;
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mod-card__btn[disabled] {
+  cursor: not-allowed;
+}
+
+.mod-card__icon {
+  font-size: 1.9rem;
+  line-height: 1;
+}
+
+.mod-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.mod-card__title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.mod-card__equipment {
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--color-text-muted);
+}
+
+/* ---------- taking the unit apart ----------
+   One object, one movement. The card is tapped, the equipment travels to the middle
+   of the screen and grows, holds still long enough to be read, and then comes apart.
+   There is no second button and no screen swap: every state below is the same markup
+   with a different phase on the stage, so nothing re-renders mid-animation.
+
+   The old continuous bob is gone. Nothing loops; the equipment sits still and only
+   moves when a worker asks it to. Every transition is transform/opacity only, so it
+   stays on the compositor on a budget Android phone. */
+
+.eq-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* the modal arrives, once */
+@keyframes eq-dialog-in {
+  from { transform: translateY(14px) scale(0.985); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@keyframes eq-scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.eq-dialog {
+  animation: eq-dialog-in 260ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
+}
+
+.eq-scrim {
+  animation: eq-scrim-in 200ms ease-out both;
+}
+
+/* ZOOM. The equipment starts at the size and position of the card thumbnail the
+   worker just tapped — measured at open time and handed here as one transform — and
+   travels to the middle at full size. Nothing but transform and opacity moves, so a
+   cheap phone composites it instead of laying it out sixty times. */
+.eq-object {
+  transition:
+    transform 600ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 320ms ease-out;
+}
+
+.eq-stage[data-phase="zoom"] .eq-object {
+  transform:
+    translate(var(--eq-zoom-x, 0px), var(--eq-zoom-y, 0px))
+    scale(var(--eq-zoom-scale, 0.28));
+  opacity: 0.25;
+}
+
+/* APART. The body steps back to half size and dims, staying in the middle as the
+   reference the six parts came off. It starts stepping back while the callouts are
+   still fading, so the hand-off reads as one movement. */
+.eq-stage[data-phase="exploding"] .eq-object,
+.eq-stage[data-phase="exploded"] .eq-object {
+  transform: scale(var(--eq-body-scale, 0.52));
+  /* enough to stay the reference the parts came off, not so much that it competes
+     with them. a red extinguisher survived a harder dim than this; a dark grey gas
+     detector on a dark screen did not, and the body has to stay recognisable. */
+  opacity: 0.42;
+}
+
+/* THE TWO VIEWS.
+
+   The assembled photograph with six callouts around it, and six component plates
+   laid out around a shrunken body, are two different ways of showing this equipment
+   and they must never be on screen together. Each lives in its own layer, and the
+   layer that is not in use carries the `hidden` attribute — display: none, so it is
+   out of rendering, out of hit-testing, out of the tab order and out of the
+   accessibility tree. Opacity alone was not enough: it left six transparent buttons
+   lying over the assembled view, still clickable, still announcing their labels, so
+   every component was named twice.
+
+   Opacity is still what fades the outgoing layer, but only while it is the one layer
+   on screen — the handover is sequenced, never crossfaded. */
+.eq-callouts {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.eq-callouts[hidden],
+.eq-pieces[hidden] {
+  display: none;
+}
+
+.eq-stage__leaders,
+.eq-callout {
+  transition: opacity 240ms ease-out;
+}
+
+.eq-stage[data-callouts="off"] .eq-stage__leaders,
+.eq-stage[data-callouts="off"] .eq-callout {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.eq-pieces {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* Each plate is parked at its resting place in the two columns and pulled back
+   toward the middle until the unit comes apart. The pull is expressed in the plate's
+   OWN size, so it needs no measurement of the stage and stays a plain transform
+   everywhere. Position and size come from PART_PLATE in equipment-data.js, inline,
+   because the renderer needs the same numbers to fit each photograph in its frame. */
+.eq-piece {
+  position: absolute;
+  min-width: 48px;
+  min-height: 48px;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.2rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, -50%) translate(var(--eq-tx, 0), var(--eq-ty, 0)) scale(0.55);
+  transition:
+    transform 440ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 300ms ease-out;
+  transition-delay: 0ms;
+}
+
+/* a soft pool of light under each part, shaped to the part rather than boxed around
+   it, so a black lever on a dark screen still has something to sit against */
+.eq-piece::before {
+  content: "";
+  position: absolute;
+  left: 4%;
+  top: 2%;
+  width: 92%;
+  height: 78%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(148, 163, 184, 0.26), rgba(148, 163, 184, 0) 100%);
+  transition: opacity 200ms ease-out;
+}
+
+/* Out or in is its own axis: the plates travel home during the reassembly, while the
+   phase has already moved on to growing the body back. */
+.eq-stage[data-parts="out"] .eq-piece {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+  transition-delay: var(--eq-delay, 0ms);
+  pointer-events: auto;
+}
+
+.eq-stage[data-parts="out"] .eq-piece--dim {
+  opacity: 0.45;
+}
+
+.eq-stage[data-parts="out"] .eq-piece--on {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1.08);
+}
+
+/* THE ARROWS. Where each part came from: a hairline from a dot on the part's old
+   place on the body to just short of its photograph, with an open chevron at the
+   end. The geometry is explodeArrow() in equipment-data.js, in the same 0-100 stage
+   space as the plates, so the arrows scale with the stage and never need measuring.
+
+   The stroke is in stage units, so it stays about 1.1-1.3px from a 375px phone to a
+   desktop. The line draws out with its plate — same duration, same stagger — using
+   a single dash as long as the path, which is a solid line once it has arrived.
+   Reassembling winds it back in and fades it, and the whole layer leaves the
+   document with the plates. */
+.eq-arrows {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.eq-arrow {
+  color: var(--color-info);
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+}
+
+.eq-arrow__line,
+.eq-arrow__head {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 0.32;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.eq-arrow__line {
+  stroke-dasharray: 1 1;
+  stroke-dashoffset: 1;
+  transition: stroke-dashoffset 440ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.eq-arrow__head {
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.eq-arrow__origin {
+  fill: currentColor;
+}
+
+.eq-stage[data-parts="out"] .eq-arrow {
+  opacity: 0.6;
+  transition-delay: var(--eq-delay, 0ms);
+}
+
+.eq-stage[data-parts="out"] .eq-arrow__line {
+  stroke-dashoffset: 0;
+  transition-delay: var(--eq-delay, 0ms);
+}
+
+.eq-stage[data-parts="out"] .eq-arrow__head {
+  opacity: 1;
+  transition-delay: calc(var(--eq-delay, 0ms) + 340ms);
+}
+
+/* a chosen part's arrow comes forward a little; the others step back with their
+   plates, so the eye still goes to one place */
+.eq-stage[data-parts="out"] .eq-arrow--on {
+  opacity: 0.95;
+  transition-delay: 0ms;
+}
+
+.eq-stage[data-parts="out"] .eq-arrow--dim {
+  opacity: 0.22;
+  transition-delay: 0ms;
+}
+
+/* a plate that is leaving, or gone, is not a control */
+.eq-piece[disabled] {
+  cursor: default;
+  pointer-events: none;
+}
+
+.eq-piece--on::before {
+  background: radial-gradient(closest-side, rgba(56, 189, 248, 0.42), rgba(56, 189, 248, 0) 100%);
+}
+
+.eq-piece--on .eq-partframe__img {
+  filter:
+    drop-shadow(0 0 1.5px var(--color-info))
+    drop-shadow(0 0 5px rgba(56, 189, 248, 0.3));
+}
+
+.eq-piece:focus-visible {
+  outline: 3px solid var(--color-info);
+  outline-offset: 2px;
+  border-radius: 10px;
+}
+
+/* the number sits beside the name, not over the photograph — a badge floating on the
+   part was covering the very thing it was numbering */
+.eq-piece__foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  max-width: 100%;
+}
+
+.eq-piece__index {
+  flex: 0 0 1.05rem;
+  width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 50%;
+  background: var(--color-info);
+  color: #04121c;
+  font-size: 0.62rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.eq-piece__label {
+  font-size: 0.62rem;
+  line-height: 1.15;
+  font-weight: 700;
+  color: var(--color-text);
+  text-align: left;
+  min-width: 0;
+}
+
+.eq-piece--on .eq-piece__label {
+  color: var(--color-info);
+}
+
+/* the area a component photograph is fitted into, sized from the plate geometry */
+.eq-partbox {
+  position: relative;
+  width: 100%;
+  height: var(--eq-frame-h, 74%);
+}
+
+/* the window that frames one component out of its source photograph. it is sized to
+   the crop's real proportions, so a 2.2:1 lever is never squashed into a 1.4:1 box. */
+.eq-partframe {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: block;
+  overflow: hidden;
+}
+
+.eq-partframe__img {
+  position: absolute;
+  max-width: none;
+  object-fit: fill;
+  filter: drop-shadow(0 0 1px rgba(226, 232, 240, 0.5));
+}
+
+.eq-stage__controls {
+  margin-top: 0.85rem;
+  display: flex;
+  justify-content: center;
+}
+
+/* a display value beats the hidden attribute, so say it again here or the control
+   stays on screen in the one state it has nothing to do */
+.eq-stage__controls[hidden] {
+  display: none;
+}
+
+.eq-btn--reassemble {
+  border-color: var(--color-info);
+  color: var(--color-text);
+}
+
+/* what the chosen part is, in words */
+.eq-selection {
+  margin-top: 0.85rem;
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: var(--eq-radius);
+  background: var(--color-surface);
+  border: 1px solid var(--eq-line);
+  box-shadow: inset 3px 0 0 var(--color-info), 0 1px 2px rgba(2, 6, 18, 0.45);
+}
+
+/* before a part is chosen there is nothing to point at, so the panel is a plain
+   quiet surface with the instruction in it — no accent and no outline */
+.eq-selection--empty {
+  justify-content: center;
+  box-shadow: 0 1px 2px rgba(2, 6, 18, 0.45);
+}
+
+.eq-selection__hint {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.eq-selection__index {
+  flex: 0 0 1.4rem;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  background: var(--color-info);
+  color: #04121c;
+  font-size: 0.78rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.eq-selection__name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.eq-selection__desc {
+  margin-top: 0.2rem;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}
+
+@media (min-width: 30rem) {
+  .eq-piece__label {
+    font-size: 0.7rem;
+  }
+}
+
+/* Reduced motion: the view opens already apart and states still change, they just do
+   not travel. Nothing is animated, nothing is staggered, and the functionality is
+   exactly the same. */
+@media (prefers-reduced-motion: reduce) {
+  .eq-dialog,
+  .eq-scrim {
+    animation: none;
+  }
+
+  .eq-object,
+  .eq-piece,
+  .eq-piece::before,
+  .eq-stage__leaders,
+  .eq-callout,
+  .eq-progress__bar,
+  .eq-arrow,
+  .eq-arrow__head,
+  .lang-btn {
+    transition: opacity 120ms linear;
+  }
+
+  .eq-arrow__line {
+    stroke-dasharray: none;
+    stroke-dashoffset: 0;
+    transition: none;
+  }
+
+  .eq-stage[data-parts="out"] .eq-arrow,
+  .eq-stage[data-parts="out"] .eq-arrow__head {
+    transition-delay: 0ms;
+  }
+
+  .lang-btn:hover,
+  .lang-btn:active {
+    transform: none;
+  }
+
+  .eq-piece,
+  .eq-stage[data-parts="out"] .eq-piece,
+  .eq-stage[data-parts="out"] .eq-piece--on {
+    transform: translate(-50%, -50%);
+    transition-delay: 0ms;
+  }
+
+  .eq-stage[data-phase="zoom"] .eq-object {
+    transform: none;
+  }
+
+  .eq-stage[data-phase="exploding"] .eq-object,
+  .eq-stage[data-phase="exploded"] .eq-object {
+    transform: scale(var(--eq-body-scale, 0.52));
+  }
+}
+
+/* ---------- equipment art palette ---------- */
+
+.eq-art__shade { fill: rgba(0, 0, 0, 0.35); }
+.eq-art__body { fill: #dc2626; }
+.eq-art__metal { fill: #94a3b8; }
+.eq-art__accent { fill: none; stroke: #facc15; stroke-width: 1.6; }
+.eq-art__decal { fill: rgba(255, 255, 255, 0.16); }
+.eq-art__gauge { fill: #e2e8f0; stroke: #475569; stroke-width: 0.8; }
+.eq-art__needle { stroke: #b91c1c; stroke-width: 0.9; fill: none; }
+.eq-art__hose { fill: none; stroke: #1f2937; stroke-width: 3.2; stroke-linecap: round; }
+.eq-art__stripe { stroke: #e2e8f0; stroke-width: 1.6; fill: none; }
+.eq-art__glove { fill: #f97316; }
+.eq-art__ridge { stroke: rgba(0, 0, 0, 0.28); stroke-width: 1.4; fill: none; }
+.eq-art__suspension { fill: none; stroke: #1f2937; stroke-width: 1.2; }
+.eq-art__strap { fill: none; stroke: #0f172a; stroke-width: 2.2; stroke-linecap: round; }
+.eq-art__collar { fill: #1f2937; }
+.eq-art__midsole { fill: #cbd5e1; }
+.eq-art__sole { fill: #1f2937; }
+.eq-art__tread { stroke: #64748b; stroke-width: 1.1; }
+.eq-art__lace { stroke: #e2e8f0; stroke-width: 1.1; }
+.eq-art__alarm { fill: #ef4444; }
+.eq-art__screen { fill: #064e3b; }
+.eq-art__reading { stroke: #34d399; stroke-width: 1.1; }
+.eq-art__vent { fill: #0f172a; }
+.eq-art__grille { stroke: #64748b; stroke-width: 0.9; }
+.eq-art__button { fill: #475569; }
+.eq-art__band { stroke: #1f2937; stroke-width: 2; fill: none; }
+.eq-art__mask { fill: #334155; }
+.eq-art__visor { fill: #bae6fd; opacity: 0.85; }
+.eq-art__lifeline { fill: none; stroke: #eab308; stroke-width: 2.4; stroke-linecap: round; }
+
+/* the fire extinguisher is the only red body; everything else takes its own colour */
+.eq-card[data-equipment-card="ppe_kit"] .eq-art__body,
+.eq-dialog[data-equipment-id="ppe_kit"] .eq-art__body { fill: #1e40af; }
+.eq-card[data-equipment-card="safety_helmet"] .eq-art__body,
+.eq-dialog[data-equipment-id="safety_helmet"] .eq-art__body { fill: #facc15; }
+.eq-card[data-equipment-card="safety_shoes"] .eq-art__body,
+.eq-dialog[data-equipment-id="safety_shoes"] .eq-art__body { fill: #78350f; }
+.eq-card[data-equipment-card="multi_gas_detector"] .eq-art__body,
+.eq-dialog[data-equipment-id="multi_gas_detector"] .eq-art__body { fill: #f97316; }
+.eq-card[data-equipment-card="scba"] .eq-art__body,
+.eq-dialog[data-equipment-id="scba"] .eq-art__body { fill: #eab308; }
+.eq-card[data-equipment-card="safety_harness"] .eq-art__body,
+.eq-dialog[data-equipment-id="safety_harness"] .eq-art__body { fill: #84cc16; }
+
+/* two columns once there is room for them, and a roomier modal on a tablet */
+@media (min-width: 30rem) {
+  .eq-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .eq-callout {
+    font-size: 0.75rem;
+  }
+}
+
+@media (min-width: 34rem) {
+  .eq-detail-root {
+    align-items: center;
+  }
+
+  .eq-dialog {
+    max-height: 90dvh;
+    border-radius: var(--eq-radius);
+  }
+}

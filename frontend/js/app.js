@@ -3,7 +3,11 @@ import { detectDeviceCaps, selectArTier } from "../ar/tier.js";
 import { initWebXRSession, loadModule3DScene, WebXRPlacementController } from "../ar/webxr.js";
 import { initMarkerTracking, loadMarkerModuleScene } from "../ar/marker.js";
 import { setTierLoaders, loadModule, unloadModule } from "./module-loader.js";
-import { t, loadLocale } from "./i18n.js";
+import { t, loadLocale, setLocale } from "./i18n.js";
+import { registerScreens, showScreen } from "../screens/router.js";
+import { mountLanguageScreen, readLocalePreference } from "../screens/language.js";
+import { mountModulesScreen } from "../screens/modules.js";
+import { mountPrerequisiteScreen } from "../prerequisite/screen.js";
 import { queueEligibleCertificates, flushPendingCertificates } from "./certificates.js";
 import {
   bindAssessmentSessionListeners,
@@ -159,8 +163,8 @@ function renderArShell(container, tierResult) {
   };
 }
 
-// boot tier 2 marker tracking flow
-async function bootTier2(container, decision) {
+// boot tier 2 marker tracking flow, loading moduleId once tracking is live
+async function bootTier2(container, decision, moduleId = null) {
   const { viewport, statusCard } = renderArShell(container, decision);
   bindModuleLifecycleUI(statusCard);
 
@@ -184,9 +188,12 @@ async function bootTier2(container, decision) {
         <h3>${t("app.tier2_active", "AR Tier 2 Active (Hiro Marker)")}</h3>
         ${diagNotice}
         <p>${t("app.tier2_active_desc", "Point camera at Hiro marker. Pick a module to begin.")}</p>
-        ${_scaffoldModuleButton()}
       `;
-      _bindScaffoldButton(statusCard);
+    }
+
+    // marker tracking needs no user gesture, so the chosen module can start at once
+    if (moduleId) {
+      await _startChosenModule(moduleId);
     }
     return trackingState;
   } catch (err) {
@@ -226,8 +233,8 @@ async function handleWebXRFallback(container, caps, err, loggerInstance = logger
   return await bootTier2(container, fallbackDecision);
 }
 
-// boot tier 1 webxr flow with user activation button
-async function bootTier1(container, decision, caps) {
+// boot tier 1 webxr flow with user activation button, then load moduleId
+async function bootTier1(container, decision, caps, moduleId = null) {
   const { canvas, statusCard } = renderArShell(container, decision);
   bindModuleLifecycleUI(statusCard);
 
@@ -252,9 +259,11 @@ async function bootTier1(container, decision, caps) {
         statusCard.innerHTML = `
           <h3>${t("app.tier1_active", "AR Tier 1 Active (WebXR)")}</h3>
           <p>${t("app.tier1_active_desc", "Point at a flat surface and tap to place the extinguisher.")}</p>
-          ${_scaffoldModuleButton()}
         `;
-        _bindScaffoldButton(statusCard);
+      }
+
+      if (moduleId) {
+        await _startChosenModule(moduleId);
       }
       return controller;
     } catch (err) {
@@ -268,18 +277,14 @@ async function bootTier1(container, decision, caps) {
       <h3>${t("app.tier1_ready", "AR Tier 1 Ready (WebXR)")}</h3>
       <p>${t("app.tier1_ready_desc", "Real-world surface tracking supported on your tablet. Tap below to start AR:")}</p>
       <button id="btn-start-webxr" style="display:block;width:100%;max-width:340px;padding:14px 20px;border-radius:10px;border:2px solid #38bdf8;background:linear-gradient(135deg,#0284c7,#0369a1);color:#ffffff;font-size:1.05rem;font-weight:bold;cursor:pointer;margin:10px 0;box-shadow:0 4px 16px rgba(56,189,248,0.4);pointer-events:auto !important;text-align:center;">${t("app.start_ar_session", "🚀 START AR SESSION (WEBXR)")}</button>
-      <p style="font-size:0.8rem;color:#94a3b8;margin-top:4px;">${t("app.launch_module_direct", "Or tap a module to launch directly:")}</p>
-      ${_scaffoldModuleButton()}
     `;
 
+    // webxr will only hand out a session inside a user gesture, so the module waits
+    // behind this tap rather than starting the moment the screen is chosen
     const startBtn = statusCard.querySelector("#btn-start-webxr");
     if (startBtn) {
       startBtn.addEventListener("click", () => activateWebXR());
     }
-
-    _bindScaffoldButton(statusCard, async () => {
-      await activateWebXR();
-    });
   }
 
   return { canvas, statusCard, activateWebXR };
@@ -307,6 +312,14 @@ async function initApp() {
         loadLocale("hi"),
         loadLocale("en")
       ]);
+
+      // a phone that has already been set to a language stays on it. the picker still
+      // opens, so a different worker can change it on a shared handset.
+      const saved = readLocalePreference();
+      if (saved) {
+        setLocale(saved);
+        await loadLocale(saved);
+      }
     } catch (err) {
       logger.warn({ event: "locale_bootstrap_error", error: err.message }, "Locale bootstrap warning");
     }
@@ -331,24 +344,10 @@ async function initApp() {
     // register service worker for offline use in mines
     registerServiceWorker().catch(() => {});
 
-    // probe device hardware caps
-    const caps = await detectDeviceCaps(window);
-    const decision = selectArTier(caps);
-
-    // log tier selection once at module initialization per Rule 3078729
-    logger.info(decision, "AR tier selected");
-
-    if (decision.tier === 0) {
-      renderUnsupportedView(appContainer, decision);
-      return decision;
-    }
-
-    if (decision.tier === 1) {
-      await bootTier1(appContainer, decision, caps);
-    } else if (decision.tier === 2) {
-      await bootTier2(appContainer, decision);
-    }
-    return decision;
+    // the camera stays off until a module actually starts. device caps are probed in
+    // startTraining, not here, so the language and equipment screens never trigger a
+    // permission prompt a worker has no context for yet.
+    return startScreenFlow(appContainer);
   })();
 
   return _appInitPromise;
@@ -367,48 +366,88 @@ function bindModuleLifecycleUI(statusCard) {
   });
 }
 
-// SCAFFOLDING — remove when real module-selection UI exists
-function _scaffoldModuleButton() {
-  return `<div style="display:flex;gap:0.6rem;margin-top:0.8rem;flex-wrap:wrap;width:100%;">
-    <button id="scaffold-load-btn" style="flex:1;min-width:130px;padding:12px 14px;background:#ef4444;color:#fff;border:none;border-radius:10px;font-weight:bold;font-size:0.95rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(0,0,0,0.6);">${t("app.fire_btn", "🔥 Fire Response")}</button>
-    <button id="scaffold-gas-btn" style="flex:1;min-width:130px;padding:12px 14px;background:#f59e0b;color:#000;border:none;border-radius:10px;font-weight:bold;font-size:0.95rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(0,0,0,0.6);">${t("app.gas_btn", "☣️ Gas Leak")}</button>
-  </div>`;
+// hand the chosen module to the loader. the loader re-checks the prerequisite gate
+// and refuses if it is not done, so a failure here is reported, never swallowed.
+async function _startChosenModule(moduleId) {
+  try {
+    await loadModule(moduleId);
+    return true;
+  } catch (err) {
+    logger.warn({ event: "module_start_failed", moduleId, error: err.message }, "Module start failed");
+    return false;
+  }
 }
 
-// SCAFFOLDING — bind scaffold buttons to loadModule
-function _bindScaffoldButton(container, onBeforeLoad) {
-  const btnFire = container.querySelector("#scaffold-load-btn");
-  if (btnFire) {
-    btnFire.addEventListener("click", async () => {
-      try {
-        if (typeof onBeforeLoad === "function") {
-          await onBeforeLoad();
-        }
-        await loadModule("fire-response");
-      } catch (err) {
-        logger.warn({ event: "scaffold_load_threw", error: err.message }, "Module load threw");
-      }
-    });
+// turn the camera on and run the module. this is the first point at which SafeAR asks
+// for camera permission — the language and equipment screens never do.
+async function startTraining(container, moduleId) {
+  if (typeof document !== "undefined" && container && container.classList) {
+    container.classList.remove("screen-mode");
   }
 
-  const btnGas = container.querySelector("#scaffold-gas-btn");
-  if (btnGas) {
-    btnGas.addEventListener("click", async () => {
-      try {
-        if (typeof onBeforeLoad === "function") {
-          await onBeforeLoad();
-        }
-        await loadModule("gas-leak");
-      } catch (err) {
-        logger.warn({ event: "scaffold_load_threw", error: err.message }, "Module load threw");
-      }
-    });
+  const caps = await detectDeviceCaps(window);
+  const decision = selectArTier(caps);
+  logger.info(decision, "AR tier selected");
+
+  if (decision.tier === 0) {
+    renderUnsupportedView(container, decision);
+    return decision;
+  }
+
+  if (decision.tier === 1) {
+    await bootTier1(container, decision, caps, moduleId);
+  } else {
+    await bootTier2(container, decision, moduleId);
   }
 
   // expose unloadModule on window for manual dev testing
   if (typeof window !== "undefined") {
     window.__safear_unloadModule = unloadModule;
   }
+
+  return decision;
+}
+
+// wire the pre-AR flow: pick a language, meet the equipment, then choose a module.
+// each screen only hands control on when its own precondition is satisfied.
+function startScreenFlow(container) {
+  const workerId = getEffectiveWorkerId();
+
+  const enterScreenMode = () => {
+    if (container && container.classList) {
+      container.classList.add("screen-mode");
+    }
+  };
+
+  registerScreens(container, {
+    language: (host) => {
+      enterScreenMode();
+      return mountLanguageScreen({
+        container: host,
+        onPicked: () => showScreen("prerequisite")
+      });
+    },
+    prerequisite: (host) => {
+      enterScreenMode();
+      return mountPrerequisiteScreen({
+        container: host,
+        workerId,
+        onContinue: () => showScreen("modules")
+      });
+    },
+    modules: (host) => {
+      enterScreenMode();
+      return mountModulesScreen({
+        container: host,
+        workerId,
+        onStart: (moduleId) => showScreen("training", { moduleId }),
+        onBack: () => showScreen("prerequisite")
+      });
+    },
+    training: (host, params) => startTraining(host, params && params.moduleId)
+  });
+
+  return showScreen("language");
 }
 
 
@@ -456,6 +495,8 @@ export {
   bindModuleLifecycleUI,
   registerServiceWorker,
   syncAttemptsThenCertificates,
+  startScreenFlow,
+  startTraining,
   bootTier1,
   bootTier2,
   handleWebXRFallback,

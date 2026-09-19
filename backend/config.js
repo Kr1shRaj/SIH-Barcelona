@@ -1,5 +1,9 @@
+const fs = require("node:fs");
 const path = require("node:path");
 const dotenv = require("dotenv");
+
+// real values live here. the file is gitignored and is not in a fresh clone.
+const ENV_FILE = path.resolve(__dirname, "..", ".env");
 
 // env keys backend refuse to boot without
 const REQUIRED_VARS = [
@@ -30,9 +34,12 @@ const DEFAULTS = {
 
 let _config = null;
 
-// suck .env into process.env, real values live there and nowhere else
+// suck .env into process.env, real values live there and nowhere else.
+// says whether the file was actually there, so a fresh clone can be told the
+// difference between "you missed a variable" and "you never made the file"
 function loadDotEnv() {
-  dotenv.config({ path: path.resolve(__dirname, "..", ".env") });
+  dotenv.config({ path: ENV_FILE });
+  return fs.existsSync(ENV_FILE);
 }
 
 // turn raw env map into frozen config, shout loud when something needed missing
@@ -44,7 +51,8 @@ function loadConfig(env) {
   );
   if (missing.length > 0) {
     throw new Error(
-      `missing required env vars: ${missing.join(", ")} — copy .env.example to .env and fill them`
+      `missing required env vars: ${missing.join(", ")} — copy .env.example to .env and fill them` +
+        '\nEach one is documented in .env.example. Setup steps: README.md, "Backend Local Setup".'
     );
   }
 
@@ -95,11 +103,29 @@ function loadConfig(env) {
   });
 }
 
+// a fresh clone has .env.example and no .env. saying that outright saves a new
+// teammate from hunting for a variable they were never going to find.
+const NO_ENV_FILE_HELP =
+  `\n\nThere is no .env file at ${ENV_FILE}.\n` +
+  "Copy the template, then fill in the values it asks for:\n\n" +
+  "  PowerShell   Copy-Item .env.example .env\n" +
+  "  bash / zsh   cp .env.example .env\n\n" +
+  'Full walkthrough: README.md, "Backend Local Setup".';
+
 // lazy singleton so requiring this file never explode before env ready
 function getConfig() {
   if (!_config) {
-    loadDotEnv();
-    _config = loadConfig(process.env);
+    const hasEnvFile = loadDotEnv();
+    try {
+      _config = loadConfig(process.env);
+    } catch (err) {
+      // still fail closed. the extra sentence is a signpost, not a rescue.
+      // no value is echoed back, so a malformed secret cannot leak into a log.
+      if (!hasEnvFile) {
+        throw new Error(err.message + NO_ENV_FILE_HELP);
+      }
+      throw err;
+    }
   }
   return _config;
 }
@@ -114,5 +140,6 @@ module.exports = {
   getConfig,
   resetConfig,
   REQUIRED_VARS,
-  TEMPLATE_VALUES
+  TEMPLATE_VALUES,
+  ENV_FILE
 };

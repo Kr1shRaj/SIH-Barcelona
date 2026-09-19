@@ -7,6 +7,17 @@ package-lock.json
 *.env
 !.env.example
 
+# private signing keys. the private half of a certificate key lives in .env and
+# nowhere else, but a stray .pem export would be just as fatal, so refuse them all.
+*.private.pem
+*.private.key
+*.pkcs8
+
+# per-developer dev signing key, from `npm run keygen:dev`. local to one machine.
+# backend/keys/cert-signing.public.pem is the TEAM key and stays tracked — the
+# architecture distributes it on purpose so every machine verifies the same issuer.
+backend/keys/*.dev.public.pem
+
 # sqlite db
 *.db
 *.db-journal

@@ -289,14 +289,14 @@ describe("the cache version tracks the asset list", () => {
   // An installed phone keeps serving the old cache until CACHE_NAME changes, so a
   // new asset with an unchanged name reaches nobody. This fingerprint is the tripwire:
   // edit STATIC_ASSETS and this fails until the version is bumped and the hash updated.
-  const ASSET_GRAPH_FINGERPRINT = "59a7fc9543c11653";
-  const EXPECTED_CACHE_NAME = "safear-offline-v6";
+  const ASSET_GRAPH_FINGERPRINT = "1bab64c9fc1d941f";
+  const EXPECTED_CACHE_NAME = "safear-offline-v13";
 
   function fingerprint(assets) {
     return crypto.createHash("sha256").update([...assets].sort().join("\n")).digest("hex").slice(0, 16);
   }
 
-  it("25. is on the version that ships the vendored ar runtime and its data", () => {
+  it("25. is on the version that ships the gas leak set", () => {
     assert.strictEqual(CACHE_NAME, EXPECTED_CACHE_NAME);
   });
 
@@ -306,6 +306,30 @@ describe("the cache version tracks the asset list", () => {
       ASSET_GRAPH_FINGERPRINT,
       "STATIC_ASSETS changed. Bump CACHE_NAME in sw.js, then put the new fingerprint " +
         "printed above into ASSET_GRAPH_FINGERPRINT so installed phones pick the new list up."
+    );
+  });
+
+  it("26b. the app's own code is fetched fresh, so a new catalog is never a reload behind", () => {
+    // This is what made equipment added after a phone's first visit invisible: the
+    // worker answered every request from its cache, including the equipment catalog,
+    // and the worker that knows about the new files does not control the page load
+    // that discovers it. The app's own code now goes to the network first.
+    assert.match(SW_SOURCE, /function isAppCode\(url\)/, "app code must be told apart from static assets");
+    assert.match(SW_SOURCE, /if \(isAppCode\(url\)\) \{[\s\S]{0,200}?fetch\(req\)/, "app code must try the network first");
+    assert.match(SW_SOURCE, /\.catch\(\(\) => fromCache\(req\)/, "and fall back to the cache when there is no network");
+
+    // the vendored ar runtime is not app code: it is 3.5 MB that never changes
+    assert.match(SW_SOURCE, /path\.includes\("\/vendor\/"\)\) return false/);
+  });
+
+  it("26c. every cache lookup is scoped to this version's cache", () => {
+    // caches.match() with no cacheName searches every cache in the origin, so a
+    // stale one that outlived its pruning could still answer a request
+    assert.match(SW_SOURCE, /caches\.open\(CACHE_NAME\)\.then\(\(cache\) => cache\.match\(request\)\)/);
+    const code = SW_SOURCE.split("\n").filter((line) => !line.trim().startsWith("//")).join("\n");
+    assert.ok(
+      !/caches\.match\(/.test(code),
+      "an unscoped caches.match() can be answered by a cache this version already replaced"
     );
   });
 
