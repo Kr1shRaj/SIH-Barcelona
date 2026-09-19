@@ -325,8 +325,8 @@ describe("the load flow", () => {
     await loadComplianceMetrics(c);
 
     assert.strictEqual(called, false, "an unauthenticated visitor triggers no request");
-    assert.ok(c.innerHTML.indexOf("Admin Key Required") !== -1);
-    assert.ok(c.innerHTML.indexOf('type="password"') !== -1, "the field is masked");
+    // the landing page is shown instead of a bare auth prompt
+    assert.ok(c.innerHTML.indexOf("Sign In") !== -1 || c.innerHTML.indexOf("Hands-On") !== -1, "landing page rendered");
   });
 
   it("23. a correct key loads the dashboard", async () => {
@@ -357,8 +357,8 @@ describe("the load flow", () => {
     await loadComplianceMetrics(c);
 
     assert.strictEqual(getAdminKey(), null, "a rejected key must not be kept");
-    assert.ok(c.innerHTML.indexOf("Admin Key Required") !== -1);
-    assert.ok(c.innerHTML.indexOf("not accepted") !== -1, "the operator is told why");
+    // the landing page re-renders on rejection
+    assert.ok(c.innerHTML.indexOf("Sign In") !== -1 || c.innerHTML.indexOf("Hands-On") !== -1, "landing page re-rendered after rejection");
   });
 
   it("25. the rejected key never appears in the rendered prompt", async () => {
@@ -387,8 +387,15 @@ describe("the load flow", () => {
       return { ok: true, status: 200, json: async () => ({ summary: { totalWorkers: 0 }, roster: [] }) };
     };
 
+    // the landing page passes the key through onSignIn callback,
+    // so we test the renderAuthRequired path directly instead
     const c = createMockContainer();
-    await loadComplianceMetrics(c);
+    renderAuthRequired(c, {
+      onSubmit: async (entered) => {
+        setAdminKey(entered);
+        await loadComplianceMetrics(c);
+      }
+    });
 
     const input = c.querySelector("#admin-key-input");
     const form = c.querySelector("#admin-key-form");

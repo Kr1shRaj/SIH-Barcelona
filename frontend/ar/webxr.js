@@ -21,7 +21,7 @@ async function loadModule3DScene(moduleId, controller) {
   if (moduleId === "gas-leak") {
     const { startGasLeakModule } = await import("../modules/gas-leak/gas-leak.js");
     const container = typeof document !== "undefined" ? document.getElementById("ar-viewport") : null;
-    startGasLeakModule(container, { tier: 1, xrSession: controller && controller.session });
+    startGasLeakModule(container, { tier: 1, xrSession: controller && controller.session, controller });
     return;
   }
   throw new Error("not implemented");

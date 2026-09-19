@@ -76,6 +76,7 @@ import {
 
 import {
   startGasLeakModule,
+  cleanupGasLeakModule,
   evaluatePpeSelection,
   evaluateBuddyProcedure,
   CP_HAZARD_ZONE_ID,
@@ -84,6 +85,10 @@ import {
   MANDATORY_PPE,
   CORRECT_BUDDY_PROCEDURE
 } from "../modules/gas-leak/gas-leak.js";
+
+import {
+  getActiveSession
+} from "../assessment/engine.js";
 
 // helper: click next button until action screen reached
 function clickThroughSubscreens(maxSteps = 10) {
@@ -160,14 +165,46 @@ describe("Gas Leak & Confined Space Protocol module", () => {
 
   // --- Checkpoint flow & interaction tests ---
 
-  it("startGasLeakModule registers step 1 (hazard zone recognition) checkpoint immediately", () => {
+  it("startGasLeakModule begins in TEACH phase without registering checkpoints", () => {
     startGasLeakModule(document.getElementById("ar-viewport"));
 
     const cps = getRegisteredCheckpoints();
+    assert.strictEqual(cps.length, 0, "teach phase must not register checkpoints");
+  });
+
+  it("transitioning from teach phase to test phase registers step 1 (hazard zone recognition) checkpoint", () => {
+    startGasLeakModule(document.getElementById("ar-viewport"));
+    clickThroughSubscreens();
+
+    const cps = getRegisteredCheckpoints();
     assert.ok(cps.some((c) => c.id === CP_HAZARD_ZONE_ID && c.type === "proximity"),
-      "hazard zone checkpoint must be registered on start");
+      "hazard zone checkpoint must register once test phase begins");
     assert.ok(!cps.some((c) => c.id === CP_PPE_SELECTION_ID), "ppe checkpoint must not register before step 1");
     assert.ok(!cps.some((c) => c.id === CP_BUDDY_PROCEDURE_ID), "buddy checkpoint must not register before step 2");
+  });
+
+  it("shows transition screen between teach phase and test phase", () => {
+    startGasLeakModule(document.getElementById("ar-viewport"));
+    // click through all 6 educational screens
+    for (let i = 0; i < 6; i++) {
+      const btn = _elements["btn-step-next"];
+      assert.ok(btn, `screen ${i + 1} next button must exist`);
+      delete _elements["btn-step-next"];
+      btn.click();
+    }
+    // now transition screen should be displayed
+    const transitionBtn = _elements["btn-step-next"];
+    assert.ok(transitionBtn, "transition screen next button must exist");
+    assert.strictEqual(transitionBtn.dataset.action, "start-test");
+    assert.strictEqual(getRegisteredCheckpoints().length, 0, "no checkpoints before test phase starts");
+
+    // clicking transition button starts test phase and registers step 1 checkpoint
+    delete _elements["btn-step-next"];
+    transitionBtn.click();
+
+    const cps = getRegisteredCheckpoints();
+    assert.ok(cps.some((c) => c.id === CP_HAZARD_ZONE_ID), "step 1 checkpoint registered after transition");
+    assert.ok(document.getElementById("btn-hazard-found"), "hazard action button visible in test phase");
   });
 
   it("completing step 1 fires proximity event and registers step 2", () => {
@@ -294,5 +331,108 @@ describe("Gas Leak & Confined Space Protocol module", () => {
 
     await assert.doesNotReject(() => loadModule3DScene("gas-leak", null));
     await assert.doesNotReject(() => loadMarkerModuleScene("gas-leak", null));
+  });
+
+  it("restarting gas module after partial test resets session instead of reusing stale checkpoints", () => {
+    // start module and complete step 1
+    startGasLeakModule(document.getElementById("ar-viewport"));
+    clickThroughSubscreens();
+    _elements["btn-hazard-found"]?.click();
+
+    const sessionBefore = getActiveSession();
+    assert.ok(sessionBefore, "session must be active after step 1");
+    assert.strictEqual(sessionBefore.checkpoints.length, 1);
+    assert.strictEqual(sessionBefore.checkpoints[0].checkpointId, CP_HAZARD_ZONE_ID);
+
+    // direct restart: trainee starts module again after partial test
+    startGasLeakModule(document.getElementById("ar-viewport"));
+
+    // previous stale session must be aborted
+    const sessionAfterStart = getActiveSession();
+    assert.strictEqual(sessionAfterStart, null, "stale session with prior checkpoints must be aborted on restart");
+
+    // advance to step 1 and confirm fresh checkpoint recording
+    clickThroughSubscreens();
+    _elements["btn-hazard-found"]?.click();
+
+    const sessionFresh = getActiveSession();
+    assert.ok(sessionFresh, "new fresh session must be created for restarted run");
+    assert.notStrictEqual(sessionFresh.attemptId, sessionBefore.attemptId, "new run must have new attemptId");
+    assert.strictEqual(sessionFresh.checkpoints.length, 1);
+
+    cleanupGasLeakModule();
+  });
+
+  it("tier 1 webxr renders and cleans up three.js meshes via controller", () => {
+    const sceneObjects = [];
+    const mockController = {
+      session: {},
+      addToScene(obj) { sceneObjects.push(obj); },
+      removeFromScene(obj) {
+        const idx = sceneObjects.indexOf(obj);
+        if (idx !== -1) sceneObjects.splice(idx, 1);
+      }
+    };
+
+    // mock minimal THREE
+    window.THREE = {
+      Group: class {
+        constructor() { this.children = []; this.position = { set: () => {} }; }
+        add(child) { this.children.push(child); }
+      },
+      RingGeometry: class { rotateX() {} },
+      CylinderGeometry: class {},
+      BoxGeometry: class {},
+      TorusGeometry: class {},
+      MeshBasicMaterial: class {},
+      MeshStandardMaterial: class {},
+      Mesh: class { constructor(g, m) { this.g = g; this.m = m; this.position = { set: () => {} }; } },
+      DoubleSide: 2
+    };
+
+    startGasLeakModule(document.getElementById("ar-viewport"), { tier: 1, controller: mockController });
+    clickThroughSubscreens();
+
+    // in step 1, hazard three mesh should be added to controller scene
+    assert.ok(sceneObjects.some((obj) => obj.name === "gas-hazard-graphic"), "hazard mesh added in tier 1");
+
+    _elements["btn-hazard-found"]?.click();
+    // in step 2, ppe three mesh should be added to controller scene
+    assert.ok(sceneObjects.some((obj) => obj.name === "gas-ppe-graphic"), "ppe mesh added in tier 1");
+
+    cleanupGasLeakModule();
+    assert.strictEqual(sceneObjects.length, 0, "all tier 1 meshes cleaned up from scene");
+
+    delete window.THREE;
+  });
+
+  it("locale files contain all required gas leak keys and navigation translations", async () => {
+    const fs = await import("fs");
+    const enPath = new URL("../locales/en.json", import.meta.url);
+    const hiPath = new URL("../locales/hi.json", import.meta.url);
+    const satPath = new URL("../locales/sat.json", import.meta.url);
+    const en = JSON.parse(fs.readFileSync(enPath, "utf8"));
+    const hi = JSON.parse(fs.readFileSync(hiPath, "utf8"));
+    const sat = JSON.parse(fs.readFileSync(satPath, "utf8"));
+
+    const requiredKeys = [
+      "teach_complete_badge", "test_ready_title", "test_ready_desc", "btn_start_test",
+      "step1_next_2", "step2_next_2", "step3_next_2",
+      "step1_action_badge", "step1_action_title", "step1_action_desc",
+      "step2_action_badge", "step2_action_title", "step2_action_desc",
+      "step3_action_badge", "step3_action_title", "step3_action_desc"
+    ];
+
+    [en, hi, sat].forEach((dict) => {
+      assert.ok(dict.gas, "locale must have gas dictionary");
+      requiredKeys.forEach((key) => {
+        assert.ok(dict.gas[key], `missing key ${key} in locale`);
+        assert.ok(dict.gas[key].length > 0, `empty key ${key} in locale`);
+      });
+    });
+
+    assert.notStrictEqual(en.gas.step1_next_2, "Next: Confirm Hazard in AR ➜");
+    assert.notStrictEqual(hi.gas.step1_next_2, "अगला: AR में खतरे की पुष्टि करें ➜");
+    assert.notStrictEqual(sat.gas.step1_next_2, "ᱞᱟᱦᱟ: AR ᱨᱮ ᱵᱚᱛᱚᱨ ᱧᱮᱞ ᱢᱮ ➜");
   });
 });

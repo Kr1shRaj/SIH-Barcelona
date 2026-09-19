@@ -39,19 +39,16 @@ function buildWebXRDiagnosticMessage(decision) {
     if (!caps.hasWebXR) {
       failedChecks.push("navigator.xr missing (WebXR API not available in browser)");
     }
-    if (caps.hasWebXR && !caps.supportsImmersiveAr) {
-      const errNote = caps.sessionSupportedError ? ` error: ${caps.sessionSupportedError}` : "";
-      failedChecks.push(`isSessionSupported('immersive-ar')=false${errNote}`);
+    if (!caps.isImmersiveArSupported) {
+      failedChecks.push("isSessionSupported('immersive-ar')=false");
     }
-    if (!caps.hasGetUserMedia) {
-      failedChecks.push("camera getUserMedia missing (camera permission blocked)");
+    if (!caps.hasCamera) {
+      failedChecks.push("navigator.mediaDevices.getUserMedia missing or blocked");
     }
 
-    const reasonSummary = failedChecks.length > 0
-      ? failedChecks.join(" | ")
-      : (decision.reason || "unknown_precheck_failure");
-
-    return `WebXR check: ${reasonSummary} [secureContext=${caps.isSecureContext}, navigator.xr=${caps.hasWebXR}, immersive-ar=${caps.supportsImmersiveAr}, camera=${caps.hasGetUserMedia}]`;
+    if (failedChecks.length > 0) {
+      return `WebXR check: ${failedChecks.join("; ")}`;
+    }
   }
 
   if (decision.tier === 0) {
@@ -115,7 +112,9 @@ function renderArShell(container, tierResult) {
     // calibration and both patterns come from ./vendor, never ar-js-org.github.io.
     // preset="hiro" would fetch them off the internet, which a mine does not have.
     : `<a-scene embedded arjs="sourceType: webcam; debugUIEnabled: false; detectionMode: mono_and_matrix; matrixCodeType: 3x3; cameraParametersUrl: ./vendor/arjs-data/camera_para.dat;" vr-mode-ui="enabled: false" renderer="logarithmicDepthBuffer: true;">
-        <a-marker type="pattern" url="./vendor/arjs-data/pattern-hiro.patt" id="hiro-marker"></a-marker>
+        <a-marker type="pattern" url="./vendor/arjs-data/pattern-hiro.patt" id="hiro-marker">
+          <a-entity id="ar-root" position="0 0 0" scale="1 1 1"></a-entity>
+        </a-marker>
         <a-marker type="pattern" url="./vendor/arjs-data/pattern-kanji.patt" id="kanji-marker"></a-marker>
         <a-light type="ambient" color="#ffffff" intensity="1.2"></a-light>
         <a-light type="directional" position="1 4 2" intensity="1.0"></a-light>
@@ -136,7 +135,7 @@ function renderArShell(container, tierResult) {
     <div class="ui-overlay">
       <div style="width:100%;display:flex;flex-direction:column;pointer-events:none;">
         <header class="header-bar">
-          <div class="app-title">🛡️ SafeAR</div>
+          <div class="app-title">🛡️ SafeAR <span class="connection-dot"></span></div>
           <div style="margin-left:auto;display:flex;align-items:center;gap:8px;">
             <button id="lang-switch-btn" class="lang-switch-btn" title="Change Language / भाषा बदलें">🌐 ${currentLocale}</button>
             <span class="tier-badge ${tierClass}">${tierLabel}</span>
@@ -145,8 +144,8 @@ function renderArShell(container, tierResult) {
         ${diagBanner}
       </div>
       <div id="status-card" class="status-card">
-        <h3>AR Mode Initializing</h3>
-        <p>Checking module assets...</p>
+        <h3>${t("app.initializing", {}, "AR Mode Initializing")}</h3>
+        <p>${t("app.checking_assets", {}, "Checking module assets...")}</p>
       </div>
     </div>
   `;
@@ -199,9 +198,12 @@ async function bootTier2(container, decision) {
         : "";
 
       statusCard.innerHTML = `
-        <h3>${t("app.tier2_active", "AR Tier 2 Active (Hiro Marker)")}</h3>
-        ${diagNotice}
-        <p>${t("app.tier2_active_desc", "Point camera at Hiro marker. Pick a module to begin.")}</p>
+        <div class="welcome-section">
+          <span class="welcome-label">${t("app.tier2_label", {}, "Marker Tracking")}</span>
+          <h3>${t("app.tier2_active", {}, "AR Tier 2 Active (Hiro Marker)")}</h3>
+          ${diagNotice}
+          <p>${t("app.tier2_active_desc", {}, "Point camera at Hiro marker. Pick a module to begin.")}</p>
+        </div>
         ${_scaffoldModuleButton()}
       `;
       _bindScaffoldButton(statusCard);
@@ -268,8 +270,11 @@ async function bootTier1(container, decision, caps) {
 
       if (statusCard) {
         statusCard.innerHTML = `
-          <h3>${t("app.tier1_active", "AR Tier 1 Active (WebXR)")}</h3>
-          <p>${t("app.tier1_active_desc", "Point at a flat surface and tap to place the extinguisher.")}</p>
+          <div class="welcome-section">
+            <span class="welcome-label">${t("app.webxr_label", {}, "Surface Tracking")}</span>
+            <h3>${t("app.tier1_active", {}, "AR Tier 1 Active (WebXR)")}</h3>
+            <p>${t("app.tier1_active_desc", {}, "Point at a flat surface and tap to place the extinguisher.")}</p>
+          </div>
           ${_scaffoldModuleButton()}
         `;
         _bindScaffoldButton(statusCard);
@@ -283,10 +288,13 @@ async function bootTier1(container, decision, caps) {
 
   if (statusCard) {
     statusCard.innerHTML = `
-      <h3>${t("app.tier1_ready", "AR Tier 1 Ready (WebXR)")}</h3>
-      <p>${t("app.tier1_ready_desc", "Real-world surface tracking supported on your tablet. Tap below to start AR:")}</p>
-      <button id="btn-start-webxr" style="display:block;width:100%;max-width:340px;padding:14px 20px;border-radius:10px;border:2px solid #38bdf8;background:linear-gradient(135deg,#0284c7,#0369a1);color:#ffffff;font-size:1.05rem;font-weight:bold;cursor:pointer;margin:10px 0;box-shadow:0 4px 16px rgba(56,189,248,0.4);pointer-events:auto !important;text-align:center;">${t("app.start_ar_session", "🚀 START AR SESSION (WEBXR)")}</button>
-      <p style="font-size:0.8rem;color:#94a3b8;margin-top:4px;">${t("app.launch_module_direct", "Or tap a module to launch directly:")}</p>
+      <div class="welcome-section">
+        <span class="welcome-label">${t("app.webxr_label", {}, "Surface Tracking")}</span>
+        <h3>${t("app.tier1_ready", {}, "AR Tier 1 Ready (WebXR)")}</h3>
+        <p>${t("app.tier1_ready_desc", {}, "Real-world surface tracking supported on your tablet. Tap below to start AR:")}</p>
+      </div>
+      <button id="btn-start-webxr" class="webxr-start-btn">${t("app.start_ar_session", {}, "🚀 START AR SESSION (WEBXR)")}</button>
+      <p style="font-size:0.78rem;color:#94a3b8;margin-top:4px;text-shadow:0 1px 3px rgba(0,0,0,0.9);">${t("app.launch_module_direct", {}, "Or tap a module to launch directly:")}</p>
       ${_scaffoldModuleButton()}
     `;
 
@@ -481,9 +489,17 @@ function bindModuleLifecycleUI(statusCard) {
 
 // SCAFFOLDING — remove when real module-selection UI exists
 function _scaffoldModuleButton() {
-  return `<div style="display:flex;gap:0.6rem;margin-top:0.8rem;flex-wrap:wrap;width:100%;">
-    <button id="scaffold-load-btn" style="flex:1;min-width:130px;padding:12px 14px;background:#ef4444;color:#fff;border:none;border-radius:10px;font-weight:bold;font-size:0.95rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(0,0,0,0.6);">${t("app.fire_btn", "🔥 Fire Response")}</button>
-    <button id="scaffold-gas-btn" style="flex:1;min-width:130px;padding:12px 14px;background:#f59e0b;color:#000;border:none;border-radius:10px;font-weight:bold;font-size:0.95rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(0,0,0,0.6);">${t("app.gas_btn", "☣️ Gas Leak")}</button>
+  return `<div class="module-grid">
+    <button id="scaffold-load-btn" class="module-card module-card--fire">
+      <span class="module-icon">🔥</span>
+      <span class="module-name">${t("app.fire_btn", {}, "Fire Response")}</span>
+      <span class="module-desc">${t("app.fire_desc", {}, "Extinguisher drill — aim, squeeze, sweep")}</span>
+    </button>
+    <button id="scaffold-gas-btn" class="module-card module-card--gas">
+      <span class="module-icon">☣️</span>
+      <span class="module-name">${t("app.gas_btn", {}, "Gas Leak")}</span>
+      <span class="module-desc">${t("app.gas_desc", {}, "Identify leaks and evacuate safely")}</span>
+    </button>
   </div>`;
 }
 
