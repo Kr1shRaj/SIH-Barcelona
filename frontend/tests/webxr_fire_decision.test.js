@@ -27,6 +27,38 @@ globalThis.CustomEvent = class CustomEvent {
 class MockVector3 {
   constructor(x = 0, y = 0, z = 0) { this.x = x; this.y = y; this.z = z; }
   set(x, y, z) { this.x = x; this.y = y; this.z = z; return this; }
+  applyQuaternion(q) {
+    if (q && q._rotatesTo) {
+      this.x = q._rotatesTo.x;
+      this.y = q._rotatesTo.y;
+      this.z = q._rotatesTo.z;
+    }
+    return this;
+  }
+  normalize() { return this; }
+  distanceTo() { return 0; }
+}
+class MockVector2 {
+  constructor(x = 0, y = 0) { this.x = x; this.y = y; }
+  set(x, y) { this.x = x; this.y = y; return this; }
+}
+class MockQuaternion {
+  constructor(x = 0, y = 0, z = 0, w = 1) {
+    this.x = x; this.y = y; this.z = z; this.w = w;
+    this._rotatesTo = null;
+  }
+}
+class MockRaycaster {
+  constructor() {
+    this.ray = {};
+  }
+  setFromCamera() {}
+  intersectObject(obj) {
+    if (globalThis.__mockRaycastHitTarget === obj || (obj && obj.children && obj.children.includes(globalThis.__mockRaycastHitTarget))) {
+      return [{ object: obj, point: new MockVector3() }];
+    }
+    return [];
+  }
 }
 class MockMeshBasicMaterial {
   constructor(opt = {}) {
@@ -57,6 +89,7 @@ class MockGroup {
     this.userData = {};
     this.visible = true;
   }
+  lookAt() {}
   add(obj) { this.children.push(obj); }
   remove(obj) { this.children = this.children.filter((c) => c !== obj); }
   getObjectByName(name) {
@@ -74,6 +107,9 @@ class MockGroup {
 
 const mockTHREE = {
   Vector3: MockVector3,
+  Vector2: MockVector2,
+  Quaternion: MockQuaternion,
+  Raycaster: MockRaycaster,
   BoxGeometry: class {},
   RingGeometry: class {},
   CylinderGeometry: class {},
@@ -206,7 +242,10 @@ import {
   isDiagHudVisibleWebXR,
   _setupStep3WebXR,
   _showAlarmPullStationWebXR,
+  _showEvacuateConfirmationWebXR,
   _renderDebriefCardWebXR,
+  _computePlacementPose,
+  _raycastMesh,
   CP_DECISION_ID,
   DECISION_CHOICES
 } from "../modules/fire-response/webxr_fire_module.js";
@@ -662,5 +701,179 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     assert.strictEqual(getActiveBranchWebXR(), null);
     assert.strictEqual(document.getElementById("debrief-summary-card"), null);
     assert.ok(removedMeshes.length > 0, "Controller removeFromScene must be called during cleanup");
+  });
+
+  it("_computePlacementPose snaps to vertical surface when wall hit detected", () => {
+    const container = _makeEl("container");
+    const mockHitPose = {
+      transform: {
+        position: { x: 0.5, y: 1.2, z: -2.1 },
+        orientation: { x: 0, y: 0, z: 0, w: 1 }
+      }
+    };
+    const mockFrame = {
+      getHitTestResults() {
+        return [{
+          getPose() { return mockHitPose; }
+        }];
+      }
+    };
+    const mockController = {
+      hitTestSource: {},
+      getCamera() { return { position: new MockVector3(0, 1.5, 0), quaternion: new MockQuaternion() }; }
+    };
+    startFireModuleWebXR(container, mockController);
+
+    // hit normal pointing horizontally (wall/door): rotated 90 deg around X (normalY = 0)
+    mockHitPose.transform.orientation = { x: Math.SQRT1_2, y: 0, z: 0, w: Math.SQRT1_2 };
+
+    const result = _computePlacementPose(mockFrame, {}, 1.2, true, 1.15, -0.35);
+    assert.strictEqual(result.isVertical, true);
+    assert.strictEqual(result.pos.x, 0.5);
+    assert.strictEqual(result.pos.y, 1.2);
+    assert.strictEqual(result.pos.z, -2.1);
+  });
+
+  it("_computePlacementPose elevates position when horizontal floor hit detected", () => {
+    const container = _makeEl("container");
+    const mockHitPose = {
+      transform: {
+        position: { x: 0, y: 0, z: -1.5 },
+        orientation: { x: 0, y: 0, z: 0, w: 1 }
+      }
+    };
+    const mockFrame = {
+      getHitTestResults() {
+        return [{
+          getPose() { return mockHitPose; }
+        }];
+      }
+    };
+    const mockController = {
+      hitTestSource: {},
+      getCamera() { return { position: new MockVector3(0, 1.5, 0), quaternion: new MockQuaternion() }; }
+    };
+    startFireModuleWebXR(container, mockController);
+
+    // hit normal pointing vertically upward (floor): identity quaternion (normalY = 1)
+    mockHitPose.transform.orientation = { x: 0, y: 0, z: 0, w: 1 };
+
+    const result = _computePlacementPose(mockFrame, {}, 1.2, true, 1.15, -0.35);
+    assert.strictEqual(result.isVertical, false);
+    assert.strictEqual(result.pos.x, 0);
+    assert.strictEqual(result.pos.y, 1.15);
+    assert.strictEqual(result.pos.z, -1.5);
+  });
+
+  it("_computePlacementPose projects forward along camera gaze when no hit results", () => {
+    const container = _makeEl("container");
+    const mockFrame = {
+      getHitTestResults() { return []; }
+    };
+    const mockController = {
+      hitTestSource: {},
+      getCamera() { return { position: new MockVector3(1, 1.5, -2), quaternion: new MockQuaternion() }; }
+    };
+    startFireModuleWebXR(container, mockController);
+
+    const result = _computePlacementPose(mockFrame, {}, 1.2, true, 1.15, -0.35);
+    assert.strictEqual(result.isVertical, false);
+    assert.strictEqual(result.pos.x, 1);
+    assert.strictEqual(result.pos.y, 1.15); // 1.5 + (-0.35)
+    assert.strictEqual(result.pos.z, -3.2); // -2 + (-1.2)
+  });
+
+  it("_raycastMesh returns true on direct intersection and false on miss", () => {
+    const mockMesh = new MockMesh();
+    globalThis.__mockRaycastHitTarget = mockMesh;
+    assert.strictEqual(_raycastMesh({ clientX: 100, clientY: 100 }, mockMesh), true);
+    globalThis.__mockRaycastHitTarget = null;
+    assert.strictEqual(_raycastMesh({ clientX: 100, clientY: 100 }, mockMesh), false);
+  });
+
+  it("Branch B: Tapping 3D alarm station directly via raycasting pulls alarm without DOM button", (t, done) => {
+    const container = _makeEl("container");
+    let addedAlarmMesh = null;
+    const removedMeshes = [];
+    const mockController = {
+      addToScene(m) {
+        if (m.name === "fire-alarm-station") addedAlarmMesh = m;
+      },
+      removeFromScene(m) { removedMeshes.push(m); },
+      onFrame() {},
+      offFrame() {},
+      getCamera() { return { position: new MockVector3(0, 1.5, 0), quaternion: new MockQuaternion() }; }
+    };
+
+    const checkpointsFired = [];
+    window.addEventListener("safear:checkpoint", (ev) => {
+      checkpointsFired.push(ev.detail);
+    });
+
+    startFireModuleWebXR(container, mockController, { reading: 2.5 });
+    const overlay = document.getElementById("fire-module-overlay");
+
+    _showAlarmPullStationWebXR(container, overlay, () => {
+      // verified completion callback called
+      assert.strictEqual(getAlarmPulledWebXR(), true);
+      assert.ok(removedMeshes.some((m) => m.name === "fire-alarm-station"));
+      const exitCp = checkpointsFired.find((c) => c.checkpointId === "fire_exit_identification");
+      assert.ok(exitCp);
+      assert.strictEqual(exitCp.passed, true);
+      done();
+    });
+
+    assert.ok(addedAlarmMesh);
+    assert.strictEqual(getAlarmPulledWebXR(), false);
+
+    // simulate direct tap on 3D alarm station mesh
+    globalThis.__mockRaycastHitTarget = addedAlarmMesh;
+    window.dispatchEvent(new CustomEvent("pointerdown", { detail: { clientX: 200, clientY: 300 } }));
+    globalThis.__mockRaycastHitTarget = null;
+  });
+
+  it("Branch A: Tapping 3D exit sign directly via raycasting confirms evacuation route", (t, done) => {
+    const container = _makeEl("container");
+    let addedExitMesh = null;
+    const removedMeshes = [];
+    const mockController = {
+      addToScene(m) {
+        if (m.name === "exit-graphic") addedExitMesh = m;
+      },
+      removeFromScene(m) { removedMeshes.push(m); },
+      onFrame() {},
+      offFrame() {},
+      getCamera() { return { position: new MockVector3(0, 1.5, 0), quaternion: new MockQuaternion() }; }
+    };
+
+    const checkpointsFired = [];
+    window.addEventListener("safear:checkpoint", (ev) => {
+      checkpointsFired.push(ev.detail);
+    });
+
+    startFireModuleWebXR(container, mockController, { reading: 6.2 });
+    const overlay = document.getElementById("fire-module-overlay");
+
+    _showEvacuateConfirmationWebXR(container, overlay, 6.2);
+
+    assert.ok(addedExitMesh);
+
+    // simulate direct tap on 3D exit sign mesh
+    globalThis.__mockRaycastHitTarget = addedExitMesh;
+    window.dispatchEvent(new CustomEvent("pointerdown", { detail: { clientX: 200, clientY: 300 } }));
+    globalThis.__mockRaycastHitTarget = null;
+
+    setTimeout(() => {
+      assert.ok(removedMeshes.some((m) => m.name === "exit-graphic"));
+      const exitCp = checkpointsFired.find((c) => c.checkpointId === "fire_exit_identification");
+      assert.ok(exitCp);
+      assert.strictEqual(exitCp.passed, true);
+      const evacCp = checkpointsFired.find((c) => c.checkpointId === "fire_evacuation_sequence_webxr");
+      assert.ok(evacCp);
+      assert.strictEqual(evacCp.passed, true);
+      const debrief = document.getElementById("debrief-summary-card");
+      assert.ok(debrief, "Debrief summary card must be mounted after 3D exit sign tap");
+      done();
+    }, 100);
   });
 });
