@@ -150,6 +150,11 @@ function buildExtinguisherEntity() {
   // realistic 3D extinguisher model replacing primitive cylinder body
   entity.innerHTML = `
     <a-entity id="extinguisher-model" gltf-model="./assets/models/fire_extinguisher.glb" position="0 -0.20 0" rotation="0 0 0" scale="1.8 1.8 1.8"></a-entity>
+    <!-- equipment inspection components -->
+    <a-entity id="ext-valve-block" visible="false"></a-entity>
+    <a-entity id="ext-gauge-face" visible="false"></a-entity>
+    <a-entity id="ext-hose" visible="false"></a-entity>
+    <a-entity id="ext-nozzle" visible="false"></a-entity>
   `;
 
   // 3d operating handle lever on top of extinguisher
