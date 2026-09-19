@@ -1346,7 +1346,7 @@ function _showAimPhase(overlay, container) {
         targetBase.getWorldPosition(baseWorldPos);
       } else {
         baseWorldPos.copy(_fireMesh.position);
-        baseWorldPos.y += 0.85 * _fireMesh.scale.y;
+        baseWorldPos.y += 0.12 * _fireMesh.scale.y;
       }
       hitDistance = hitPoint.distanceTo(baseWorldPos);
     }

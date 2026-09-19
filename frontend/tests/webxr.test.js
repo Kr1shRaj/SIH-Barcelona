@@ -580,17 +580,19 @@ describe("WebXR Placement and Tracking", () => {
     assert.strictEqual(body.position.y, 0.79);
   });
 
-  it("createFireMesh barrel base rests flush on floor plane Y=0", () => {
+  it("createFireMesh scorch and flame cluster rest flush on floor plane Y=0 with no dustbin", () => {
     globalThis.window.THREE = mockTHREE;
     const mesh = createFireMesh();
     assert.ok(mesh);
-    const barrel = mesh.getObjectByName("fire-barrel");
-    assert.ok(barrel);
-    // barrel cylinder is 0.84m high, centered at Y=0.42m -> barrel bottom is 0.42 - 0.42 = 0.00m flush
-    assert.strictEqual(barrel.position.y, 0.42);
+    assert.strictEqual(mesh.getObjectByName("fire-barrel"), null, "Dustbin barrel must be completely removed");
+    assert.strictEqual(mesh.getObjectByName("fire-barrel-rim"), null, "Barrel rim must be completely removed");
+    assert.strictEqual(mesh.getObjectByName("fire-trash-heap"), null, "Trash heap must be completely removed");
     const scorch = mesh.getObjectByName("floor-scorch-decal");
     assert.ok(scorch);
     assert.strictEqual(scorch.position.y, 0.01);
+    const targetBase = mesh.getObjectByName("fire-target-base");
+    assert.ok(targetBase);
+    assert.strictEqual(targetBase.position.y, 0.12);
   });
 
   it("getMethaneReadingWebXR and setMethaneReadingWebXR manage gas state", () => {
@@ -690,8 +692,19 @@ describe("WebXR Placement and Tracking", () => {
     assert.ok(mesh);
     const flamesGroup = mesh.getObjectByName("fire-flames-group");
     assert.ok(flamesGroup);
-    assert.strictEqual(flamesGroup.position.y, 0.84);
+    assert.strictEqual(flamesGroup.position.y, 0.00);
     assert.ok(Array.isArray(mesh.userData.mixers));
+  });
+
+  it("createFireMesh loads 5 varied GLB fire instances with distinct offsets and anim offsets", async () => {
+    globalThis.window.THREE = mockTHREE;
+    const mesh = createFireMesh();
+    assert.ok(mesh);
+    await new Promise((r) => setTimeout(r, 10));
+    const flamesGroup = mesh.getObjectByName("fire-flames-group");
+    assert.ok(flamesGroup);
+    assert.strictEqual(flamesGroup.children.length, 5, "5 varied fire instances must be loaded into flames group");
+    assert.strictEqual(mesh.userData.mixers.length, 5, "All 5 fire instances must have active animation mixers");
   });
 
   it("animateFireMesh advances animation mixers and scales flames group with extinguishProgress", () => {

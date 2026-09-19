@@ -40,7 +40,8 @@ function loadGLBModel(path, options = {}) {
     flushFloor = true,
     centerHorizontal = true,
     rotation = null,
-    position = null
+    position = null,
+    animOffsetSec = 0
   } = options;
 
   return new Promise((resolve, reject) => {
@@ -100,6 +101,9 @@ function loadGLBModel(path, options = {}) {
             const action = mixer.clipAction(clip);
             action.play();
           });
+          if (animOffsetSec && typeof mixer.update === "function") {
+            mixer.update(animOffsetSec);
+          }
           container.userData.mixer = mixer;
         }
 
@@ -113,7 +117,7 @@ function loadGLBModel(path, options = {}) {
   });
 }
 
-// build fire barrel with flames cluster and floor scorch
+// build corner fire cluster with varied flames and floor scorch
 function createFireMesh() {
   const THREE = getTHREE();
   if (!THREE) return null;
@@ -122,124 +126,80 @@ function createFireMesh() {
   group.name = "fire-graphic";
   group.userData.mixers = [];
 
-  // floor scorch mark decal
-  const scorchGeo = new THREE.CircleGeometry(0.85, 32);
+  // asymmetrical floor scorch mark decal spreading from corner
+  const scorchGeo = new THREE.CircleGeometry(1.25, 32);
   const scorchMat = new THREE.MeshBasicMaterial({
-    color: 0x050505, transparent: true, opacity: 0.55
+    color: 0x050505, transparent: true, opacity: 0.65
   });
   const scorch = new THREE.Mesh(scorchGeo, scorchMat);
   scorch.rotation.x = -Math.PI / 2;
-  scorch.position.set(0, 0.01, 0);
+  scorch.position.set(-0.15, 0.01, -0.15);
+  scorch.scale.set(1.15, 0.95, 1.0);
   scorch.name = "floor-scorch-decal";
   group.add(scorch);
 
-  // corrugated industrial trash bin
-  const barrelGeo = new THREE.CylinderGeometry(0.52, 0.44, 0.84, 24);
-  const barrelMat = new THREE.MeshStandardMaterial({
-    color: 0x475569, metalness: 0.8, roughness: 0.35
-  });
-  const barrel = new THREE.Mesh(barrelGeo, barrelMat);
-  barrel.position.set(0, 0.42, 0);
-  barrel.name = "fire-barrel";
-  group.add(barrel);
-
-  // corrugation reinforcement ribs
-  [-0.15, 0.05, 0.25].forEach((offsetY, idx) => {
-    const ribGeo = new THREE.TorusGeometry(0.46 + idx * 0.025, 0.018, 8, 32);
-    const ribMat = new THREE.MeshStandardMaterial({ color: 0x334155, metalness: 0.85 });
-    const rib = new THREE.Mesh(ribGeo, ribMat);
-    rib.rotation.x = Math.PI / 2;
-    rib.position.set(0, 0.42 + offsetY, 0);
-    group.add(rib);
-  });
-
-  // barrel rim
-  const rimGeo = new THREE.TorusGeometry(0.53, 0.026, 8, 32);
-  const rimMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.9 });
-  const rim = new THREE.Mesh(rimGeo, rimMat);
-  rim.rotation.x = Math.PI / 2;
-  rim.position.set(0, 0.84, 0);
-  rim.name = "fire-barrel-rim";
-  group.add(rim);
-
-  // charred trash heap
-  const trashGeo = new THREE.DodecahedronGeometry(0.46);
-  const trashMat = new THREE.MeshStandardMaterial({ color: 0x1c1917, roughness: 0.9 });
-  const trash = new THREE.Mesh(trashGeo, trashMat);
-  trash.position.set(0, 0.78, 0);
-  trash.name = "fire-trash-heap";
-  group.add(trash);
-
-  // ember bed
-  const emberGeo = new THREE.CylinderGeometry(0.47, 0.47, 0.05, 24);
-  const emberMat = new THREE.MeshBasicMaterial({ color: 0xff4400 });
-  const ember = new THREE.Mesh(emberGeo, emberMat);
-  ember.position.set(0, 0.82, 0);
-  ember.name = "fire-embers";
-  group.add(ember);
-
-  // container for 3d animated fire gltf cluster
+  // container for 3d animated fire gltf cluster flush on floor plane Y=0
   const flamesGroup = new THREE.Group();
   flamesGroup.name = "fire-flames-group";
-  flamesGroup.position.set(0, 0.84, 0);
+  flamesGroup.position.set(0, 0, 0);
   group.add(flamesGroup);
   group.userData.flamesGroup = flamesGroup;
 
-  // outer flame cone (procedural fallback)
-  const outerGeo = new THREE.ConeGeometry(0.56, 1.80, 16);
+  // outer flame cone (procedural fallback flush on floor)
+  const outerGeo = new THREE.ConeGeometry(0.56, 1.60, 16);
   const outerMat = new THREE.MeshBasicMaterial({
     color: 0xff3d00, transparent: true, opacity: 0.90
   });
   const outer = new THREE.Mesh(outerGeo, outerMat);
-  outer.position.set(0, 1.75, 0);
+  outer.position.set(0, 0.80, 0);
   outer.name = "fire-outer-cone";
   group.add(outer);
 
-  // inner flame cone (procedural fallback)
-  const innerGeo = new THREE.ConeGeometry(0.40, 1.30, 16);
+  // inner flame cone (procedural fallback flush on floor)
+  const innerGeo = new THREE.ConeGeometry(0.40, 1.20, 16);
   const innerMat = new THREE.MeshBasicMaterial({
     color: 0xffea00, transparent: true, opacity: 0.95
   });
   const inner = new THREE.Mesh(innerGeo, innerMat);
-  inner.position.set(0, 1.45, 0);
+  inner.position.set(0, 0.60, 0);
   inner.name = "fire-inner-cone";
   group.add(inner);
 
   // tongue left (procedural fallback)
-  const tongueGeoL = new THREE.ConeGeometry(0.36, 1.45, 12);
-  const tongueMat = new THREE.MeshBasicMaterial({
+  const tongueGeoL = new THREE.ConeGeometry(0.36, 1.15, 12);
+  const tongueMatL = new THREE.MeshBasicMaterial({
     color: 0xff6d00, transparent: true, opacity: 0.88
   });
-  const tongueL = new THREE.Mesh(tongueGeoL, tongueMat);
-  tongueL.position.set(0.08, 1.55, -0.04);
+  const tongueL = new THREE.Mesh(tongueGeoL, tongueMatL);
+  tongueL.position.set(-0.25, 0.58, 0.08);
   tongueL.rotation.set(0.14, 0.70, -0.21);
   tongueL.name = "fire-tongue-left";
   group.add(tongueL);
 
   // tongue right (procedural fallback)
-  const tongueGeoR = new THREE.ConeGeometry(0.34, 1.38, 12);
+  const tongueGeoR = new THREE.ConeGeometry(0.34, 1.10, 12);
   const tongueMatR = new THREE.MeshBasicMaterial({
     color: 0xff9100, transparent: true, opacity: 0.88
   });
   const tongueR = new THREE.Mesh(tongueGeoR, tongueMatR);
-  tongueR.position.set(-0.08, 1.57, 0.04);
+  tongueR.position.set(0.18, 0.55, -0.22);
   tongueR.rotation.set(-0.17, -0.70, 0.17);
   tongueR.name = "fire-tongue-right";
   group.add(tongueR);
 
   // point light for fire illumination
-  const fireLight = new THREE.PointLight(0xff7700, 2.0, 5);
-  fireLight.position.set(0, 1.6, 0);
+  const fireLight = new THREE.PointLight(0xff7700, 2.2, 5);
+  fireLight.position.set(-0.1, 0.8, -0.1);
   fireLight.name = "fire-light";
   group.add(fireLight);
 
-  // aim target (invisible cylinder for raycasting)
-  const targetGeo = new THREE.CylinderGeometry(0.70, 0.70, 0.12, 16);
+  // aim target (invisible cylinder for raycasting at base of fire cluster)
+  const targetGeo = new THREE.CylinderGeometry(0.85, 0.85, 0.25, 16);
   const targetMat = new THREE.MeshBasicMaterial({
     transparent: true, opacity: 0.0
   });
   const target = new THREE.Mesh(targetGeo, targetMat);
-  target.position.set(0, 0.85, 0);
+  target.position.set(0, 0.12, 0);
   target.name = "fire-target-base";
   target.userData.raycastTarget = "aim";
   group.add(target);
@@ -247,18 +207,26 @@ function createFireMesh() {
   // load GLB animated fire cluster if loader present
   if (THREE.GLTFLoader) {
     const clusterConfigs = [
-      { scale: 1.0, x: 0, y: 0, z: 0, rotY: 0 },
-      { scale: 0.85, x: -0.16, y: 0, z: 0.08, rotY: 0.8 },
-      { scale: 1.15, x: 0.14, y: 0, z: -0.08, rotY: 2.1 }
+      // 1. corner core apex flame
+      { scale: 1.10, targetHeight: 1.60, x: 0, y: 0, z: 0, rotY: 0.2, animOffset: 0.0 },
+      // 2. wall-flank spread along left wall (-X)
+      { scale: 0.88, targetHeight: 1.30, x: -0.36, y: 0, z: 0.08, rotY: 1.15, animOffset: 0.45 },
+      // 3. creeping left tail spreading outward
+      { scale: 0.62, targetHeight: 0.90, x: -0.65, y: 0, z: 0.18, rotY: 2.60, animOffset: 1.10 },
+      // 4. wall-flank spread along rear wall (-Z)
+      { scale: 0.96, targetHeight: 1.40, x: 0.14, y: 0, z: -0.32, rotY: 3.45, animOffset: 0.75 },
+      // 5. creeping rear tail spreading along wall corner
+      { scale: 0.65, targetHeight: 0.95, x: 0.28, y: 0, z: -0.58, rotY: 4.80, animOffset: 1.55 }
     ];
     clusterConfigs.forEach((cfg) => {
       loadGLBModel("./assets/models/animated_fire.glb", {
-        targetHeight: 1.6,
+        targetHeight: cfg.targetHeight,
         scale: cfg.scale,
         flushFloor: true,
         centerHorizontal: true,
         rotation: { y: cfg.rotY },
-        position: { x: cfg.x, y: cfg.y, z: cfg.z }
+        position: { x: cfg.x, y: cfg.y, z: cfg.z },
+        animOffsetSec: cfg.animOffset
       }).then(({ container, mixer }) => {
         flamesGroup.add(container);
         if (mixer && group.userData.mixers) {
@@ -315,7 +283,6 @@ function animateFireMesh(fireGroup, deltaMs) {
   const tongueL = fireGroup.getObjectByName("fire-tongue-left");
   const tongueR = fireGroup.getObjectByName("fire-tongue-right");
   const light = fireGroup.getObjectByName("fire-light");
-  const ember = fireGroup.getObjectByName("fire-embers");
 
   if (flameFactor <= 0.02) {
     if (outer) outer.visible = false;
@@ -323,7 +290,6 @@ function animateFireMesh(fireGroup, deltaMs) {
     if (tongueL) tongueL.visible = false;
     if (tongueR) tongueR.visible = false;
     if (light) light.intensity = 0;
-    if (ember && ember.material) ember.material.color.setRGB(0.08, 0.08, 0.10);
     return;
   }
 
@@ -334,39 +300,31 @@ function animateFireMesh(fireGroup, deltaMs) {
       const s = (0.92 + 0.16 * Math.sin(t * 0.0285)) * flameFactor;
       const sy = (0.85 + 0.33 * Math.sin(t * 0.0285)) * flameFactor;
       outer.scale.set(s, sy, s);
-      outer.position.y = 0.84 + 0.90 * sy;
+      outer.position.y = 0.80 * sy;
     }
     if (inner) {
       inner.visible = true;
       const s = (0.85 + 0.30 * Math.sin(t * 0.037)) * flameFactor;
       const sy = (0.80 + 0.45 * Math.sin(t * 0.037)) * flameFactor;
       inner.scale.set(s, sy, s);
-      inner.position.y = 0.84 + 0.65 * sy;
+      inner.position.y = 0.60 * sy;
     }
     if (tongueL) {
       tongueL.visible = true;
       tongueL.rotation.z = -0.21 + 0.14 * Math.sin(t * 0.025);
       tongueL.scale.set(flameFactor, flameFactor, flameFactor);
-      tongueL.position.y = 0.84 + 0.70 * flameFactor;
+      tongueL.position.y = 0.58 * flameFactor;
     }
     if (tongueR) {
       tongueR.visible = true;
       tongueR.rotation.z = 0.17 - 0.14 * Math.sin(t * 0.033);
       tongueR.scale.set(flameFactor, flameFactor, flameFactor);
-      tongueR.position.y = 0.84 + 0.72 * flameFactor;
+      tongueR.position.y = 0.55 * flameFactor;
     }
   }
 
   if (light) {
     light.intensity = (1.5 + 1.1 * Math.sin(t * 0.045)) * flameFactor;
-  }
-  if (ember && ember.material) {
-    if (extProgress >= 0.85) {
-      ember.material.color.setRGB(0.12, 0.14, 0.18);
-    } else {
-      const r = (0.27 + 0.13 * Math.sin(t * 0.031)) * flameFactor;
-      ember.material.color.setRGB(1.0 * flameFactor, r, 0.0);
-    }
   }
 }
 
