@@ -643,19 +643,19 @@ function createExitSignMesh(options = {}) {
   group.userData.raycastTarget = "exit";
   group.userData._animTime = 0;
 
-  const targetHeight = options.targetHeight || 0.45;
-  const initialPos = options.position || { x: 0, y: 1.2, z: -2.0 };
+  const targetHeight = options.targetHeight || 0.20;
+  const initialPos = options.position || { x: 0, y: 1.8, z: -1.8 };
   group.position.set(initialPos.x, initialPos.y, initialPos.z);
 
   // procedural fallback geometry (green sign with border)
-  const signGeo = new THREE.BoxGeometry(0.70, 0.35, 0.06);
+  const signGeo = new THREE.BoxGeometry(0.28, 0.18, 0.04);
   const signMat = new THREE.MeshBasicMaterial({ color: 0x10b981 });
   const signBox = new THREE.Mesh(signGeo, signMat);
   signBox.name = "exit-sign-fallback";
   group.add(signBox);
 
   // exit sign hit area for touch/raycasting
-  const hitGeo = new THREE.BoxGeometry(0.90, 0.55, 0.30);
+  const hitGeo = new THREE.BoxGeometry(0.40, 0.28, 0.20);
   const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.0 });
   const hitMesh = new THREE.Mesh(hitGeo, hitMat);
   hitMesh.name = "exit-hit-area";
@@ -700,19 +700,19 @@ function createAlarmStationMesh(options = {}) {
   group.userData.raycastTarget = "alarm";
   group.userData._animTime = 0;
 
-  const targetHeight = options.targetHeight || 0.35;
-  const initialPos = options.position || { x: 0.8, y: 1.2, z: -1.5 };
+  const targetHeight = options.targetHeight || 0.15;
+  const initialPos = options.position || { x: 0.8, y: 1.15, z: -1.2 };
   group.position.set(initialPos.x, initialPos.y, initialPos.z);
 
   // procedural fallback (red alarm box)
-  const boxGeo = new THREE.BoxGeometry(0.24, 0.32, 0.08);
+  const boxGeo = new THREE.BoxGeometry(0.12, 0.15, 0.06);
   const boxMat = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.4 });
   const box = new THREE.Mesh(boxGeo, boxMat);
   box.name = "alarm-box-fallback";
   group.add(box);
 
   // pulsing red pull affordance ring
-  const ringGeo = new THREE.RingGeometry(0.18, 0.24, 24);
+  const ringGeo = new THREE.RingGeometry(0.09, 0.13, 24);
   const ringMat = new THREE.MeshBasicMaterial({
     color: 0xef4444,
     side: THREE.DoubleSide,
@@ -721,11 +721,11 @@ function createAlarmStationMesh(options = {}) {
   });
   const ring = new THREE.Mesh(ringGeo, ringMat);
   ring.name = "alarm-pulse-ring";
-  ring.position.set(0, 0, 0.08);
+  ring.position.set(0, 0, 0.05);
   group.add(ring);
 
   // touch hit box
-  const hitGeo = new THREE.BoxGeometry(0.45, 0.55, 0.25);
+  const hitGeo = new THREE.BoxGeometry(0.24, 0.26, 0.18);
   const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.0 });
   const hit = new THREE.Mesh(hitGeo, hitMat);
   hit.name = "alarm-hit-box";
