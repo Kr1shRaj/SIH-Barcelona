@@ -75,48 +75,163 @@ safear/
 └── android/                   # Capacitor-generated APK project
 ```
 
-## Running locally
+## Backend Local Setup
 
-### First-time setup
+Do this once per clone. Every step is checked at boot, so skipping one fails
+immediately and says which variable is missing rather than misbehaving later.
 
-Do this once per clone. The backend refuses to start without a signing key and a
-database, so skipping any of it fails immediately rather than subtly.
+Commands are given for PowerShell and for bash/zsh where they differ. Run them
+from the repository root.
+
+### 1. Copy the environment template
+
+```powershell
+Copy-Item .env.example .env
+```
+
+```bash
+cp .env.example .env
+```
+
+`.env` is gitignored. It holds every secret the backend has, and it never gets
+committed, pasted into chat, or put in a screenshot.
+
+### 2. Install dependencies
 
 ```bash
 npm install
-cp .env.example .env
-npm run keygen --workspace=backend
 ```
 
-`keygen` writes the public key to `backend/keys/cert-signing.public.pem` and prints
-a `CERT_PRIVATE_KEY=...` line. Paste that line into `.env` and fill in the other
-placeholder values while you are there.
+One install at the root covers all three workspaces — `backend/`, `frontend/`
+and `dashboard/`.
 
-**The two halves of the key are handled differently, and it matters:**
-
-- The **private key** lives only in `.env`, which git ignores. It never goes into
-  the repository, a chat message, or a screenshot. It is the only thing that can
-  mint a certificate.
-- The **public key** is not a secret, and the team shares one. Commit
-  `backend/keys/cert-signing.public.pem` once, and everybody verifies against it.
-
-If each teammate runs `keygen` and keeps their own pair, a certificate issued on
-one laptop fails verification on another with `bad_signature`. For a demo across
-two machines, one person generates the pair, commits the public half, and passes
-the `CERT_PRIVATE_KEY` line to the others out of band. `keygen` refuses to
-overwrite an existing public key for the same reason — rotating it orphans every
-certificate already issued.
-
-Then create the demo data — workers, modules and the checkpoint manifest:
+### 3. Generate your development signing key
 
 ```bash
-npm run seed --workspace=backend
+npm run keygen:dev
 ```
 
-Without this the database has no workers, and every attempt sync comes back
-`unknown_worker`.
+This writes a gitignored public key to
+`backend/keys/cert-signing.dev.public.pem` and prints two lines to paste into
+`.env`. It does not touch the shared team key.
 
-### How the app finds the backend
+> **Do not run `npm run keygen` for setup.** That one rotates the *team* signing
+> key, and every certificate already issued stops verifying. It refuses to
+> overwrite an existing key for exactly that reason. See
+> [Team key vs dev key](#team-key-vs-dev-key) below.
+
+### 4. Set `CERT_PRIVATE_KEY`
+
+Paste the `CERT_PRIVATE_KEY=...` line that `keygen:dev` printed into `.env`,
+replacing the `change_me_...` placeholder.
+
+This is the only thing that can mint a certificate. It lives in `.env` and
+nowhere else.
+
+### 5. Set `ADMIN_API_KEY`
+
+Pick your own value — there is no shared team admin key, and one must never be
+committed. Any long random string works:
+
+```powershell
+[guid]::NewGuid().ToString()
+```
+
+```bash
+openssl rand -hex 24
+```
+
+Leaving the placeholder logs a warning in development and is a hard boot failure
+in production. Both are deliberate.
+
+### 6. Verify `CERT_PUBLIC_KEY_PATH`
+
+Set it to the public half of whichever key you are using:
+
+| Working how | `CERT_PUBLIC_KEY_PATH` |
+| --- | --- |
+| Alone, with your own dev key | `./keys/cert-signing.dev.public.pem` |
+| With the team's shared key | `./keys/cert-signing.public.pem` |
+
+`keygen:dev` prints the first of these for you. The private key and this file
+must be two halves of one pair; they are checked against each other at boot and
+a mismatch fails loudly rather than producing certificates nobody can verify.
+
+### 7. Create the demo data
+
+```bash
+npm run seed
+```
+
+This creates `backend/data/safear.db` and fills it with the demo workers,
+modules and checkpoint manifest. Without it the database has no workers and
+every attempt sync comes back `unknown_worker`.
+
+The database file is local and gitignored. If you pull a branch with a newer
+schema, the backend refuses to start and names the version it expected — delete
+the file and re-seed:
+
+```powershell
+Remove-Item backend/data/safear.db
+npm run seed
+```
+
+```bash
+rm backend/data/safear.db
+npm run seed
+```
+
+### 8. Start the backend
+
+```bash
+npm run dev:backend
+```
+
+### 9. Health check
+
+```powershell
+Invoke-RestMethod http://localhost:3000/api/health
+```
+
+```bash
+curl http://localhost:3000/api/health
+```
+
+A healthy backend answers:
+
+```json
+{ "ok": true, "db": "up", "ts": "...", "requestId": "..." }
+```
+
+If it does not start, the error names the missing or invalid variable. Secrets
+are never printed.
+
+### Team key vs dev key
+
+The two halves of an Ed25519 signing key are handled differently, and it
+matters:
+
+- The **private key** (`CERT_PRIVATE_KEY`) is a secret. It lives only in `.env`.
+  Never commit it, never share it, never paste it into a chat.
+- The **public key** is not a secret and is meant to be distributed.
+  `backend/keys/cert-signing.public.pem` is committed on purpose so every machine
+  verifies against the same issuer.
+
+A **dev key** (`npm run keygen:dev`) is yours alone. Certificates you sign with
+it verify on your machine and nowhere else, which is the point — a development
+key must not be able to mint something the team would trust. It is enough for
+building and testing the whole flow end to end on one laptop.
+
+The **team key** (`npm run keygen`) is the shared issuer. For a demo spanning two
+machines, one person generates it, commits the public half, and passes the
+`CERT_PRIVATE_KEY` line to the others out of band. If each teammate generates
+their own instead, a certificate issued on one laptop fails verification on
+another with `bad_signature`.
+
+Development signing keys and any production key are separate. Nothing generated
+by `keygen:dev` should ever reach a real deployment.
+
+## How the app finds the backend
 
 The frontend resolves the backend address in this order, first match winning:
 
