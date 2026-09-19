@@ -19,6 +19,7 @@ export default [
         fetch: "readonly",
         URL: "readonly",
         setTimeout: "readonly",
+        clearTimeout: "readonly",
         setInterval: "readonly",
         clearInterval: "readonly",
         Date: "readonly",

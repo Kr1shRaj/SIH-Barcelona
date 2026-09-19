@@ -165,7 +165,10 @@
     "step2_action_desc": "Select all required PPE for hazardous gas entry (select all that apply):",
     "step3_action_badge": "☣ STEP 3 / 3 — BUDDY SYSTEM PROTOCOL",
     "step3_action_title": "Buddy System Protocol Choice",
-    "step3_action_desc": "What is the safety attendant role outside the confined opening?"
+    "step3_action_desc": "What is the safety attendant role outside the confined opening?",
+    "step1_hint": "Hint: Low oxygen (<19.5%) and toxic gases (H₂S, methane) trap in confined pits. Verify hazard boundary before entry.",
+    "step2_hint": "Hint: Only SCBA provides clean breathable air in toxic or low-oxygen atmospheres. Cloth or dust masks offer zero protection.",
+    "step3_hint": "Hint: The standby buddy must remain outside with a continuous lifeline. Never enter to attempt unequipped rescue."
   },
   "cert": {
     "passed": "Training Complete!",
