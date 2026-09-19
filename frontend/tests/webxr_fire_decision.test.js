@@ -246,6 +246,8 @@ import {
   _renderDebriefCardWebXR,
   _computePlacementPose,
   _raycastMesh,
+  _showAimCrosshair,
+  _hideAimCrosshair,
   CP_DECISION_ID,
   DECISION_CHOICES
 } from "../modules/fire-response/webxr_fire_module.js";
@@ -900,4 +902,28 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
       done();
     }, 100);
   });
+
+  it("Aim crosshair: _showAimCrosshair mounts reticle and _hideAimCrosshair removes it", () => {
+    const container = _makeEl("container");
+    assert.strictEqual(document.getElementById("webxr-aim-crosshair"), null);
+
+    _showAimCrosshair(container);
+    const crosshair = document.getElementById("webxr-aim-crosshair");
+    assert.ok(crosshair, "Crosshair element must be mounted");
+    assert.ok(crosshair.innerHTML.includes("<svg"), "Crosshair must contain SVG reticle");
+    assert.ok(crosshair.innerHTML.includes("#00e676"), "Crosshair must have emerald center indicator");
+
+    _hideAimCrosshair();
+    assert.strictEqual(document.getElementById("webxr-aim-crosshair"), null);
+  });
+
+  it("Aim crosshair: cleanupWebXRFireModule removes mounted crosshair", () => {
+    const container = _makeEl("container");
+    _showAimCrosshair(container);
+    assert.ok(document.getElementById("webxr-aim-crosshair"));
+
+    cleanupWebXRFireModule();
+    assert.strictEqual(document.getElementById("webxr-aim-crosshair"), null);
+  });
 });
+

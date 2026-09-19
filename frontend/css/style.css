@@ -1548,3 +1548,19 @@ canvas.a-canvas {
   }
 }
 
+/* Center-screen AR aiming and raycasting crosshair */
+#webxr-aim-crosshair {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 32px;
+  height: 32px;
+  pointer-events: none !important;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.9));
+  transition: opacity 0.15s ease;
+}

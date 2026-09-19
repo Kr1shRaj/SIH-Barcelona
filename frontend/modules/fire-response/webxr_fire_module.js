@@ -54,6 +54,40 @@ let _exitPointerTapHandler = null;
 let _step3ExitTapHandler = null;
 let _interactionState = null;
 
+// show center screen crosshair for aiming and raycasting
+function _showAimCrosshair(container) {
+  if (typeof document === "undefined") return;
+  let crosshair = document.getElementById("webxr-aim-crosshair");
+  if (!crosshair) {
+    crosshair = document.createElement("div");
+    crosshair.id = "webxr-aim-crosshair";
+    crosshair.innerHTML = `
+      <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="16" cy="16" r="10" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-dasharray="3 3"/>
+        <circle cx="16" cy="16" r="2.2" fill="#00e676"/>
+        <line x1="16" y1="2" x2="16" y2="7" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="16" y1="25" x2="16" y2="30" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="2" y1="16" x2="7" y2="16" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="25" y1="16" x2="30" y2="16" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    `;
+    const targetParent = container || document.getElementById("fire-module-overlay") || document.body;
+    if (targetParent && typeof targetParent.appendChild === "function") {
+      targetParent.appendChild(crosshair);
+    }
+  }
+  crosshair.style.display = "flex";
+}
+
+// remove center screen crosshair
+function _hideAimCrosshair() {
+  if (typeof document === "undefined") return;
+  const crosshair = document.getElementById("webxr-aim-crosshair");
+  if (crosshair && typeof crosshair.remove === "function") {
+    crosshair.remove();
+  }
+}
+
 // shoot ray from screen tap at mesh
 function _raycastMesh(event, targetMesh) {
   if (!targetMesh || !_controller) return false;
@@ -434,6 +468,7 @@ function cleanupWebXRFireModule() {
   _alarmPulled = false;
   _interactionState = null;
   _currentStep = 0;
+  _hideAimCrosshair();
 
   if (_alertStrobe && typeof _alertStrobe.dismiss === "function") {
     _alertStrobe.dismiss();
@@ -872,6 +907,7 @@ function _showAlarmPullStationWebXR(container, overlay, onDone) {
   _currentBranch = "suppress";
   _updateWebXRDiag("Branch B: 3D Alarm Pull Station Active");
   logger.info({ event: "webxr_fire_alarm_start", branch: "suppress" }, "Alarm pull station active (WebXR)");
+  _showAimCrosshair(container);
 
   let alarmPlaced = false;
   let pulled = false;
@@ -911,6 +947,7 @@ function _showAlarmPullStationWebXR(container, overlay, onDone) {
     pulled = true;
     alarmPlaced = true;
     _alarmPulled = true;
+    _hideAimCrosshair();
     logger.info({ event: "webxr_fire_alarm_pulled", branch: "suppress" }, "Fire alarm station pulled (WebXR)");
     _updateWebXRDiag("Alarm Station Pulled -> Sounded");
 
@@ -1027,6 +1064,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
 
   let exitPlaced = false;
   let confirmed = false;
+  _showAimCrosshair(container);
 
   if (!_exitMesh && _controller && typeof _controller.addToScene === "function") {
     _exitMesh = createExitSignMesh({ position: { x: 0, y: 1.8, z: -1.8 } });
@@ -1062,6 +1100,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
     if (confirmed) return;
     confirmed = true;
     exitPlaced = true;
+    _hideAimCrosshair();
 
     if (_exitPlacementFrameHandler && _controller && typeof _controller.offFrame === "function") {
       _controller.offFrame(_exitPlacementFrameHandler);
@@ -1301,6 +1340,7 @@ function _onPinPulled(overlay, container) {
 // aim phase: point device at fire base, hold steady
 function _showAimPhase(overlay, container) {
   if (!overlay) return;
+  _showAimCrosshair(container);
 
   let aimStartMs = 0;
   let aimActive = false;
@@ -1393,6 +1433,7 @@ function _showAimFallback(overlay, container) {
   btn.style.cssText = "margin-top:0.6rem;padding:0.75rem 0;background:transparent !important;color:#00e676;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);";
   btn.textContent = t("fire.pass_aim_btn", "🎯 I'm aiming at the base");
   btn.addEventListener("click", () => {
+    _hideAimCrosshair();
     if (_controller && _aimFrameHandler) {
       _controller.offFrame(_aimFrameHandler);
       _aimFrameHandler = null;
@@ -1406,6 +1447,7 @@ function _showAimFallback(overlay, container) {
 // hitDistanceM is null unless a real raycast produced it. the fallback button
 // measures nothing, and the server scores a null distance zero.
 function _onAimComplete(overlay, container, accuracy, hitDistanceM = null, frameCount = 0, dwellMs = 0) {
+  _hideAimCrosshair();
   if (_interactionState) {
     _interactionState.phase = "squeeze";
     _interactionState.aimAccuracy = accuracy;
@@ -1492,6 +1534,7 @@ function _onSqueezeComplete(overlay, container, aimAccuracy) {
 // sweep phase: move device side to side
 function _showSweepPhase(overlay, container, aimAccuracy) {
   if (!overlay) return;
+  _showAimCrosshair(container);
   overlay.innerHTML = `
     <div class="fire-hud-card">
       <div class="hud-badge">${t("fire.pass_sweep_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (4/4)")}</div>
@@ -1528,6 +1571,7 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
     if (fill) fill.style.width = `${Math.round(coverage * 100)}%`;
 
     if (isSweepComplete(coverage)) {
+      _hideAimCrosshair();
       if (_controller && _sweepFrameHandler) {
         _controller.offFrame(_sweepFrameHandler);
         _sweepFrameHandler = null;
@@ -1621,6 +1665,7 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
   btn.style.cssText = "margin-top:0.8rem;padding:0.5rem 0;background:transparent !important;color:#94a3b8;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:0.85rem;cursor:pointer;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000;";
   btn.textContent = "Skip (if motion not detected)";
   btn.addEventListener("click", () => {
+    _hideAimCrosshair();
     if (_controller && _sweepFrameHandler) {
       _controller.offFrame(_sweepFrameHandler);
       _sweepFrameHandler = null;
@@ -1661,6 +1706,7 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
 function _setupStep3WebXR(container, _step2Passed) {
   _currentStep = 3;
   logger.info({ event: "webxr_fire_step_start", step: 3 }, "Evacuation (WebXR)");
+  _showAimCrosshair(container);
 
   if (_fireMesh && _controller && typeof _controller.removeFromScene === "function") {
     _controller.removeFromScene(_fireMesh);
@@ -1710,6 +1756,7 @@ function _setupStep3WebXR(container, _step2Passed) {
   const wrapper = overlay.querySelector("#webxr-evac-options") || overlay;
 
   const onSelect = (id, correct) => {
+    _hideAimCrosshair();
     if (_exitMesh && _controller && typeof _controller.removeFromScene === "function") {
       _controller.removeFromScene(_exitMesh);
       _exitMesh = null;
@@ -1843,6 +1890,7 @@ function _renderDebriefCardWebXR(overlay, passed = true) {
 
 // completion screen
 function _showCompletionWebXR(overlay, container, passed) {
+  _hideAimCrosshair();
   dismissWebXRDiag();
   if (!overlay) return;
   _updateWebXRDiag(`Module Complete | Passed: ${passed}`);
@@ -1914,6 +1962,8 @@ export {
   getActiveBranchWebXR,
   getDecisionMadeWebXR,
   getAlarmPulledWebXR,
+  _showAimCrosshair,
+  _hideAimCrosshair,
   _renderDebriefCardWebXR,
   _setupStep3WebXR,
   _showAlarmPullStationWebXR,
