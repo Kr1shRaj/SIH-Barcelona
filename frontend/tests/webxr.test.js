@@ -257,6 +257,8 @@ import {
   createPowderSprayMesh,
   animatePowderSpray,
   createExtinguisherMesh,
+  animateExtinguisherMesh,
+  orientNozzleTowardTarget,
   createFireMesh,
   animateFireMesh,
   loadGLBModel,
@@ -521,6 +523,32 @@ describe("WebXR Placement and Tracking", () => {
     assert.strictEqual(spray.visible, true);
     animatePowderSpray(spray, false, 16);
     assert.strictEqual(spray.visible, false);
+  });
+
+  it("orientNozzleTowardTarget dynamically points nozzle and spray at fire base", () => {
+    globalThis.window.THREE = mockTHREE;
+    const extMesh = createExtinguisherMesh();
+    assert.ok(extMesh);
+    const nozzle = extMesh.getObjectByName("extinguisher-nozzle");
+    assert.ok(nozzle);
+
+    // simulate fire placed on floor in front of extinguisher
+    const fireTarget = { x: 0, y: 0.12, z: -3.0 };
+    orientNozzleTowardTarget(nozzle, extMesh, fireTarget);
+
+    assert.ok(nozzle.userData.aimDirection);
+    // target is lower than nozzle (y=0.12 vs y=1.02), so dirY is negative (pitching downward)
+    assert.ok(nozzle.userData.aimDirection.y < 0, "Nozzle should tilt downward toward fire base");
+    assert.ok(nozzle.userData.aimDirection.z < 0, "Nozzle should point forward along -Z toward fire");
+    assert.ok(nozzle.userData.aimDirection.dist > 1.0, "Aim distance should be calculated");
+    assert.ok(nozzle.rotation.x < 0, "Pitch angle should be negative (downward)");
+
+    // test dynamic update via animateExtinguisherMesh
+    extMesh.userData.targetWorldPos = { x: 0.5, y: 0.12, z: -2.5 };
+    animateExtinguisherMesh(extMesh, 16, true);
+    assert.ok(nozzle.userData.aimDirection);
+    const spray = extMesh.getObjectByName("powder-spray");
+    assert.strictEqual(spray.visible, true);
   });
 
   it("animateFireMesh reduces flames and hides them when extinguished", () => {

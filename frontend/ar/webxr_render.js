@@ -609,8 +609,72 @@ function animatePowderSpray(sprayGroup, active, deltaMs) {
   });
 }
 
+// point extinguisher nozzle and spray at fire base
+function orientNozzleTowardTarget(nozzleGroup, extGroup, targetWorldPos) {
+  if (!nozzleGroup || !targetWorldPos) return;
+  const THREE = getTHREE();
+  if (!THREE) return;
+
+  let nx = nozzleGroup.position ? nozzleGroup.position.x : 0.40;
+  let ny = nozzleGroup.position ? nozzleGroup.position.y : 1.02;
+  let nz = nozzleGroup.position ? nozzleGroup.position.z : -0.28;
+
+  if (extGroup) {
+    const s = extGroup.scale ? extGroup.scale.x || 1 : 1;
+    nx = (extGroup.position ? extGroup.position.x : 0) + nx * s;
+    ny = (extGroup.position ? extGroup.position.y : 0) + ny * s;
+    nz = (extGroup.position ? extGroup.position.z : 0) + nz * s;
+  }
+
+  const tx = typeof targetWorldPos.x === "number" ? targetWorldPos.x : 0;
+  const ty = typeof targetWorldPos.y === "number" ? targetWorldPos.y : 0.12;
+  const tz = typeof targetWorldPos.z === "number" ? targetWorldPos.z : -3.0;
+
+  const dx = tx - nx;
+  const dy = ty - ny;
+  const dz = tz - nz;
+  const dist = Math.hypot(dx, dy, dz) || 1;
+
+  const dirX = dx / dist;
+  const dirY = dy / dist;
+  const dirZ = dz / dist;
+
+  nozzleGroup.userData.aimDirection = { x: dirX, y: dirY, z: dirZ, dist };
+
+  const yaw = Math.atan2(-dirX, -dirZ);
+  const pitch = Math.asin(Math.max(-1, Math.min(1, dirY)));
+
+  if (nozzleGroup.rotation && typeof nozzleGroup.rotation.set === "function") {
+    nozzleGroup.rotation.set(pitch, yaw, 0, "YXZ");
+  } else if (nozzleGroup.rotation) {
+    nozzleGroup.rotation.x = pitch;
+    nozzleGroup.rotation.y = yaw;
+    nozzleGroup.rotation.z = 0;
+  }
+
+  if (nozzleGroup.quaternion && typeof nozzleGroup.quaternion.setFromUnitVectors === "function" && THREE.Vector3) {
+    const vForward = new THREE.Vector3(0, 0, -1);
+    const vTarget = new THREE.Vector3(dirX, dirY, dirZ);
+    if (extGroup && extGroup.quaternion && typeof extGroup.quaternion.clone === "function") {
+      const qInv = extGroup.quaternion.clone();
+      if (typeof qInv.invert === "function") {
+        qInv.invert();
+        vTarget.applyQuaternion(qInv);
+        vTarget.normalize();
+      }
+    }
+    nozzleGroup.quaternion.setFromUnitVectors(vForward, vTarget);
+  }
+
+  const spray = nozzleGroup.getObjectByName("powder-spray");
+  if (spray && spray.scale) {
+    const coneScaleZ = Math.max(0.5, Math.min(2.5, dist / 2.2));
+    spray.scale.set(1, 1, coneScaleZ);
+  }
+}
+
 // animate extinguisher parts and gas spray
-function animateExtinguisherMesh(extGroup, deltaMs, discharging = false) {
+function animateExtinguisherMesh(extGroup, deltaMs, discharging = false, targetWorldPos = null) {
   if (!extGroup || !extGroup.userData) return;
   extGroup.userData._animTime = (extGroup.userData._animTime || 0) + deltaMs;
   const t = extGroup.userData._animTime;
@@ -624,6 +688,12 @@ function animateExtinguisherMesh(extGroup, deltaMs, discharging = false) {
   if (ring && !extGroup.userData._pinPulled) {
     const s = 1.0 + 0.25 * Math.sin(t * 0.009);
     ring.scale.set(s, s, s);
+  }
+
+  const target = targetWorldPos || extGroup.userData.targetWorldPos;
+  const nozzle = extGroup.getObjectByName("extinguisher-nozzle");
+  if (nozzle && target) {
+    orientNozzleTowardTarget(nozzle, extGroup, target);
   }
 
   const spray = extGroup.getObjectByName("powder-spray");
@@ -794,6 +864,7 @@ export {
   animateFireMesh,
   createExtinguisherMesh,
   animateExtinguisherMesh,
+  orientNozzleTowardTarget,
   createPowderSprayMesh,
   animatePowderSpray,
   createExitSignMesh,

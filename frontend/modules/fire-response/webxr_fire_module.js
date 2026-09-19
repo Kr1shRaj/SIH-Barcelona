@@ -177,7 +177,17 @@ function _ensureFrameHandler() {
   if (_frameHandler || !_controller || typeof _controller.onFrame !== "function") return;
   _frameHandler = ({ deltaMs }) => {
     if (_fireMesh) animateFireMesh(_fireMesh, deltaMs);
-    if (_extMesh) animateExtinguisherMesh(_extMesh, deltaMs);
+    if (_extMesh) {
+      let targetPos = _extMesh.userData ? _extMesh.userData.targetWorldPos : null;
+      if (!targetPos && _fireMesh && _fireMesh.position) {
+        targetPos = {
+          x: _fireMesh.position.x,
+          y: (_fireMesh.position.y || 0) + 0.12,
+          z: _fireMesh.position.z
+        };
+      }
+      animateExtinguisherMesh(_extMesh, deltaMs, false, targetPos);
+    }
     if (_exitMesh) animateExitSignMesh(_exitMesh, deltaMs);
     if (_alarmMesh) animateAlarmStationMesh(_alarmMesh, deltaMs);
   };
@@ -692,6 +702,9 @@ function _setupStep1WebXR(container) {
         const s = BASE_FIRE_SCALE * _zoomScale;
         _fireMesh.scale.set(s, s, s);
         _controller.addToScene(_fireMesh);
+        if (_extMesh && _extMesh.userData) {
+          _extMesh.userData.targetWorldPos = { x: firePos.x, y: firePos.y + 0.12, z: firePos.z };
+        }
       }
 
       // setup zoom controls now that objects are anchored in scene
