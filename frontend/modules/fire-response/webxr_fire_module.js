@@ -1764,7 +1764,7 @@ function _setupStep3WebXR(container, _step2Passed) {
 }
 
 // draw final safety log card with mines act compliance
-function _renderDebriefCardWebXR(overlay) {
+function _renderDebriefCardWebXR(overlay, passed = true) {
   if (!overlay) return;
   const existing = document.getElementById("debrief-summary-card");
   if (existing && existing.remove) existing.remove();
@@ -1775,8 +1775,9 @@ function _renderDebriefCardWebXR(overlay) {
   card.id = "debrief-summary-card";
   card.style.cssText = [
     "background:#0f172a", "border:2px solid " + (isExplosive ? "#ef4444" : "#10b981"),
-    "border-radius:12px", "padding:1rem", "margin-bottom:1rem",
-    "color:#fff", "box-shadow:0 4px 14px rgba(0,0,0,0.5)"
+    "border-radius:10px", "padding:0.6rem 0.8rem", "margin:0 auto",
+    "max-width:620px", "color:#fff", "box-shadow:0 4px 14px rgba(0,0,0,0.5)",
+    "box-sizing:border-box"
   ].join(";");
 
   const branchLabel = _currentBranch === "evacuate"
@@ -1786,39 +1787,58 @@ function _renderDebriefCardWebXR(overlay) {
   const alarmStatus = _alarmPulled ? "✔ Sounded & Activated" : (_currentBranch === "evacuate" ? "N/A (Evacuated Immediately)" : "Completed");
 
   card.innerHTML = `
-    <div style="font-size:0.8rem;font-weight:bold;color:${isExplosive ? "#f87171" : "#34d399"};letter-spacing:1px;">📋 DRILL DEBRIEF &amp; MINE SAFETY LOG</div>
-    <div style="font-size:1.1rem;font-weight:bold;margin:0.25rem 0;">Hazard Response Summary</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin:0.5rem 0;font-size:0.85rem;">
-      <div style="background:#1e293b;padding:0.45rem;border-radius:6px;">
-        <span style="color:#94a3b8;display:block;">Methane Level:</span>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem;">
+      <div style="font-size:0.75rem;font-weight:bold;color:${isExplosive ? "#f87171" : "#34d399"};letter-spacing:0.5px;">📋 DRILL DEBRIEF &amp; MINE SAFETY LOG</div>
+      <div style="font-size:0.72rem;font-weight:bold;color:${passed ? "#10b981" : "#f59e0b"};background:rgba(30,41,59,0.9);padding:2px 8px;border-radius:8px;border:1px solid ${passed ? "rgba(16,185,129,0.3)" : "rgba(245,158,11,0.3)"};">
+        ${passed ? "✔ PASSED" : "REVIEW NEEDED"}
+      </div>
+    </div>
+    <div class="debrief-kpi-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;margin:0.3rem 0;font-size:0.78rem;">
+      <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;">
+        <span style="color:#94a3b8;display:block;font-size:0.7rem;">Methane Level:</span>
         <strong style="color:${isExplosive ? "#ef4444" : "#10b981"};">${reading.toFixed(1)}% CH₄ (${isExplosive ? "EXPLOSIVE" : "SAFE/INCIPIENT"})</strong>
       </div>
-      <div style="background:#1e293b;padding:0.45rem;border-radius:6px;">
-        <span style="color:#94a3b8;display:block;">Action Taken:</span>
+      <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;">
+        <span style="color:#94a3b8;display:block;font-size:0.7rem;">Action Taken:</span>
         <strong>${branchLabel}</strong>
       </div>
-      <div style="background:#1e293b;padding:0.45rem;border-radius:6px;">
-        <span style="color:#94a3b8;display:block;">Alarm Station:</span>
+      <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;">
+        <span style="color:#94a3b8;display:block;font-size:0.7rem;">Alarm Station:</span>
         <strong>${alarmStatus}</strong>
       </div>
-      <div style="background:#1e293b;padding:0.45rem;border-radius:6px;">
-        <span style="color:#94a3b8;display:block;">Evacuation Status:</span>
+      <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;">
+        <span style="color:#94a3b8;display:block;font-size:0.7rem;">Evacuation Status:</span>
         <strong style="color:#10b981;">✔ Safe Exit Reached</strong>
       </div>
     </div>
-    <div style="font-size:0.8rem;color:#cbd5e1;line-height:1.4;margin-top:0.35rem;">
+    <div style="font-size:0.72rem;color:#cbd5e1;line-height:1.3;margin:0.25rem 0 0.4rem 0;">
       ${isExplosive
         ? "Mines Act Compliance: Trainee correctly recognized explosive atmosphere above 5.0% LEL and executed immediate evacuation without risking secondary blast."
-        : "Standard Safety Drill: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit."
+        : "Mines Act Compliance: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit."
       }
     </div>
   `;
 
-  if (overlay && typeof overlay.insertBefore === "function" && overlay.firstChild) {
-    overlay.insertBefore(card, overlay.firstChild);
-  } else if (overlay && typeof overlay.appendChild === "function") {
-    overlay.appendChild(card);
-  }
+  const btnExit = document.createElement("button");
+  btnExit.id = "btn-exit-module";
+  btnExit.className = "safear-btn-exit";
+  btnExit.style.cssText = [
+    "display:block", "width:100%", "padding:0.6rem 1rem",
+    "background:#10b981 !important", "color:#ffffff !important",
+    "border:none !important", "border-radius:8px !important",
+    "font-size:0.95rem !important", "font-weight:bold !important",
+    "cursor:pointer !important", "text-align:center !important",
+    "box-shadow:0 0 14px rgba(16,185,129,0.35) !important",
+    "letter-spacing:0.5px !important", "margin-top:0.3rem !important"
+  ].join(";");
+  btnExit.textContent = "✔ Finish & Exit Drill";
+  btnExit.addEventListener("click", () => {
+    cleanupWebXRFireModule();
+    unloadModule();
+  });
+  card.appendChild(btnExit);
+
+  overlay.appendChild(card);
 }
 
 // completion screen
@@ -1826,27 +1846,8 @@ function _showCompletionWebXR(overlay, container, passed) {
   dismissWebXRDiag();
   if (!overlay) return;
   _updateWebXRDiag(`Module Complete | Passed: ${passed}`);
-  overlay.innerHTML = `
-    <div style="font-size:1.15rem;font-weight:bold;color:${passed ? "#00e676" : "#ff1744"};margin-bottom:0.5rem;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">
-      ${passed ? t("cert.passed", "✔ Module Complete — All Steps Passed") : t("cert.review_needed", "✖ Module Complete — Review Needed")}
-    </div>
-    <div style="font-size:0.92rem;color:#f1f5f9;margin-bottom:0.8rem;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">
-      ${passed ? t("fire.complete_pass_desc", "Excellent work! You completed the PASS fire extinguisher technique correctly.") : t("fire.complete_fail_desc", "Some steps need improvement. Review the PASS technique and try again.")}
-    </div>
-  `;
-
-  _renderDebriefCardWebXR(overlay);
-
-  const btnExit = document.createElement("button");
-  btnExit.id = "btn-exit-module";
-  btnExit.style.cssText = "margin-top:0.6rem;padding:0.75rem 0;background:transparent !important;color:#ff6a00;border:none !important;outline:none !important;box-shadow:none !important;font-size:1.05rem;cursor:pointer;font-weight:bold;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);";
-  btnExit.textContent = t("app.exit_module", "✖ Exit Module");
-  btnExit.addEventListener("click", () => {
-    cleanupWebXRFireModule();
-    unloadModule();
-  });
-  overlay.appendChild(btnExit);
-
+  overlay.innerHTML = "";
+  _renderDebriefCardWebXR(overlay, passed);
   logger.info({ event: "webxr_fire_module_complete", passed }, "Fire module complete (WebXR)");
 }
 

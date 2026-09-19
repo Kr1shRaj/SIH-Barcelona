@@ -703,6 +703,30 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     assert.ok(removedMeshes.length > 0, "Controller removeFromScene must be called during cleanup");
   });
 
+  it("debrief card renders #btn-exit-module and clicking it cleanly unloads module and cleans up WebXR state", () => {
+    const container = _makeEl("container");
+    const overlay = _makeEl("fire-module-overlay");
+    container.appendChild(overlay);
+
+    _renderDebriefCardWebXR(overlay);
+    const card = document.getElementById("debrief-summary-card");
+    assert.ok(card, "Debrief card must exist");
+
+    const exitBtn = document.getElementById("btn-exit-module");
+    assert.ok(exitBtn, "#btn-exit-module must exist inside debrief card");
+    assert.ok(exitBtn.textContent.includes("Finish & Exit"), "Exit button text must invite completion");
+
+    let unloadedEventFired = false;
+    const handler = () => { unloadedEventFired = true; };
+    window.addEventListener("safear:module_unloaded", handler, { once: true });
+
+    exitBtn.click();
+
+    assert.ok(unloadedEventFired, "safear:module_unloaded event must be fired on exit click");
+    assert.strictEqual(document.getElementById("debrief-summary-card"), null, "Debrief card removed");
+    assert.strictEqual(document.getElementById("fire-module-overlay"), null, "Overlay cleaned up");
+  });
+
   it("_computePlacementPose snaps to vertical surface when wall hit detected", () => {
     const container = _makeEl("container");
     const mockHitPose = {
