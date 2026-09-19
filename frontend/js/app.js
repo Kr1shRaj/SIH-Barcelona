@@ -6,6 +6,7 @@ import { setTierLoaders, loadModule, unloadModule } from "./module-loader.js";
 import { t, loadLocale, setLocale } from "./i18n.js";
 import { registerScreens, showScreen } from "../screens/router.js";
 import { mountLanguageScreen, readLocalePreference } from "../screens/language.js";
+import { mountSplashScreen } from "../screens/splash.js";
 import { mountModulesScreen } from "../screens/modules.js";
 import { mountPrerequisiteScreen } from "../prerequisite/screen.js";
 import { queueEligibleCertificates, flushPendingCertificates } from "./certificates.js";
@@ -447,7 +448,16 @@ function startScreenFlow(container) {
     training: (host, params) => startTraining(host, params && params.moduleId)
   });
 
-  return showScreen("language");
+  // The loading screen goes up first and hands over to the same first screen the
+  // flow has always started on. It is not a step in SCREEN_ORDER and it gates
+  // nothing — if its timers never fire, the handover still runs.
+  enterScreenMode();
+  return new Promise((resolve) => {
+    mountSplashScreen({
+      container,
+      onDone: () => resolve(showScreen("language"))
+    });
+  });
 }
 
 

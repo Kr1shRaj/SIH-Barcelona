@@ -1,6 +1,6 @@
 # Santali Translation Manifest — Equipment Familiarization
 
-101 strings introduced by the equipment familiarization feature need a
+103 strings introduced by the equipment familiarization and loading screens need a
 human Santali (Ol Chiki) translation.
 
 None of them were machine-translated. Ol Chiki has no settled vocabulary for most of
@@ -28,6 +28,8 @@ carries them better than the screen does.
 
 | Key | English source | Hindi reference |
 |---|---|---|
+| `app.tagline` | Ready before it's real. | असली हालात से पहले तैयारी। |
+| `app.splash_loading` | Preparing your training environment | आपका प्रशिक्षण वातावरण तैयार हो रहा है |
 | `app.select_language_hint` | Choose your preferred language | अपनी पसंद की भाषा चुनें |
 | `equipment.fire_extinguisher.components.handle.desc` | Squeeze to discharge. Release to stop. | छोड़ने के लिए दबाएं। रोकने के लिए छोड़ दें। |
 | `equipment.fire_extinguisher.components.handle.label` | Handle / Lever | हैंडल / लीवर |

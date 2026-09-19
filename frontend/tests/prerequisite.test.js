@@ -93,6 +93,15 @@ import { SAT_PENDING_KEYS, isTranslationPending, pendingKeysForLocale } from "..
 import { renderLanguageHtml, LANGUAGE_NATIVE_NAMES, BRAND_LOGO } from "../screens/language.js";
 import { renderModulesHtml, TRAINING_MODULES } from "../screens/modules.js";
 import { SCREEN_ORDER, nextScreen } from "../screens/router.js";
+import {
+  BRAND_LOGO as SPLASH_LOGO,
+  BRAND_LOGO_SIZE,
+  SPLASH_HOLD_MS,
+  SPLASH_REDUCED_MS,
+  splashTimings,
+  renderSplashHtml,
+  mountSplashScreen
+} from "../screens/splash.js";
 import { loadLocale, setLocale, clearLocales, t } from "../js/i18n.js";
 import { setTierLoaders, loadModule, unloadModule } from "../js/module-loader.js";
 import { getEffectiveWorkerId } from "../assessment/engine.js";
@@ -2633,5 +2642,176 @@ describe("21. no dotted or dashed lines in the familiarization UI", () => {
       assert.ok(!/dashed|dotted|stroke-dasharray/.test(html), `${phase} renders a dashed line`);
     });
     assert.ok(!/dashed|dotted/.test(renderSelectionPanel(fire, null)));
+  });
+});
+
+describe("22. the loading screen, and the logo it carries", () => {
+  const BRAND_DIR = path.join(FRONTEND, "assets/brand");
+  const readCss = (file) => fs.readFileSync(path.join(FRONTEND, "css", file), "utf8");
+
+  // width and height out of a png's IHDR, so the test reads the real file rather
+  // than trusting a number written next to it
+  const pngSize = (file) => {
+    const head = fs.readFileSync(file).subarray(0, 24);
+    return { width: head.readUInt32BE(16), height: head.readUInt32BE(20) };
+  };
+
+  it("22a. the supplied logo ships untouched, and what renders is a crop of it", () => {
+    const source = path.join(BRAND_DIR, "safear-logo-source.png");
+    const derived = path.join(BRAND_DIR, "safear-logo.png");
+    assert.ok(fs.existsSync(source), "the supplied logo must be kept as the source of truth");
+    assert.ok(fs.existsSync(derived), "the app needs a rendered logo");
+
+    // the supplied file, exactly as it arrived
+    assert.deepStrictEqual(pngSize(source), { width: 512, height: 156 });
+
+    // the derived one is the same image with its white margin cropped off: smaller
+    // in both directions, and the ink's own proportions kept to within a percent
+    const cut = pngSize(derived);
+    assert.deepStrictEqual(cut, BRAND_LOGO_SIZE, "BRAND_LOGO_SIZE must match the file on disk");
+    assert.ok(cut.width < 512 && cut.height < 156, "the derived asset must be a crop, never an upscale");
+    assert.ok(Math.abs(cut.width / cut.height - 471 / 112) < 0.01);
+  });
+
+  it("22b. one logo in the product, and no stand-in for it anywhere", () => {
+    assert.strictEqual(SPLASH_LOGO, "./assets/brand/safear-logo.png");
+    assert.strictEqual(BRAND_LOGO, SPLASH_LOGO, "the two screens must render the same file");
+
+    const html = renderSplashHtml() + renderLanguageHtml("en");
+    // the shield emoji the screens used before the real logo existed
+    assert.ok(!html.includes("128737"), "the emoji shield must not stand in for the logo");
+    assert.ok(!html.includes("lang-brand__name"), "the product name must not stand in for the logo");
+
+    // never stretched: a width is set in css, the height follows the file
+    const css = readCss("prerequisite.css");
+    const logoRules = [
+      css.slice(css.indexOf(".splash__logo {"), css.indexOf(".splash__tagline {")),
+      css.slice(css.indexOf(".lang-brand__logo {"), css.indexOf(".lang-brand__mark {"))
+    ];
+    logoRules.forEach((rule) => {
+      assert.match(rule, /height: auto/, "the logo must keep its own proportions");
+      assert.ok(!/object-fit|transform: scale|height:\s*[0-9]/.test(rule), "the logo must not be scaled or cropped by css");
+    });
+  });
+
+  it("22c. the loading screen renders the mark, a tagline and honest progress", () => {
+    setLocale("en");
+    const html = renderSplashHtml();
+
+    assert.match(html, /<img class="splash__logo"[^>]*src="\.\/assets\/brand\/safear-logo\.png"/);
+    assert.match(html, /<img class="splash__logo"[^>]*alt="[^"]+"/, "the mark needs an accessible name");
+    // the box is reserved before the file lands, so the screen does not jump
+    assert.match(html, /width="471" height="112"/);
+
+    assert.ok(html.includes(t("app.tagline", {}, "")), "the tagline must be a translated string");
+    assert.ok(html.includes(t("app.splash_loading", {}, "")));
+    assert.ok(html.includes("splash__fill"), "there must be a progress treatment");
+    assert.ok(!/spinner|spin/.test(html));
+  });
+
+  it("22d. it holds for about two and a half seconds, and less when motion is reduced", () => {
+    assert.ok(SPLASH_HOLD_MS >= 2000 && SPLASH_HOLD_MS <= 3000, "the hold must be 2-3 seconds");
+
+    const normal = splashTimings(false);
+    const reduced = splashTimings(true);
+    assert.strictEqual(normal.hold, SPLASH_HOLD_MS);
+    assert.strictEqual(reduced.hold, SPLASH_REDUCED_MS);
+    assert.ok(reduced.hold < normal.hold, "reduced motion must not mean a longer wait");
+    assert.strictEqual(reduced.exit, 0, "there is no fade to wait for when nothing fades");
+  });
+
+  it("22e. the app starts even if the timers never fire", () => {
+    // node has no window, which is also what a phone looks like if setTimeout is
+    // gone: the handover must still happen, exactly once
+    let started = 0;
+    const container = { innerHTML: "", querySelector: () => null };
+    const handle = mountSplashScreen({ container, onDone: () => { started += 1; } });
+
+    assert.strictEqual(started, 1, "the first screen must be reached");
+    handle.finish();
+    assert.strictEqual(started, 1, "and reached only once");
+  });
+
+  it("22f. the loading screen is not a step in the flow", () => {
+    // the worker's journey is unchanged: the loading screen is what the app shows
+    // while it comes up, so it gates nothing and cannot be navigated to
+    assert.deepStrictEqual(SCREEN_ORDER, ["language", "prerequisite", "modules", "training"]);
+
+    const src = fs.readFileSync(path.join(FRONTEND, "js/app.js"), "utf8");
+    const flow = src.slice(src.indexOf("function startScreenFlow"));
+    assert.ok(flow.includes("mountSplashScreen"), "the flow must open on the loading screen");
+    assert.match(flow, /onDone: \(\) => resolve\(showScreen\("language"\)\)/, "and hand over to the screen it always did");
+  });
+
+  it("22g. nothing on the loading screen loops, and reduced motion stops it moving", () => {
+    const css = readCss("prerequisite.css");
+    const block = css.slice(css.indexOf(".splash {"), css.indexOf("/* ---------- language picker"));
+
+    assert.ok(!/infinite|alternate/.test(block), "the loading screen must not loop");
+    assert.ok(!/@keyframes/.test(block), "its entrance is a class, so reduced motion can switch it off");
+    assert.match(block, /env\(safe-area-inset-top/, "it must clear the status bar");
+    assert.match(block, /env\(safe-area-inset-bottom/, "and the gesture bar");
+
+    const reduced = block.slice(block.indexOf("@media (prefers-reduced-motion: reduce)"));
+    [".splash", ".splash__plate", ".splash__tagline", ".splash__fill"].forEach((selector) => {
+      assert.ok(reduced.includes(selector), `${selector} must be covered by reduced motion`);
+    });
+    assert.match(reduced, /transition: none/);
+  });
+
+  it("22h. the palette comes from the logo, and the blue-slate one is gone", () => {
+    const style = readCss("style.css");
+    const tokens = style.slice(style.indexOf(":root {"), style.indexOf("* {"));
+
+    // the two values sampled out of the supplied file
+    assert.match(tokens, /--brand-navy: #01172e;/);
+    assert.match(tokens, /--brand-yellow: #febc04;/);
+    assert.match(tokens, /--color-primary: var\(--brand-yellow\);/, "yellow is the action colour");
+    assert.match(tokens, /--color-on-primary: var\(--brand-navy\);/, "and navy is what sits on it");
+
+    // the ground is neutral: no channel may lean blue the way #0f172a did
+    const ground = tokens.match(/--color-bg: #([0-9a-f]{6});/)[1];
+    const [r, g, b] = [0, 2, 4].map((i) => parseInt(ground.slice(i, i + 2), 16));
+    assert.ok(b - r <= 6 && b - g <= 6, `the ground still leans blue: #${ground}`);
+
+    // and the old palette is not still hiding in the UI. the equipment illustrations
+    // further down prerequisite.css are excluded on purpose: those hexes are paint
+    // for drawn objects — a black rubber strap, a dark vent — not chrome.
+    const screens = readCss("prerequisite.css");
+    const all = style + screens.slice(0, screens.indexOf("/* ---------- equipment art palette"));
+    ["#0f172a", "#1e293b", "#f59e0b", "#94a3b8", "#33445e", "#263449"].forEach((hex) => {
+      assert.ok(!all.includes(hex), `${hex} is left over from the blue-slate palette`);
+    });
+  });
+
+  it("22i. the screens share one palette instead of keeping a second one", () => {
+    const css = readCss("prerequisite.css");
+    const tokens = css.slice(css.indexOf(":root {"), css.indexOf("#app.screen-mode"));
+    assert.match(tokens, /--eq-surface-raised: var\(--color-surface-raised\);/);
+    assert.match(tokens, /--eq-line: var\(--color-line\);/);
+  });
+
+  it("22j. the new strings are translated where they can be, and flagged where they cannot", () => {
+    ["app.tagline", "app.splash_loading"].forEach((key) => {
+      ["en", "hi"].forEach((locale) => {
+        const dict = JSON.parse(fs.readFileSync(path.join(FRONTEND, `locales/${locale}.json`), "utf8"));
+        const value = key.split(".").reduce((node, part) => node && node[part], dict);
+        assert.ok(value && value.trim().length > 0, `${key} is missing from ${locale}`);
+      });
+      // santali has neither yet, so both are declared pending rather than shown as
+      // santali. the manifest test next door checks the file on disk agrees.
+      assert.ok(SAT_PENDING_KEYS.has(key), `${key} must be tracked as pending for santali`);
+      assert.strictEqual(isTranslationPending("sat", key), true);
+    });
+
+    const en = JSON.parse(fs.readFileSync(path.join(FRONTEND, "locales/en.json"), "utf8"));
+    assert.ok(en.app.tagline.length <= 40, "the tagline must stay short enough to read at a glance");
+  });
+
+  it("22k. the logo is on the phone underground, and the source file is not shipped", () => {
+    const sw = fs.readFileSync(path.join(FRONTEND, "sw.js"), "utf8");
+    assert.ok(sw.includes(`"${SPLASH_LOGO}"`), "the rendered logo must be precached");
+    assert.ok(sw.includes('"./screens/splash.js"'), "so must the screen that draws it");
+    assert.ok(!sw.includes("safear-logo-source.png"), "the source file is not something a phone needs");
   });
 });

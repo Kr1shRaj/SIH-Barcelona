@@ -1,13 +1,17 @@
-/* SafeAR — language picker, equipment familiarization, module selection.
-   These screens run before the camera does, so they are ordinary scrolling DOM
-   rather than an overlay on a live AR viewport. Built on the tokens in style.css. */
+/* SafeAR — loading screen, language picker, equipment familiarization, module
+   selection. These screens run before the camera does, so they are ordinary
+   scrolling DOM rather than an overlay on a live AR viewport. Every colour comes
+   from the tokens in style.css. */
 
 :root {
-  --eq-surface-raised: #263449;
-  --eq-line: #33445e;
-  --eq-scrim: rgba(6, 12, 24, 0.82);
+  /* these were their own blue-grey once, which is how the screens ended up a
+     different colour from the rest of the product. they are now names for the
+     shared tokens, so there is one palette and not two. */
+  --eq-surface-raised: var(--color-surface-raised);
+  --eq-line: var(--color-line);
+  --eq-scrim: rgba(6, 7, 8, 0.84);
   --eq-tap: 48px;
-  --eq-radius: 14px;
+  --eq-radius: var(--radius-lg);
 }
 
 /* #app is a pointer-transparent HUD while AR runs. these screens are the app. */
@@ -46,7 +50,15 @@
 
 .eq-btn--primary {
   background: var(--color-primary);
-  color: #1a1205;
+  color: var(--color-on-primary);
+}
+
+/* a disabled action is a quiet surface, never a faded accent — amber at 42% went
+   muddy brown and still read as pressable */
+.eq-btn--primary[disabled] {
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  opacity: 1;
 }
 
 .eq-btn--ghost {
@@ -83,6 +95,174 @@
   opacity: 0.88;
 }
 
+/* ---------- loading screen ----------
+   What the app looks like while it comes up: the mark, one line about what this
+   product is for, and an honest progress bar. It holds for about two and a half
+   seconds and leaves.
+
+   The logo sits on a white plate because the logo is drawn in navy on white and
+   this product's ground is graphite. Recolouring the mark would make it a different
+   logo, and keying the white out would leave a halo on every letterform, so it
+   keeps the surface it was drawn for. On graphite that reads as the nameplate on a
+   piece of equipment, which is the right note for a safety trainer. */
+
+.splash {
+  position: fixed;
+  inset: 0;
+  z-index: 950;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(2rem, 9vh, 4rem);
+  padding:
+    calc(env(safe-area-inset-top, 0px) + 2rem)
+    1.5rem
+    calc(env(safe-area-inset-bottom, 0px) + 2.5rem);
+  background: var(--color-bg);
+  text-align: center;
+
+  /* the screen itself fades in as one thing, so there is no flash of a half-built
+     layout on a slow phone */
+  opacity: 0;
+  transition: opacity var(--dur-fade) var(--ease-out);
+}
+
+.splash--in {
+  opacity: 1;
+}
+
+.splash--out {
+  opacity: 0;
+}
+
+.splash__stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+/* the logo's own surface. the padding is the clear space, kept proportional to the
+   mark so it holds at every width. */
+.splash__plate {
+  display: inline-flex;
+  padding: clamp(0.9rem, 3.5vw, 1.25rem) clamp(1.25rem, 5vw, 1.75rem);
+  background: var(--color-brand-plate);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+
+  /* a small rise, once. nothing here loops. */
+  transform: translateY(10px);
+  transition:
+    transform var(--dur-move) var(--ease-out),
+    opacity var(--dur-move) var(--ease-out);
+  opacity: 0;
+}
+
+.splash--in .splash__plate {
+  transform: none;
+  opacity: 1;
+}
+
+/* the mark itself: never stretched, never cropped, never upscaled past what the
+   supplied file can carry */
+.splash__logo {
+  display: block;
+  width: clamp(11rem, 52vw, 15rem);
+  height: auto;
+  max-width: 100%;
+}
+
+.splash__tagline {
+  max-width: 22rem;
+  font-size: clamp(0.95rem, 4vw, 1.05rem);
+  font-weight: 600;
+  line-height: 1.45;
+  letter-spacing: 0.01em;
+  color: var(--color-text);
+  text-wrap: balance;
+
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    transform var(--dur-move) var(--ease-out) 120ms,
+    opacity var(--dur-move) var(--ease-out) 120ms;
+}
+
+.splash--in .splash__tagline {
+  transform: none;
+  opacity: 1;
+}
+
+.splash__foot {
+  width: 100%;
+  max-width: 17rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+/* a real bar that crosses once, not a spinner that says nothing */
+.splash__track {
+  width: 100%;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--color-line);
+  overflow: hidden;
+}
+
+.splash__fill {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 2100ms var(--ease-out);
+}
+
+.splash--in .splash__fill {
+  transform: scaleX(1);
+}
+
+.splash__status {
+  font-size: 0.82rem;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  color: var(--color-text-muted);
+  opacity: 0;
+  transition: opacity var(--dur-fade) var(--ease-out) 200ms;
+}
+
+.splash--in .splash__status {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* everything is simply there. the bar shows the state it would have finished in
+     rather than crossing, because a progress bar that cannot move should not
+     pretend it is about to. */
+  .splash,
+  .splash__plate,
+  .splash__tagline,
+  .splash__status {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .splash__fill {
+    transform: scaleX(1);
+    transition: none;
+  }
+
+  .splash--out {
+    opacity: 0;
+  }
+}
+
 /* ---------- language picker ----------
    The first screen a worker ever sees, so it carries the product's name and then
    gets out of the way. Three choices, each one dominant inside its own card, with
@@ -97,10 +277,16 @@
   --lang-width: 26rem;
   --lang-gap: 0.7rem;
 
+  /* it arrives as the loading screen leaves, so the handover reads as one move */
+  animation: screen-in var(--dur-fade) var(--ease-out) both;
+
   width: 100%;
   max-width: var(--lang-width);
   margin: 0 auto;
-  padding: clamp(1.75rem, 7vh, 3.5rem) 1.25rem clamp(2rem, 6vh, 3rem);
+  padding:
+    calc(env(safe-area-inset-top, 0px) + clamp(1.75rem, 7vh, 3.5rem))
+    1.25rem
+    calc(env(safe-area-inset-bottom, 0px) + clamp(2rem, 6vh, 3rem));
   text-align: center;
 
   /* The block sat in the top half with a third of the screen empty under it. The
@@ -114,20 +300,29 @@
   flex-direction: column;
 }
 
-/* the mark and the name read as one lockup, not two stacked things */
+/* the logo, on the same white plate the loading screen hands it over on — the two
+   screens are one moment, so the mark must not change shape between them */
 .lang-brand {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.55rem;
   margin-top: auto;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.75rem;
+}
+
+.lang-brand__plate {
+  display: inline-flex;
+  padding: 0.7rem 1rem;
+  background: var(--color-brand-plate);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
 }
 
 .lang-brand__logo {
   display: block;
-  height: 2.5rem;
-  width: auto;
+  width: clamp(8.5rem, 38vw, 10.5rem);
+  height: auto;
   max-width: 100%;
 }
 
@@ -183,7 +378,7 @@
   background: var(--color-surface);
   border: 1px solid var(--eq-line);
   border-radius: var(--eq-radius);
-  box-shadow: 0 1px 2px rgba(2, 6, 18, 0.5);
+  box-shadow: var(--shadow-sm);
   color: var(--color-text);
   font-family: inherit;
   cursor: pointer;
@@ -198,21 +393,31 @@
 @media (hover: hover) {
   .lang-btn:hover {
     border-color: var(--color-text-muted);
-    box-shadow: 0 4px 12px rgba(2, 6, 18, 0.55);
+    box-shadow: var(--shadow-md);
     transform: translateY(-1px);
   }
 }
 
 .lang-btn:active {
   transform: translateY(0);
-  box-shadow: 0 1px 2px rgba(2, 6, 18, 0.5);
+  box-shadow: var(--shadow-sm);
 }
 
 /* the language already in use. the inset ring thickens the border without moving
    anything, so the card does not jump a pixel when the choice changes. */
+/* the language already in use. a yellow edge plus a yellow rail down the leading
+   side — restrained, and it survives a sunlit screen where a tint would not. the
+   inset ring thickens the border without moving anything, so the card does not
+   jump a pixel when the choice changes. */
 .lang-btn--active {
   border-color: var(--color-primary);
-  box-shadow: inset 0 0 0 1px var(--color-primary), 0 1px 2px rgba(2, 6, 18, 0.5);
+  box-shadow:
+    inset 0 0 0 1px var(--color-primary),
+    inset 4px 0 0 0 var(--color-primary),
+    var(--shadow-sm);
+  /* the latin label picks the brand colour up from here rather than from a
+     selector of its own */
+  --lang-roman: var(--color-primary);
 }
 
 .lang-btn__native {
@@ -229,7 +434,7 @@
   line-height: 1.2;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--color-text-muted);
+  color: var(--lang-roman, var(--color-text-muted));
 }
 
 @media (min-width: 40rem) {
@@ -627,7 +832,7 @@
   height: 1.05rem;
   border-radius: 50%;
   background: var(--color-info);
-  color: #04121c;
+  color: var(--brand-navy);
   font-size: 0.62rem;
   font-weight: 700;
   display: inline-flex;
@@ -685,7 +890,7 @@
   height: 1.25rem;
   border-radius: 50%;
   background: var(--color-info);
-  color: #04121c;
+  color: var(--brand-navy);
   font-size: 0.7rem;
   font-weight: 700;
   display: inline-flex;
@@ -760,7 +965,7 @@
   margin-top: 1rem;
   padding: 0.7rem 0.85rem;
   border-radius: 10px;
-  background: rgba(245, 158, 11, 0.12);
+  background: rgba(254, 188, 4, 0.1);
   border: 1.5px solid var(--color-primary);
   font-size: 0.86rem;
   color: var(--color-text);
@@ -857,6 +1062,12 @@
   clip-path: inset(50%);
   white-space: nowrap;
   border: 0;
+}
+
+/* a screen arrives, once. the loading screen hands over to it. */
+@keyframes screen-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
 }
 
 /* the modal arrives, once */
@@ -1123,7 +1334,7 @@
   height: 1.05rem;
   border-radius: 50%;
   background: var(--color-info);
-  color: #04121c;
+  color: var(--brand-navy);
   font-size: 0.62rem;
   font-weight: 700;
   display: flex;
@@ -1216,7 +1427,7 @@
   height: 1.4rem;
   border-radius: 50%;
   background: var(--color-info);
-  color: #04121c;
+  color: var(--brand-navy);
   font-size: 0.78rem;
   font-weight: 700;
   display: inline-flex;
@@ -1248,7 +1459,8 @@
    exactly the same. */
 @media (prefers-reduced-motion: reduce) {
   .eq-dialog,
-  .eq-scrim {
+  .eq-scrim,
+  .lang-screen {
     animation: none;
   }
 

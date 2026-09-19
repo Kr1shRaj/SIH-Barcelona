@@ -289,14 +289,14 @@ describe("the cache version tracks the asset list", () => {
   // An installed phone keeps serving the old cache until CACHE_NAME changes, so a
   // new asset with an unchanged name reaches nobody. This fingerprint is the tripwire:
   // edit STATIC_ASSETS and this fails until the version is bumped and the hash updated.
-  const ASSET_GRAPH_FINGERPRINT = "1bab64c9fc1d941f";
-  const EXPECTED_CACHE_NAME = "safear-offline-v13";
+  const ASSET_GRAPH_FINGERPRINT = "13fd6a3fd2d37dc2";
+  const EXPECTED_CACHE_NAME = "safear-offline-v14";
 
   function fingerprint(assets) {
     return crypto.createHash("sha256").update([...assets].sort().join("\n")).digest("hex").slice(0, 16);
   }
 
-  it("25. is on the version that ships the gas leak set", () => {
+  it("25. is on the version that ships the brand assets", () => {
     assert.strictEqual(CACHE_NAME, EXPECTED_CACHE_NAME);
   });
 

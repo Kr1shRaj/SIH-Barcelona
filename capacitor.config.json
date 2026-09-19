@@ -4,5 +4,9 @@
   "webDir": "frontend",
   "server": {
     "cleartext": true
+  },
+  "backgroundColor": "#111315",
+  "android": {
+    "backgroundColor": "#111315"
   }
 }

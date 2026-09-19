@@ -21,19 +21,12 @@ const LANGUAGE_ROMAN_NAMES = {
 
 const LANGUAGE_STORAGE_KEY = "safear_locale";
 
-// Where the SafeAR logo goes, when there is one.
-//
-// There is no logo asset in this repository — no svg, no png, no icon, no web
-// manifest, and no existing logo component anywhere in frontend/ or dashboard/. The
-// only SafeAR wordmarks that exist are printed onto the supplied equipment
-// photographs, and cutting one out of a jpeg is not a brand asset. So rather than
-// draw a stand-in mark, the header shows the product name beside the shield the
-// screen already used.
-//
-// Point this at a file — "./assets/brand/safear-logo.svg", say — and the header uses
-// it instead, at the size and spacing the stylesheet already reserves. Add the file
-// to STATIC_ASSETS in sw.js at the same time so it is on the phone underground.
-const BRAND_LOGO = null;
+// The supplied SafeAR logo, trimmed to its own ink so the clear space around it is
+// the stylesheet's to set. The untouched original is beside it as
+// safear-logo-source.png — see assets/brand/README.md. Same file the loading screen
+// uses, so there is one logo in the product and not two.
+const BRAND_LOGO = "./assets/brand/safear-logo.png";
+const BRAND_LOGO_SIZE = { width: 471, height: 112 };
 
 // escape anything that reaches innerHTML
 function _esc(value) {
@@ -94,8 +87,13 @@ function renderLanguageHtml(activeLocale) {
       </li>`;
   }).join("");
 
+  // the logo is drawn in navy on white, so it keeps the white surface it was drawn
+  // for rather than being recoloured or keyed out — see splash.js for the why
   const brand = BRAND_LOGO
-    ? `<img class="lang-brand__logo" src="${_esc(BRAND_LOGO)}" alt="${_esc(t("app.title", {}, "SafeAR"))}" />`
+    ? `<span class="lang-brand__plate">
+         <img class="lang-brand__logo" src="${_esc(BRAND_LOGO)}" alt="${_esc(t("app.title", {}, "SafeAR"))}"
+           width="${BRAND_LOGO_SIZE.width}" height="${BRAND_LOGO_SIZE.height}" decoding="async" />
+       </span>`
     : `<span class="lang-brand__mark" aria-hidden="true">&#128737;</span>
        <span class="lang-brand__name">SafeAR</span>`;
 
@@ -147,6 +145,7 @@ function mountLanguageScreen({ container, onPicked } = {}) {
 
 export {
   BRAND_LOGO,
+  BRAND_LOGO_SIZE,
   LANGUAGE_NATIVE_NAMES,
   LANGUAGE_ROMAN_NAMES,
   LANGUAGE_STORAGE_KEY,

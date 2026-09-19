@@ -1,13 +1,62 @@
-/* SafeAR base mobile styles */
+/* SafeAR base mobile styles.
+
+   THE PALETTE. Every colour in the product comes from here, and the two brand
+   values come from the logo itself — sampled out of assets/brand/safear-logo-source.png
+   rather than guessed at, so the UI and the mark cannot drift apart.
+
+   The ground is a neutral graphite, not a blue-grey. The old slate carried a blue
+   cast that fought the brand navy and made the whole product read as a generic dark
+   web app. Neutral lets the navy be the only navy on screen and the yellow be the
+   only thing that shouts.
+
+   How the accents are meant to be spent:
+     yellow   the one action a worker should take next, and nothing else
+     success  an outcome that went well. never decoration
+     danger   an outcome that did not, and real hazard
+     info     technical annotation — callout lines, exploded-view arrows, selection
+
+   Contrast against the ground, measured: text 16.5:1, muted 8.3:1, yellow 10.4:1,
+   navy on yellow 10.8:1. All well past the 4.5:1 floor, which matters on a scratched
+   phone screen in a lit yard. */
 :root {
-  --color-bg: #0f172a;
-  --color-surface: #1e293b;
-  --color-primary: #f59e0b;
-  --color-text: #f8fafc;
-  --color-text-muted: #94a3b8;
-  --color-danger: #ef4444;
-  --color-success: #10b981;
+  /* brand. sampled from the supplied logo, exact. */
+  --brand-navy: #01172e;
+  --brand-yellow: #febc04;
+
+  /* ground and surfaces */
+  --color-bg: #111315;
+  --color-surface: #1a1d20;
+  --color-surface-raised: #23272b;
+  --color-line: #343a40;
+
+  /* the white the logo was drawn on. its plate, and nothing else. */
+  --color-brand-plate: #ffffff;
+
+  --color-text: #f3f4f6;
+  --color-text-muted: #a7adb5;
+
+  /* anything sitting ON the yellow is navy, never black and never white */
+  --color-on-primary: var(--brand-navy);
+
+  --color-primary: var(--brand-yellow);
+  --color-success: #2f9e63;
+  --color-danger: #e04a3f;
   --color-info: #38bdf8;
+
+  /* one radius scale */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  /* elevation: a line plus a soft shadow. no glow anywhere in this product. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.5);
+
+  /* motion. the same four durations everywhere. */
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur-quick: 160ms;
+  --dur-fade: 240ms;
+  --dur-move: 440ms;
 }
 
 * {
@@ -174,7 +223,7 @@ canvas.a-canvas {
 }
 
 .tier-badge.tier-2 {
-  background: rgba(245, 158, 11, 0.2);
+  background: rgba(254, 188, 4, 0.18);
   color: var(--color-primary);
   border: 1px solid var(--color-primary);
 }
@@ -327,7 +376,7 @@ canvas.a-canvas {
 
 .retry-btn {
   background: var(--color-primary);
-  color: #000;
+  color: var(--color-on-primary);
   border: none;
   font-size: 1rem;
   font-weight: 600;

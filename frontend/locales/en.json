@@ -1,6 +1,8 @@
 {
   "app": {
     "title": "SafeAR — Industrial Safety Training",
+    "tagline": "Ready before it's real.",
+    "splash_loading": "Preparing your training environment",
     "select_language": "Select Language",
     "select_language_hint": "Choose your preferred language",
     "start_training": "Start Training",

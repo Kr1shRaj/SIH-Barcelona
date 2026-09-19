@@ -14,6 +14,8 @@ import { allEquipmentLocaleKeys } from "./equipment-data.js";
 
 // prerequisite chrome, over and above the equipment content itself
 const PREREQUISITE_UI_KEYS = [
+  "app.tagline",
+  "app.splash_loading",
   "app.select_language_hint",
   "prerequisite.title",
   "prerequisite.subtitle",

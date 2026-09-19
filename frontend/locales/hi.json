@@ -1,6 +1,8 @@
 {
   "app": {
     "title": "SafeAR — सुरक्षा प्रशिक्षण",
+    "tagline": "असली हालात से पहले तैयारी।",
+    "splash_loading": "आपका प्रशिक्षण वातावरण तैयार हो रहा है",
     "select_language": "भाषा चुनें",
     "select_language_hint": "अपनी पसंद की भाषा चुनें",
     "start_training": "प्रशिक्षण शुरू करें",
