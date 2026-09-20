@@ -49,6 +49,7 @@ let _placementScreenTap = null;
 let _placementConfirmedHandler = null;
 let _alarmPlacementFrameHandler = null;
 let _exitPlacementFrameHandler = null;
+let _exitWalkFrameHandler = null;
 let _alarmPointerTapHandler = null;
 let _exitPointerTapHandler = null;
 let _step3ExitTapHandler = null;
@@ -512,6 +513,10 @@ function cleanupWebXRFireModule() {
   if (_exitPlacementFrameHandler && _controller && typeof _controller.offFrame === "function") {
     _controller.offFrame(_exitPlacementFrameHandler);
     _exitPlacementFrameHandler = null;
+  }
+  if (_exitWalkFrameHandler && _controller && typeof _controller.offFrame === "function") {
+    _controller.offFrame(_exitWalkFrameHandler);
+    _exitWalkFrameHandler = null;
   }
   if (_alarmPointerTapHandler && typeof window !== "undefined") {
     window.removeEventListener("pointerdown", _alarmPointerTapHandler);
@@ -1132,6 +1137,47 @@ function _showAlarmPullStationWebXR(container, overlay, onDone) {
   }
 }
 
+// check physical walk toward placed exit sign
+function checkEvacuationPhysicalExit(userPos, signPos, wallNormal, options = {}) {
+  const proximityThreshold = typeof options.proximityThreshold === "number" ? options.proximityThreshold : 0.80;
+  const crossingThreshold = typeof options.crossingThreshold === "number" ? options.crossingThreshold : 0.10;
+  const lateralTolerance = typeof options.lateralTolerance === "number" ? options.lateralTolerance : 1.20;
+
+  const uX = (userPos && typeof userPos.x === "number") ? userPos.x : 0;
+  const uZ = (userPos && typeof userPos.z === "number") ? userPos.z : 0;
+  const sX = (signPos && typeof signPos.x === "number") ? signPos.x : 0;
+  const sZ = (signPos && typeof signPos.z === "number") ? signPos.z : 0;
+
+  const dx = uX - sX;
+  const dz = uZ - sZ;
+  const horizontalDist = Math.hypot(dx, dz);
+
+  let crossed = false;
+  if (wallNormal && (wallNormal.x !== 0 || wallNormal.z !== 0)) {
+    const len = Math.hypot(wallNormal.x, wallNormal.z) || 1;
+    const nx = wallNormal.x / len;
+    const nz = wallNormal.z / len;
+
+    // signed distance from sign along outward wall normal
+    const dotNormal = dx * nx + dz * nz;
+    // lateral distance perpendicular to wall normal in horizontal plane
+    const dotLateral = Math.abs(dx * (-nz) + dz * nx);
+
+    if (dotNormal <= crossingThreshold && dotLateral <= lateralTolerance) {
+      crossed = true;
+    }
+  }
+
+  const reached = horizontalDist <= proximityThreshold || crossed;
+
+  return {
+    distance: horizontalDist,
+    reached,
+    crossed,
+    threshold: proximityThreshold
+  };
+}
+
 // show exit sign in 3d and confirm run path
 function _showEvacuateConfirmationWebXR(container, overlay, reading) {
   dismissWebXRDiag();
@@ -1149,6 +1195,11 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
 
   let exitPlaced = false;
   let confirmed = false;
+  let lastNormal = { x: 0, y: 0, z: 1 };
+  let _placedSignPos = null;
+  let _placedWallNormal = null;
+  let _initialWalkDist = 2.0;
+
   _showAimCrosshair(container);
 
   if (!_exitMesh && _controller && typeof _controller.addToScene === "function") {
@@ -1167,6 +1218,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
     _exitPlacementFrameHandler = ({ frame, referenceSpace }) => {
       if (exitPlaced || !_exitMesh) return;
       const { pos, isVertical, normal } = _computePlacementPose(frame, referenceSpace, 1.8, true, 1.80, 0.30);
+      if (normal) lastNormal = normal;
       if (pos && _exitMesh.position && _exitMesh.position.set) {
         _exitMesh.position.set(pos.x, pos.y, pos.z);
         if (normal && typeof _exitMesh.lookAt === "function") {
@@ -1188,7 +1240,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
     _controller.onFrame(_exitPlacementFrameHandler);
   }
 
-  const confirmEvac = () => {
+  const confirmEvac = (opts = {}) => {
     if (confirmed) return;
     confirmed = true;
     exitPlaced = true;
@@ -1198,6 +1250,10 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
     if (_exitPlacementFrameHandler && _controller && typeof _controller.offFrame === "function") {
       _controller.offFrame(_exitPlacementFrameHandler);
       _exitPlacementFrameHandler = null;
+    }
+    if (_exitWalkFrameHandler && _controller && typeof _controller.offFrame === "function") {
+      _controller.offFrame(_exitWalkFrameHandler);
+      _exitWalkFrameHandler = null;
     }
     if (_exitPointerTapHandler && typeof window !== "undefined") {
       window.removeEventListener("pointerdown", _exitPointerTapHandler);
@@ -1210,10 +1266,11 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
       _exitMesh = null;
     }
 
+    const method = (opts && opts.method) || "branch_a_evacuate";
     fireCheckpointResult(
       CP_EXIT_ID,
       true,
-      { method: "branch_a_evacuate", measured: false, reading },
+      { method, measured: false, reading },
       spatialAlignment({
         anchorId: EXIT_ANCHOR_ID,
         angularErrorRad: null,
@@ -1231,29 +1288,91 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
     _showCompletionWebXR(overlay, container, true);
   };
 
+  const lockPlacementAndStartWalk = () => {
+    if (exitPlaced) return;
+    exitPlaced = true;
+    if (_exitPlacementFrameHandler && _controller && typeof _controller.offFrame === "function") {
+      _controller.offFrame(_exitPlacementFrameHandler);
+      _exitPlacementFrameHandler = null;
+    }
+
+    _placedSignPos = {
+      x: _exitMesh ? _exitMesh.position.x : 0,
+      y: _exitMesh ? _exitMesh.position.y : 1.8,
+      z: _exitMesh ? _exitMesh.position.z : -1.8
+    };
+    _placedWallNormal = lastNormal || { x: 0, y: 0, z: 1 };
+
+    const camera = _controller && _controller.getCamera ? _controller.getCamera() : null;
+    const camPos = (camera && camera.position) ? camera.position : { x: 0, y: 1.5, z: 0 };
+    const initDx = camPos.x - _placedSignPos.x;
+    const initDz = camPos.z - _placedSignPos.z;
+    _initialWalkDist = Math.max(0.81, Math.hypot(initDx, initDz));
+
+    _setupZoomControls({ target: "exit" });
+
+    const statusEl = document.getElementById("exit-status-hint");
+    if (statusEl) {
+      statusEl.style.color = "#00e676";
+      statusEl.textContent = t("fire.exit_walk_hint", "✔ Route locked! Physically walk toward doorway to evacuate.");
+    }
+
+    const walkFeedback = document.getElementById("exit-walk-feedback");
+    if (walkFeedback) {
+      walkFeedback.style.display = "block";
+    }
+    const distText = document.getElementById("exit-walk-dist-text");
+    if (distText) {
+      distText.textContent = `${_initialWalkDist.toFixed(1)}m`;
+    }
+
+    const btn = document.getElementById("btn-exit-found");
+    if (btn) {
+      btn.textContent = t("fire.exit_fallback_btn", "🚪 Restricted test space? Tap to complete");
+      btn.style.background = "#334155";
+      btn.style.color = "#f1f5f9";
+      btn.style.border = "1px solid #64748b";
+      btn.style.boxShadow = "none";
+    }
+
+    _updateWebXRDiag("Exit Sign Locked -> Walk Toward Door (<= 0.8m)");
+
+    if (_controller && typeof _controller.onFrame === "function") {
+      _exitWalkFrameHandler = () => {
+        if (confirmed || !exitPlaced || !_exitMesh) return;
+        const currentCam = _controller.getCamera ? _controller.getCamera() : null;
+        if (!currentCam || !currentCam.position) return;
+
+        const res = checkEvacuationPhysicalExit(currentCam.position, _placedSignPos, _placedWallNormal);
+        const liveDistText = document.getElementById("exit-walk-dist-text");
+        if (liveDistText) {
+          liveDistText.textContent = `${res.distance.toFixed(1)}m`;
+        }
+        const liveDistBar = document.getElementById("exit-walk-bar");
+        if (liveDistBar) {
+          const pct = Math.max(0, Math.min(100, Math.round(((_initialWalkDist - res.distance) / (_initialWalkDist - 0.8)) * 100)));
+          liveDistBar.style.width = `${pct}%`;
+        }
+
+        if (res.reached) {
+          confirmEvac({ method: "physical_walk", distance: res.distance });
+        }
+      };
+      _controller.onFrame(_exitWalkFrameHandler);
+    }
+  };
+
   const handleExitTap = (e) => {
     if (confirmed) return;
     if (e && e.target && e.target.closest && e.target.closest("button")) return;
 
-    const hitExit = _raycastMesh(e, _exitMesh);
-    if (hitExit) {
-      confirmEvac();
-      return;
-    }
-
     if (!exitPlaced) {
-      exitPlaced = true;
-      if (_exitPlacementFrameHandler && _controller && typeof _controller.offFrame === "function") {
-        _controller.offFrame(_exitPlacementFrameHandler);
-        _exitPlacementFrameHandler = null;
-      }
-      _setupZoomControls({ target: "exit" });
+      lockPlacementAndStartWalk();
+    } else {
       const statusEl = document.getElementById("exit-status-hint");
       if (statusEl) {
-        statusEl.style.color = "#00e676";
-        statusEl.textContent = t("fire.exit_mounted", "✔ Route marked above door! Tap 3D exit sign or button below to confirm.");
+        statusEl.textContent = t("fire.exit_walk_hint_again", "🚶 Walk toward the exit doorway (<= 0.8m)! Or tap button below if space restricted.");
       }
-      _updateWebXRDiag("Exit Sign Anchored to Door/Wall -> Ready to Confirm");
     }
   };
 
@@ -1273,7 +1392,19 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
     <div class="hud-title">${isHigh ? "CRITICAL METHANE LEVEL (>= 5.0%)" : "PRECAUTIONARY EVACUATION"}</div>
     <div class="hud-desc">${isHigh ? "Atmosphere is explosive. Fire suppression is strictly forbidden under mining regulations. Follow emergency route immediately." : "Evacuation selected. Move promptly along marked emergency path to the nearest safe surface exit."}</div>
     <div id="exit-status-hint" style="margin:0.4rem 0 0.5rem 0;font-size:0.92rem;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">
-      ${t("fire.exit_door_hint", "Aim at exit door / frame and tap to lock route, or tap 3D sign directly to confirm.")}
+      ${t("fire.exit_door_hint", "Aim at exit door / frame and tap to lock route.")}
+    </div>
+    <div id="exit-walk-feedback" style="display:none;margin:0.4rem 0;padding:0.5rem;background:rgba(15,23,42,0.85);border:1px solid #00e676;border-radius:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.85rem;font-weight:600;color:#f1f5f9;">
+        <span>🚶 ${t("fire.exit_walk_dist", "Distance to Safe Exit:")}</span>
+        <span id="exit-walk-dist-text" style="color:#00e676;font-size:0.95rem;font-weight:bold;">--</span>
+      </div>
+      <div style="margin-top:0.35rem;height:8px;background:#334155;border-radius:4px;overflow:hidden;">
+        <div id="exit-walk-bar" style="height:100%;width:0%;background:#00e676;transition:width 0.15s ease;"></div>
+      </div>
+      <div style="font-size:0.75rem;color:#94a3b8;margin-top:0.25rem;">
+        ${t("fire.exit_walk_subtext", "Walk toward doorway (<= 0.8m) to complete evacuation.")}
+      </div>
     </div>
   `;
   overlay.appendChild(hudCard);
@@ -1282,7 +1413,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
   btn.id = "btn-exit-found";
   btn.style.cssText = "margin-top:0.6rem;padding:0.8rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;";
   btn.textContent = "✔ Confirm Evacuation Route";
-  btn.addEventListener("click", confirmEvac);
+  btn.addEventListener("click", () => confirmEvac());
   overlay.appendChild(btn);
 }
 
@@ -2081,5 +2212,6 @@ export {
   DECISION_CHOICES,
   METHANE_EXPLOSIVE_THRESHOLD,
   _computePlacementPose,
-  _raycastMesh
+  _raycastMesh,
+  checkEvacuationPhysicalExit
 };

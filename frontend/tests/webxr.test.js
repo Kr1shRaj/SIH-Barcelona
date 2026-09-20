@@ -277,7 +277,8 @@ import {
   setMethaneReadingWebXR,
   getActiveBranchWebXR,
   CP_DECISION_ID,
-  DECISION_CHOICES
+  DECISION_CHOICES,
+  checkEvacuationPhysicalExit
 } from "../modules/fire-response/webxr_fire_module.js";
 
 import {
@@ -611,6 +612,38 @@ describe("WebXR Placement and Tracking", () => {
     // reset
     setExitSignScaleWebXR(1.0);
     assert.strictEqual(getExitSignScaleWebXR(), 1.0);
+  });
+
+  it("checkEvacuationPhysicalExit computes horizontal distance and detects proximity/crossing", () => {
+    const signPos = { x: 0, y: 1.8, z: -2.0 };
+    const wallNormal = { x: 0, y: 0, z: 1 }; // wall facing +Z into room toward user
+
+    // 1. Far away (2 meters)
+    const far = checkEvacuationPhysicalExit({ x: 0, y: 1.5, z: 0 }, signPos, wallNormal);
+    assert.strictEqual(far.distance, 2.0);
+    assert.strictEqual(far.reached, false);
+    assert.strictEqual(far.crossed, false);
+
+    // 2. Approaching within proximity threshold (0.7m <= 0.8m)
+    const close = checkEvacuationPhysicalExit({ x: 0, y: 1.5, z: -1.3 }, signPos, wallNormal);
+    assert.strictEqual(Math.round(close.distance * 10) / 10, 0.7);
+    assert.strictEqual(close.reached, true);
+    assert.strictEqual(close.crossed, false);
+
+    // 3. Crossing past the wall plane within doorway aperture (dz = -0.05m past sign, dx = 0.3m)
+    const crossed = checkEvacuationPhysicalExit({ x: 0.3, y: 1.5, z: -2.05 }, signPos, wallNormal);
+    assert.strictEqual(crossed.crossed, true);
+    assert.strictEqual(crossed.reached, true);
+
+    // 4. Past the wall plane but outside lateral door tolerance (dx = 2.5m > 1.2m)
+    const outsideAperture = checkEvacuationPhysicalExit({ x: 2.5, y: 1.5, z: -2.05 }, signPos, wallNormal);
+    assert.strictEqual(outsideAperture.crossed, false);
+    assert.strictEqual(outsideAperture.reached, false);
+
+    // 5. Default zero / missing inputs do not throw
+    const empty = checkEvacuationPhysicalExit(null, null, null);
+    assert.strictEqual(empty.distance, 0);
+    assert.strictEqual(empty.reached, true); // at 0 distance <= 0.8m
   });
 
   it("createExtinguisherMesh base rests flush on floor plane Y=0", () => {

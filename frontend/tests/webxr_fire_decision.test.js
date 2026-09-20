@@ -883,7 +883,64 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     globalThis.__mockRaycastHitTarget = null;
   });
 
-  it("Branch A: Tapping 3D exit sign directly via raycasting confirms evacuation route", (t, done) => {
+  it("Branch A: Physically walking toward placed exit sign triggers evacuation completion", (t, done) => {
+    const container = _makeEl("container");
+    let addedExitMesh = null;
+    const removedMeshes = [];
+    let activeWalkHandler = null;
+    const mockCamera = { position: new MockVector3(0, 1.5, 0), quaternion: new MockQuaternion() };
+    const mockController = {
+      addToScene(m) {
+        if (m.name === "exit-graphic") addedExitMesh = m;
+      },
+      removeFromScene(m) { removedMeshes.push(m); },
+      onFrame(fn) { activeWalkHandler = fn; },
+      offFrame() { activeWalkHandler = null; },
+      getCamera() { return mockCamera; }
+    };
+
+    const checkpointsFired = [];
+    window.addEventListener("safear:checkpoint", (ev) => {
+      checkpointsFired.push(ev.detail);
+    });
+
+    startFireModuleWebXR(container, mockController, { reading: 6.2 });
+    const overlay = document.getElementById("fire-module-overlay");
+
+    _showEvacuateConfirmationWebXR(container, overlay, 6.2);
+
+    assert.ok(addedExitMesh);
+
+    // simulate tapping screen to lock placement and start walk tracking
+    window.dispatchEvent(new CustomEvent("pointerdown", { detail: { clientX: 200, clientY: 300 } }));
+
+    const walkFeedback = document.getElementById("exit-walk-feedback");
+    assert.ok(walkFeedback, "Walk feedback HUD must be displayed after locking exit route");
+    const distText = document.getElementById("exit-walk-dist-text");
+    assert.ok(distText);
+    assert.ok(distText.textContent.includes("m"));
+
+    // User physically walks forward towards exit sign at (0, 1.8, -1.8)
+    // Distance from (0, 1.5, -1.2) to (0, 1.8, -1.8) is 0.6m in XZ <= 0.8m threshold
+    mockCamera.position.z = -1.2;
+    assert.ok(activeWalkHandler);
+    activeWalkHandler();
+
+    setTimeout(() => {
+      assert.ok(removedMeshes.some((m) => m.name === "exit-graphic"));
+      const exitCp = checkpointsFired.find((c) => c.checkpointId === "fire_exit_identification");
+      assert.ok(exitCp);
+      assert.strictEqual(exitCp.passed, true);
+      const evacCp = checkpointsFired.find((c) => c.checkpointId === "fire_evacuation_sequence_webxr");
+      assert.ok(evacCp);
+      assert.strictEqual(evacCp.passed, true);
+      const debrief = document.getElementById("debrief-summary-card");
+      assert.ok(debrief, "Debrief summary card must be mounted after physical walk completion");
+      done();
+    }, 100);
+  });
+
+  it("Branch A: Small-room fallback button confirms evacuation when physical walking is restricted", (t, done) => {
     const container = _makeEl("container");
     let addedExitMesh = null;
     const removedMeshes = [];
@@ -906,13 +963,17 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     const overlay = document.getElementById("fire-module-overlay");
 
     _showEvacuateConfirmationWebXR(container, overlay, 6.2);
-
     assert.ok(addedExitMesh);
 
-    // simulate direct tap on 3D exit sign mesh
-    globalThis.__mockRaycastHitTarget = addedExitMesh;
+    // Tap to lock exit sign
     window.dispatchEvent(new CustomEvent("pointerdown", { detail: { clientX: 200, clientY: 300 } }));
-    globalThis.__mockRaycastHitTarget = null;
+
+    const fallbackBtn = document.getElementById("btn-exit-found");
+    assert.ok(fallbackBtn);
+    assert.ok(fallbackBtn.textContent.includes("Restricted") || fallbackBtn.textContent.includes("complete"));
+
+    // Click small-room fallback
+    fallbackBtn.click();
 
     setTimeout(() => {
       assert.ok(removedMeshes.some((m) => m.name === "exit-graphic"));
@@ -922,8 +983,9 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
       const evacCp = checkpointsFired.find((c) => c.checkpointId === "fire_evacuation_sequence_webxr");
       assert.ok(evacCp);
       assert.strictEqual(evacCp.passed, true);
+      assert.strictEqual(evacCp.context.branch, "evacuate");
       const debrief = document.getElementById("debrief-summary-card");
-      assert.ok(debrief, "Debrief summary card must be mounted after 3D exit sign tap");
+      assert.ok(debrief, "Debrief summary card must be mounted after fallback button tap");
       done();
     }, 100);
   });
@@ -1047,9 +1109,10 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     assert.strictEqual(addedExitMesh._lookAtTarget.y, 1.8);
     assert.strictEqual(Math.round(addedExitMesh._lookAtTarget.z), -1); // -2.0 + 1.0 = -1.0 (looking along outward wall normal)
 
-    // locking placement detaches frame handler and keeps flush rotation
+    // locking placement switches from placement preview to walk tracking
     window.dispatchEvent(new CustomEvent("pointerdown", { detail: { clientX: 200, clientY: 300 } }));
-    assert.strictEqual(registeredFrameHandler, null);
+    assert.ok(registeredFrameHandler);
+    assert.ok(document.getElementById("exit-walk-feedback"));
 
     cleanupWebXRFireModule();
   });
