@@ -11,6 +11,30 @@ const STATE_RULES = Object.freeze({
   evac_checked: { role: "backup_coordinator", requires: "fire_extinguished" }
 });
 
+const ACTION_RULES = Object.freeze({
+  fire_alarm: { role: "alarm" },
+  alarm_pulled: { role: "alarm" },
+  fire_extinguisher: { role: "extinguisher_operator" },
+  fire_extinguished: { role: "extinguisher_operator" },
+  evacuation_check: { role: "backup_coordinator" },
+  evac_checked: { role: "backup_coordinator" }
+});
+
+// initialize room state machine and timeline
+function createRoom() {
+  return {
+    users: new Map(),
+    userMeta: new Map(),
+    state: {},
+    marker: null,
+    phase: "lobby",
+    readyUsers: new Set(),
+    phaseStartedAtMs: 0,
+    timeline: { guided: [], unguided: [] },
+    actions: new Map()
+  };
+}
+
 // presence thresholds in ms
 const STALE_MS = 5000;
 const DEAD_MS = 20000;
@@ -50,10 +74,7 @@ function validateStateUpdate(state, role, currentState) {
 // check if drill is running, stop if someone drops
 function isRoomDrillActive(room) {
   if (!room) return false;
-  if (room.phase === "guided" || room.phase === "unguided") return true;
-  if (room.drillActive === true) return true;
-  if (room.state && (room.state.alarm_pulled || room.state.fire_extinguished)) return true;
-  return false;
+  return room.phase === "guided" || room.phase === "unguided";
 }
 
 // kick user, tell peers, abort drill if mid-action
@@ -64,15 +85,18 @@ function removeUser(ws, roomId, role, rooms, broadcastToRoom, log) {
   const hadUser = room.users.has(ws);
   room.users.delete(ws);
   if (room.userMeta) room.userMeta.delete(ws);
+  if (room.readyUsers) room.readyUsers.delete(ws);
 
   if (hadUser) {
     broadcastToRoom(roomId, { type: "peer_left", role });
 
     if (isRoomDrillActive(room)) {
       room.phase = "lobby";
-      room.drillActive = false;
       room.state = {};
+      room.readyUsers.clear();
+      room.actions.clear();
       broadcastToRoom(roomId, { type: "drill_aborted", reason: `${role} disconnected` });
+      broadcastToRoom(roomId, { type: "phase", phase: "lobby" });
     }
     log.info({ roomId, role }, "user left room");
   }
@@ -154,7 +178,7 @@ function initRealtimeServer(server, config, logger, clockOverride) {
           }
 
           if (!rooms.has(roomId)) {
-            rooms.set(roomId, { users: new Map(), state: {}, marker: null, userMeta: new Map() });
+            rooms.set(roomId, createRoom());
           }
           const room = rooms.get(roomId);
           if (!room.userMeta) room.userMeta = new Map();
@@ -195,7 +219,7 @@ function initRealtimeServer(server, config, logger, clockOverride) {
           currentRoomId = roomId;
           currentRole = role;
 
-          ws.send(JSON.stringify({ type: "joined", roomId, role, state: room.state }));
+          ws.send(JSON.stringify({ type: "joined", roomId, role, state: room.state, phase: room.phase }));
           log.info({ roomId, role }, "user joined room");
           
           // broadcast to others that someone joined
@@ -207,6 +231,94 @@ function initRealtimeServer(server, config, logger, clockOverride) {
             const meta = room.userMeta.get(ws);
             if (meta) meta.markerVisible = Boolean(data.markerVisible);
           }
+        } else if (data.type === "ready") {
+          if (!currentRoomId) return;
+          const room = rooms.get(currentRoomId);
+          if (!room) return;
+
+          if (room.phase === "complete") {
+            // all 3 ready returns to lobby for fresh drill
+            room.readyUsers.add(ws);
+            if (room.readyUsers.size >= 3) {
+              room.phase = "lobby";
+              room.state = {};
+              room.readyUsers.clear();
+              room.timeline = { guided: [], unguided: [] };
+              room.actions.clear();
+              broadcastToRoom(currentRoomId, { type: "phase", phase: "lobby" });
+            }
+            return;
+          }
+
+          if (room.phase === "lobby") {
+            room.readyUsers.add(ws);
+            // all 3 roles present and ready -> start guided
+            const hasAllRoles = ALLOWED_ROLES.every((r) => Array.from(room.users.values()).includes(r));
+            if (hasAllRoles && room.readyUsers.size >= 3) {
+              room.phase = "guided";
+              room.phaseStartedAtMs = clock.now();
+              room.state = {};
+              room.timeline = { guided: [], unguided: [] };
+              room.actions.clear();
+              broadcastToRoom(currentRoomId, {
+                type: "phase",
+                phase: "guided",
+                startedAtMs: room.phaseStartedAtMs
+              });
+            }
+          }
+        } else if (data.type === "action_start") {
+          if (!currentRoomId) return;
+          const room = rooms.get(currentRoomId);
+          if (!room) return;
+          const action = data.action;
+          const rule = ACTION_RULES[action];
+          if (!rule) {
+            sendError(ws, "unknown action");
+            return;
+          }
+          if (rule.role !== currentRole) {
+            const reason = `${rule.role} role owns ${action}; you are ${currentRole}`;
+            if (room.phase === "guided" || room.phase === "unguided") {
+              const tMs = clock.now() - room.phaseStartedAtMs;
+              room.timeline[room.phase].push({ role: currentRole, action, reason, tMs, accepted: false });
+            }
+            sendError(ws, reason);
+            return;
+          }
+          const existingStatus = room.actions.get(action);
+          if (existingStatus === "started" || existingStatus === "done") {
+            sendError(ws, `action ${action} already started or completed`);
+            return;
+          }
+          room.actions.set(action, "started");
+          broadcastToRoom(currentRoomId, {
+            type: "peer_action",
+            role: currentRole,
+            action,
+            status: "started"
+          });
+        } else if (data.type === "action_end") {
+          if (!currentRoomId) return;
+          const room = rooms.get(currentRoomId);
+          if (!room) return;
+          const action = data.action;
+          const rule = ACTION_RULES[action];
+          if (!rule) {
+            sendError(ws, "unknown action");
+            return;
+          }
+          if (rule.role !== currentRole) {
+            sendError(ws, `${rule.role} role owns ${action}; you are ${currentRole}`);
+            return;
+          }
+          room.actions.set(action, "done");
+          broadcastToRoom(currentRoomId, {
+            type: "peer_action",
+            role: currentRole,
+            action,
+            status: "done"
+          });
         } else if (data.type === "update_position") {
           // relay minimal marker-relative position: { x, z, headingDeg }
           if (currentRoomId && currentRole) {
@@ -223,7 +335,15 @@ function initRealtimeServer(server, config, logger, clockOverride) {
               sendError(ws, "room not found");
               return;
             }
+            if (room.phase !== "guided" && room.phase !== "unguided") {
+              sendError(ws, "drill not active");
+              return;
+            }
+
+            const currentPhase = room.phase;
+            const tMs = clock.now() - room.phaseStartedAtMs;
             const result = validateStateUpdate(data.state, currentRole, room.state);
+
             if (!result.ok) {
               log.warn({
                 event: "team_state_update_rejected",
@@ -231,11 +351,60 @@ function initRealtimeServer(server, config, logger, clockOverride) {
                 role: currentRole,
                 reason: result.reason
               }, "Team state update rejected");
+              const attemptedAction = (data.state && typeof data.state === "object") ? Object.keys(data.state)[0] : "unknown";
+              room.timeline[currentPhase].push({
+                role: currentRole,
+                action: attemptedAction,
+                reason: result.reason,
+                tMs,
+                accepted: false
+              });
               sendError(ws, result.reason);
               return;
             }
-            room.state = result.state;
-            broadcastToRoom(currentRoomId, { type: "state_changed", state: room.state }, ws);
+
+            // record accepted actions in timeline
+            for (const key of Object.keys(data.state)) {
+              room.timeline[currentPhase].push({
+                role: currentRole,
+                action: key,
+                tMs,
+                accepted: true
+              });
+            }
+
+            // handle phase transitions on evac_checked
+            if (result.state.evac_checked) {
+              if (currentPhase === "guided") {
+                // guided complete -> reset flags and enter unguided
+                room.phase = "unguided";
+                room.state = {};
+                room.phaseStartedAtMs = clock.now();
+                room.actions.clear();
+                broadcastToRoom(currentRoomId, {
+                  type: "phase",
+                  phase: "unguided",
+                  startedAtMs: room.phaseStartedAtMs
+                });
+                broadcastToRoom(currentRoomId, { type: "state_changed", state: room.state });
+              } else if (currentPhase === "unguided") {
+                // unguided complete -> phase complete and compute drill result
+                room.phase = "complete";
+                room.state = result.state;
+                broadcastToRoom(currentRoomId, { type: "state_changed", state: room.state }, ws);
+                broadcastToRoom(currentRoomId, { type: "phase", phase: "complete" });
+                const resultPayload = {
+                  type: "drill_result",
+                  teamScore: 100,
+                  passed: true,
+                  timeline: room.timeline.unguided
+                };
+                broadcastToRoom(currentRoomId, resultPayload);
+              }
+            } else {
+              room.state = result.state;
+              broadcastToRoom(currentRoomId, { type: "state_changed", state: room.state }, ws);
+            }
           }
         }
       } catch (err) {
@@ -272,4 +441,13 @@ function initRealtimeServer(server, config, logger, clockOverride) {
   return wss;
 }
 
-module.exports = { initRealtimeServer, validateStateUpdate, ALLOWED_ROLES, STATE_RULES, STALE_MS, DEAD_MS };
+module.exports = {
+  initRealtimeServer,
+  validateStateUpdate,
+  ALLOWED_ROLES,
+  STATE_RULES,
+  ACTION_RULES,
+  STALE_MS,
+  DEAD_MS,
+  getRoom: (roomId) => rooms.get(roomId)
+};

@@ -8,6 +8,7 @@ const logger = createLogger("TeamSession");
 let ws = null;
 let currentRoomId = null;
 let currentRole = null;
+let currentPhase = "lobby";
 const peers = new Map(); // role -> { position, rotation }
 let roomState = {};
 
@@ -17,6 +18,9 @@ const peerJoinLeaveListeners = [];
 const sessionErrorListeners = [];
 const peerStaleListeners = [];
 const drillAbortedListeners = [];
+const phaseChangeListeners = [];
+const peerActionListeners = [];
+const drillResultListeners = [];
 
 // prompt user to join a room
 export function promptJoinTeamSession(container, joinOptions = {}) {
@@ -131,6 +135,14 @@ function _connectWebSocket(roomId, role, joinOptions = {}) {
         } else if (msg.type === "state_changed") {
           roomState = msg.state;
           stateChangeListeners.forEach(cb => cb(roomState));
+        } else if (msg.type === "phase") {
+          currentPhase = msg.phase;
+          logger.info(`phase changed to ${msg.phase}`);
+          phaseChangeListeners.forEach(cb => cb(msg.phase, msg.startedAtMs));
+        } else if (msg.type === "peer_action") {
+          peerActionListeners.forEach(cb => cb(msg.role, msg.action, msg.status));
+        } else if (msg.type === "drill_result") {
+          drillResultListeners.forEach(cb => cb(msg));
         } else if (msg.type === "peer_joined") {
           logger.info(`peer ${msg.role} joined`);
           peerJoinLeaveListeners.forEach(cb => cb(msg.role, "joined"));
@@ -217,6 +229,46 @@ export function onDrillAborted(cb) {
   if (typeof cb === "function") drillAbortedListeners.push(cb);
 }
 
+// tell server player is ready for next drill phase
+export function sendReady() {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "ready" }));
+  }
+}
+
+// broadcast starting an interaction
+export function sendActionStart(action) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "action_start", action }));
+  }
+}
+
+// broadcast ending an interaction
+export function sendActionEnd(action) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "action_end", action }));
+  }
+}
+
+// listen for server drill phase updates
+export function onPhaseChange(cb) {
+  if (typeof cb === "function") phaseChangeListeners.push(cb);
+}
+
+// listen for teammate action updates
+export function onPeerAction(cb) {
+  if (typeof cb === "function") peerActionListeners.push(cb);
+}
+
+// listen for drill completion result
+export function onDrillResult(cb) {
+  if (typeof cb === "function") drillResultListeners.push(cb);
+}
+
+export function getCurrentPhase() {
+  return currentPhase;
+}
+
 export function getPeers() {
   return Array.from(peers.keys());
 }
@@ -229,6 +281,7 @@ export function resetTeamSession() {
   ws = null;
   currentRoomId = null;
   currentRole = null;
+  currentPhase = "lobby";
   peers.clear();
   roomState = {};
   stateChangeListeners.length = 0;
@@ -237,4 +290,7 @@ export function resetTeamSession() {
   sessionErrorListeners.length = 0;
   peerStaleListeners.length = 0;
   drillAbortedListeners.length = 0;
+  phaseChangeListeners.length = 0;
+  peerActionListeners.length = 0;
+  drillResultListeners.length = 0;
 }

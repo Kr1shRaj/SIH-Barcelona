@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert");
 const http = require("node:http");
 const { WebSocket } = require("ws");
-const { initRealtimeServer } = require("../realtime/team-session");
+const { initRealtimeServer, getRoom } = require("../realtime/team-session");
 
 // wait for one websocket message of the requested type
 function nextMessage(ws, type) {
@@ -99,6 +99,15 @@ test("Team Session Realtime Server", async (t) => {
     const extinguisher = await joinRoom(port, roomId, "extinguisher_operator");
     const backup = await joinRoom(port, roomId, "backup_coordinator");
 
+    alarm.ws.send(JSON.stringify({ type: "ready" }));
+    extinguisher.ws.send(JSON.stringify({ type: "ready" }));
+    backup.ws.send(JSON.stringify({ type: "ready" }));
+    await Promise.all([
+      nextMessage(alarm.ws, "phase"),
+      nextMessage(extinguisher.ws, "phase"),
+      nextMessage(backup.ws, "phase")
+    ]);
+
     extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
     assert.strictEqual((await nextMessage(extinguisher.ws, "error")).message, "extinguisher_operator cannot set alarm_pulled");
 
@@ -126,11 +135,7 @@ test("Team Session Realtime Server", async (t) => {
     const evacAlarmState = nextMessage(alarm.ws, "state_changed");
     backup.ws.send(JSON.stringify({ type: "state_update", state: { evac_checked: true } }));
     const evacState = await evacAlarmState;
-    assert.deepStrictEqual(evacState.state, {
-      alarm_pulled: true,
-      fire_extinguished: true,
-      evac_checked: true
-    });
+    assert.deepStrictEqual(evacState.state, {}, "evac_checked completes guided round and resets flags");
 
     await Promise.all([closeSocket(alarm.ws), closeSocket(extinguisher.ws), closeSocket(backup.ws)]);
   });
@@ -165,6 +170,7 @@ test("Team Session Realtime Server", async (t) => {
   await t.test("teardown", () => {
     return new Promise((resolve) => {
       wss.close();
+      if (typeof server.closeAllConnections === "function") server.closeAllConnections();
       server.close(resolve);
     });
   });
@@ -268,6 +274,15 @@ test("Team Session Presence with Fake Clock", async (t) => {
     const extinguisher = await joinRoom(port, roomId, "extinguisher_operator");
     const backup = await joinRoom(port, roomId, "backup_coordinator");
 
+    alarm.ws.send(JSON.stringify({ type: "ready" }));
+    extinguisher.ws.send(JSON.stringify({ type: "ready" }));
+    backup.ws.send(JSON.stringify({ type: "ready" }));
+    await Promise.all([
+      nextMessage(alarm.ws, "phase"),
+      nextMessage(extinguisher.ws, "phase"),
+      nextMessage(backup.ws, "phase")
+    ]);
+
     // alarm starts drill
     const statePromise = nextMessage(extinguisher.ws, "state_changed");
     alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
@@ -286,6 +301,326 @@ test("Team Session Presence with Fake Clock", async (t) => {
   await t.test("teardown fake clock server", () => {
     return new Promise((resolve) => {
       wss.close();
+      if (typeof server.closeAllConnections === "function") server.closeAllConnections();
+      server.close(resolve);
+    });
+  });
+});
+
+test("Team Drill State Machine Phases and Timeline", async (t) => {
+  let server;
+  let wss;
+  let port;
+
+  await t.test("setup state machine server", () => {
+    return new Promise((resolve) => {
+      server = http.createServer((req, res) => res.end());
+      wss = initRealtimeServer(server, {}, null);
+      server.listen(0, () => {
+        port = server.address().port;
+        resolve();
+      });
+    });
+  });
+
+  // wait until all three roles say ready
+  await t.test("lobby needs all 3 ready before guided phase starts", async () => {
+    const roomId = `lobby-room-${Date.now()}`;
+    const alarm = await joinRoom(port, roomId, "alarm");
+    const extinguisher = await joinRoom(port, roomId, "extinguisher_operator");
+    const backup = await joinRoom(port, roomId, "backup_coordinator");
+
+    // first two ready up
+    alarm.ws.send(JSON.stringify({ type: "ready" }));
+    extinguisher.ws.send(JSON.stringify({ type: "ready" }));
+
+    // third player readies up, triggers guided phase
+    const phasePromise = Promise.all([
+      nextMessage(alarm.ws, "phase"),
+      nextMessage(extinguisher.ws, "phase"),
+      nextMessage(backup.ws, "phase")
+    ]);
+    backup.ws.send(JSON.stringify({ type: "ready" }));
+
+    const phases = await phasePromise;
+    assert.strictEqual(phases[0].phase, "guided");
+    assert.strictEqual(phases[1].phase, "guided");
+    assert.strictEqual(phases[2].phase, "guided");
+
+    await Promise.all([closeSocket(alarm.ws), closeSocket(extinguisher.ws), closeSocket(backup.ws)]);
+  });
+
+  // evac finish in guided wipes flags and kicks off unguided
+  await t.test("guided to unguided transition resets flags server-side", async () => {
+    const roomId = `transition-room-${Date.now()}`;
+    const alarm = await joinRoom(port, roomId, "alarm");
+    const extinguisher = await joinRoom(port, roomId, "extinguisher_operator");
+    const backup = await joinRoom(port, roomId, "backup_coordinator");
+
+    alarm.ws.send(JSON.stringify({ type: "ready" }));
+    extinguisher.ws.send(JSON.stringify({ type: "ready" }));
+    backup.ws.send(JSON.stringify({ type: "ready" }));
+    await Promise.all([
+      nextMessage(alarm.ws, "phase"),
+      nextMessage(extinguisher.ws, "phase"),
+      nextMessage(backup.ws, "phase")
+    ]);
+
+    // advance through guided flow
+    const extAlarm1 = nextMessage(extinguisher.ws, "state_changed");
+    const backupAlarm1 = nextMessage(backup.ws, "state_changed");
+    alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
+    await Promise.all([extAlarm1, backupAlarm1]);
+
+    const alarmExt1 = nextMessage(alarm.ws, "state_changed");
+    const backupExt1 = nextMessage(backup.ws, "state_changed");
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
+    await Promise.all([alarmExt1, backupExt1]);
+
+    const unguidedPhase = nextMessage(alarm.ws, "phase");
+    const resetState = nextMessage(alarm.ws, "state_changed");
+    backup.ws.send(JSON.stringify({ type: "state_update", state: { evac_checked: true } }));
+
+    const phaseMsg = await unguidedPhase;
+    assert.strictEqual(phaseMsg.phase, "unguided");
+
+    const resetMsg = await resetState;
+    assert.deepStrictEqual(resetMsg.state, {});
+
+    await Promise.all([closeSocket(alarm.ws), closeSocket(extinguisher.ws), closeSocket(backup.ws)]);
+  });
+
+  // player cannot roll back flags by sending false
+  await t.test("client cannot reset flags directly", async () => {
+    const roomId = `no-reset-room-${Date.now()}`;
+    const alarm = await joinRoom(port, roomId, "alarm");
+    const extinguisher = await joinRoom(port, roomId, "extinguisher_operator");
+    const backup = await joinRoom(port, roomId, "backup_coordinator");
+
+    alarm.ws.send(JSON.stringify({ type: "ready" }));
+    extinguisher.ws.send(JSON.stringify({ type: "ready" }));
+    backup.ws.send(JSON.stringify({ type: "ready" }));
+    await nextMessage(alarm.ws, "phase");
+
+    alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
+    await nextMessage(extinguisher.ws, "state_changed");
+
+    // try to revert flag
+    alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: false } }));
+    const err = await nextMessage(alarm.ws, "error");
+    assert.strictEqual(err.message, "alarm_pulled must be true");
+
+    await Promise.all([closeSocket(alarm.ws), closeSocket(extinguisher.ws), closeSocket(backup.ws)]);
+  });
+
+  // evac finish in unguided finishes drill and issues results
+  await t.test("unguided to complete issues drill result", async () => {
+    const roomId = `complete-room-${Date.now()}`;
+    const alarm = await joinRoom(port, roomId, "alarm");
+    const extinguisher = await joinRoom(port, roomId, "extinguisher_operator");
+    const backup = await joinRoom(port, roomId, "backup_coordinator");
+
+    alarm.ws.send(JSON.stringify({ type: "ready" }));
+    extinguisher.ws.send(JSON.stringify({ type: "ready" }));
+    backup.ws.send(JSON.stringify({ type: "ready" }));
+    await Promise.all([
+      nextMessage(alarm.ws, "phase"),
+      nextMessage(extinguisher.ws, "phase"),
+      nextMessage(backup.ws, "phase")
+    ]);
+
+    // complete guided
+    const ext1 = nextMessage(extinguisher.ws, "state_changed");
+    alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
+    await ext1;
+
+    const alarm1 = nextMessage(alarm.ws, "state_changed");
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
+    await alarm1;
+
+    const unguidedAlarm = nextMessage(alarm.ws, "phase");
+    const unguidedExt = nextMessage(extinguisher.ws, "phase");
+    const unguidedBackup = nextMessage(backup.ws, "phase");
+    const resetAlarm = nextMessage(alarm.ws, "state_changed");
+    const resetExt = nextMessage(extinguisher.ws, "state_changed");
+    const resetBackup = nextMessage(backup.ws, "state_changed");
+    backup.ws.send(JSON.stringify({ type: "state_update", state: { evac_checked: true } }));
+    await Promise.all([unguidedAlarm, unguidedExt, unguidedBackup, resetAlarm, resetExt, resetBackup]);
+
+    // unguided round
+    const ext2 = nextMessage(extinguisher.ws, "state_changed");
+    alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
+    await ext2;
+
+    const alarm2 = nextMessage(alarm.ws, "state_changed");
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
+    await alarm2;
+
+    const completePhase = nextMessage(alarm.ws, "phase");
+    const drillResult = nextMessage(alarm.ws, "drill_result");
+    backup.ws.send(JSON.stringify({ type: "state_update", state: { evac_checked: true } }));
+
+    const phaseMsg = await completePhase;
+    assert.strictEqual(phaseMsg.phase, "complete");
+
+    const resultMsg = await drillResult;
+    assert.strictEqual(resultMsg.type, "drill_result");
+    assert.strictEqual(resultMsg.passed, true);
+
+    await Promise.all([closeSocket(alarm.ws), closeSocket(extinguisher.ws), closeSocket(backup.ws)]);
+  });
+
+  // timeline keeps log of rejected moves with reason
+  await t.test("timeline records rejects on bad role or sequence", async () => {
+    const roomId = `timeline-room-${Date.now()}`;
+    const alarm = await joinRoom(port, roomId, "alarm");
+    const extinguisher = await joinRoom(port, roomId, "extinguisher_operator");
+    const backup = await joinRoom(port, roomId, "backup_coordinator");
+
+    alarm.ws.send(JSON.stringify({ type: "ready" }));
+    extinguisher.ws.send(JSON.stringify({ type: "ready" }));
+    backup.ws.send(JSON.stringify({ type: "ready" }));
+    await nextMessage(alarm.ws, "phase");
+
+    // wrong role tries action
+    backup.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
+    const err = await nextMessage(backup.ws, "error");
+    assert.strictEqual(err.message, "backup_coordinator cannot set alarm_pulled");
+
+    const room = getRoom(roomId);
+    assert.ok(room.timeline.guided.length > 0);
+    const reject = room.timeline.guided.find((entry) => entry.accepted === false);
+    assert.ok(reject);
+    assert.strictEqual(reject.role, "backup_coordinator");
+    assert.strictEqual(reject.reason, "backup_coordinator cannot set alarm_pulled");
+
+    await Promise.all([closeSocket(alarm.ws), closeSocket(extinguisher.ws), closeSocket(backup.ws)]);
+  });
+
+  // dropping during active run kicks back to lobby
+  await t.test("abort paths reset phase and state to lobby", async () => {
+    const roomId = `abort-path-room-${Date.now()}`;
+    const alarm = await joinRoom(port, roomId, "alarm");
+    const extinguisher = await joinRoom(port, roomId, "extinguisher_operator");
+    const backup = await joinRoom(port, roomId, "backup_coordinator");
+
+    alarm.ws.send(JSON.stringify({ type: "ready" }));
+    extinguisher.ws.send(JSON.stringify({ type: "ready" }));
+    backup.ws.send(JSON.stringify({ type: "ready" }));
+    await nextMessage(alarm.ws, "phase");
+
+    const abortMsgPromise = nextMessage(alarm.ws, "drill_aborted");
+    const lobbyPhasePromise = nextMessage(alarm.ws, "phase");
+    await closeSocket(extinguisher.ws);
+
+    const abortMsg = await abortMsgPromise;
+    assert.ok(abortMsg.reason.includes("extinguisher_operator"));
+
+    const phaseMsg = await lobbyPhasePromise;
+    assert.strictEqual(phaseMsg.phase, "lobby");
+
+    await Promise.all([closeSocket(alarm.ws), closeSocket(backup.ws)]);
+  });
+
+  // all ready after complete returns to fresh lobby
+  await t.test("fresh drill after complete clears timeline and resets to lobby", async () => {
+    const roomId = `fresh-room-${Date.now()}`;
+    const alarm = await joinRoom(port, roomId, "alarm");
+    const extinguisher = await joinRoom(port, roomId, "extinguisher_operator");
+    const backup = await joinRoom(port, roomId, "backup_coordinator");
+
+    alarm.ws.send(JSON.stringify({ type: "ready" }));
+    extinguisher.ws.send(JSON.stringify({ type: "ready" }));
+    backup.ws.send(JSON.stringify({ type: "ready" }));
+    await Promise.all([
+      nextMessage(alarm.ws, "phase"),
+      nextMessage(extinguisher.ws, "phase"),
+      nextMessage(backup.ws, "phase")
+    ]);
+
+    // complete guided
+    const ext1 = nextMessage(extinguisher.ws, "state_changed");
+    alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
+    await ext1;
+
+    const alarm1 = nextMessage(alarm.ws, "state_changed");
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
+    await alarm1;
+
+    const unguidedPhase = nextMessage(alarm.ws, "phase");
+    const resetState = nextMessage(alarm.ws, "state_changed");
+    const unguidedExt = nextMessage(extinguisher.ws, "phase");
+    const resetExt = nextMessage(extinguisher.ws, "state_changed");
+    backup.ws.send(JSON.stringify({ type: "state_update", state: { evac_checked: true } }));
+    await Promise.all([unguidedPhase, resetState, unguidedExt, resetExt]);
+
+    // complete unguided
+    const ext2 = nextMessage(extinguisher.ws, "state_changed");
+    alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
+    await ext2;
+
+    const alarm2 = nextMessage(alarm.ws, "state_changed");
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
+    await alarm2;
+
+    const completePhase = nextMessage(alarm.ws, "phase");
+    backup.ws.send(JSON.stringify({ type: "state_update", state: { evac_checked: true } }));
+    await completePhase;
+
+    // all 3 send ready again to return to fresh drill lobby
+    const lobbyPromise = nextMessage(alarm.ws, "phase");
+    alarm.ws.send(JSON.stringify({ type: "ready" }));
+    extinguisher.ws.send(JSON.stringify({ type: "ready" }));
+    backup.ws.send(JSON.stringify({ type: "ready" }));
+
+    const lobbyMsg = await lobbyPromise;
+    assert.strictEqual(lobbyMsg.phase, "lobby");
+
+    const room = getRoom(roomId);
+    assert.deepStrictEqual(room.state, {});
+    assert.strictEqual(room.timeline.guided.length, 0);
+    assert.strictEqual(room.timeline.unguided.length, 0);
+
+    await Promise.all([closeSocket(alarm.ws), closeSocket(extinguisher.ws), closeSocket(backup.ws)]);
+  });
+
+  // cannot double-start an action already in motion
+  await t.test("duplicate action_start rejected", async () => {
+    const roomId = `action-room-${Date.now()}`;
+    const alarm = await joinRoom(port, roomId, "alarm");
+    const extinguisher = await joinRoom(port, roomId, "extinguisher_operator");
+    const backup = await joinRoom(port, roomId, "backup_coordinator");
+
+    alarm.ws.send(JSON.stringify({ type: "ready" }));
+    extinguisher.ws.send(JSON.stringify({ type: "ready" }));
+    backup.ws.send(JSON.stringify({ type: "ready" }));
+    await nextMessage(alarm.ws, "phase");
+
+    // first start succeeds
+    const peerActionPromise = nextMessage(extinguisher.ws, "peer_action");
+    alarm.ws.send(JSON.stringify({ type: "action_start", action: "fire_alarm" }));
+    const peerAction = await peerActionPromise;
+    assert.strictEqual(peerAction.role, "alarm");
+    assert.strictEqual(peerAction.action, "fire_alarm");
+    assert.strictEqual(peerAction.status, "started");
+
+    // second duplicate start rejected
+    alarm.ws.send(JSON.stringify({ type: "action_start", action: "fire_alarm" }));
+    const err = await nextMessage(alarm.ws, "error");
+    assert.ok(err.message.includes("already started"));
+
+    // wrong role start rejected and names owner
+    backup.ws.send(JSON.stringify({ type: "action_start", action: "fire_alarm" }));
+    const wrongRoleErr = await nextMessage(backup.ws, "error");
+    assert.strictEqual(wrongRoleErr.message, "alarm role owns fire_alarm; you are backup_coordinator");
+
+    await Promise.all([closeSocket(alarm.ws), closeSocket(extinguisher.ws), closeSocket(backup.ws)]);
+  });
+
+  await t.test("teardown state machine server", () => {
+    return new Promise((resolve) => {
+      wss.close();
+      if (typeof server.closeAllConnections === "function") server.closeAllConnections();
       server.close(resolve);
     });
   });
