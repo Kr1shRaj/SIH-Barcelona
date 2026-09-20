@@ -248,6 +248,7 @@ import {
   _raycastMesh,
   _showAimCrosshair,
   _hideAimCrosshair,
+  getExitSignScaleWebXR,
   CP_DECISION_ID,
   DECISION_CHOICES
 } from "../modules/fire-response/webxr_fire_module.js";
@@ -940,5 +941,54 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     cleanupWebXRFireModule();
     assert.strictEqual(document.getElementById("webxr-aim-crosshair"), null);
   });
+
+  it("Branch A: Locking exit sign mounts real-time +/- zoom controls and scales placed mesh", () => {
+    const container = _makeEl("container");
+    let addedExitMesh = null;
+    const mockController = {
+      addToScene(m) {
+        if (m.name === "exit-graphic") addedExitMesh = m;
+      },
+      removeFromScene() {},
+      onFrame() {},
+      offFrame() {},
+      getCamera() { return { position: new MockVector3(0, 1.5, 0), quaternion: new MockQuaternion() }; }
+    };
+
+    startFireModuleWebXR(container, mockController, { reading: 6.2 });
+    const overlay = document.getElementById("fire-module-overlay");
+
+    _showEvacuateConfirmationWebXR(container, overlay, 6.2);
+    assert.ok(addedExitMesh);
+
+    // simulate tapping screen to lock the exit sign in place
+    window.dispatchEvent(new CustomEvent("pointerdown", { detail: { clientX: 200, clientY: 300 } }));
+
+    const zoomDiv = document.getElementById("safear-zoom-controls");
+    assert.ok(zoomDiv, "Zoom controls must be mounted once exit sign is placed");
+    const btnIn = document.getElementById("btn-zoom-in");
+    const btnOut = document.getElementById("btn-zoom-out");
+    assert.ok(btnIn, "Zoom In button must be present");
+    assert.ok(btnOut, "Zoom Out button must be present");
+
+    // Initial scale is 1.0
+    assert.strictEqual(getExitSignScaleWebXR(), 1.0);
+
+    // Tap zoom in
+    btnIn.click();
+    assert.strictEqual(Math.round(getExitSignScaleWebXR() * 10) / 10, 1.2);
+    assert.strictEqual(Math.round(addedExitMesh.scale.x * 10) / 10, 1.2);
+
+    // Tap zoom out twice
+    btnOut.click();
+    btnOut.click();
+    assert.strictEqual(Math.round(getExitSignScaleWebXR() * 10) / 10, 0.8);
+    assert.strictEqual(Math.round(addedExitMesh.scale.x * 10) / 10, 0.8);
+
+    cleanupWebXRFireModule();
+    assert.strictEqual(document.getElementById("safear-zoom-controls"), null);
+    assert.strictEqual(getExitSignScaleWebXR(), 1.0);
+  });
 });
+
 

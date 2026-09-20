@@ -308,6 +308,9 @@ function _initDiagErrorTraps() {
 
 // zoom state
 let _zoomScale = 1.0;
+let _exitSignScale = 1.0;
+const MIN_EXIT_SCALE = 0.5;
+const MAX_EXIT_SCALE = 2.0;
 const BASE_EXT_SCALE = 0.35;
 const BASE_FIRE_SCALE = 0.35;
 let _zoomControlsEl = null;
@@ -334,26 +337,70 @@ function getZoomScaleWebXR() {
   return _zoomScale;
 }
 
-// create floating zoom in/out controls
-function _setupZoomControls() {
-  if (_zoomControlsEl || typeof document === "undefined") return;
+// scale placed exit sign within sane bounds
+function setExitSignScaleWebXR(targetScale) {
+  _exitSignScale = Math.max(MIN_EXIT_SCALE, Math.min(MAX_EXIT_SCALE, Number(targetScale) || 1.0));
+  if (_exitMesh) {
+    _exitMesh.scale.set(_exitSignScale, _exitSignScale, _exitSignScale);
+  }
+  return _exitSignScale;
+}
+
+// read current exit sign scale
+function getExitSignScaleWebXR() {
+  return _exitSignScale;
+}
+
+// remove zoom buttons and pinch listeners
+function _teardownZoomControls() {
+  if (_zoomControlsEl && _zoomControlsEl.parentNode) {
+    _zoomControlsEl.parentNode.removeChild(_zoomControlsEl);
+    _zoomControlsEl = null;
+  }
+  if (_touchZoomHandler && typeof window !== "undefined") {
+    window.removeEventListener("touchstart", _touchZoomHandler.start);
+    window.removeEventListener("touchmove", _touchZoomHandler.move);
+    window.removeEventListener("touchend", _touchZoomHandler.end);
+    _touchZoomHandler = null;
+  }
+}
+
+// spawn floating zoom buttons and pinch tracker
+function _setupZoomControls(options = {}) {
+  if (typeof document === "undefined") return;
+  const target = (options && options.target) || "extinguisher";
+  if (_zoomControlsEl) {
+    _teardownZoomControls();
+  }
   const zoomDiv = document.createElement("div");
   zoomDiv.id = "safear-zoom-controls";
   zoomDiv.style.cssText = "position:fixed;top:64px;right:16px;z-index:150;display:flex;flex-direction:column;gap:6px;pointer-events:auto;";
 
   const btnIn = document.createElement("button");
   btnIn.id = "btn-zoom-in";
-  btnIn.title = "Zoom In";
+  btnIn.title = target === "exit" ? "Scale Exit Sign Up" : "Zoom In";
   btnIn.style.cssText = "background:transparent !important;border:none !important;outline:none !important;box-shadow:none !important;color:#fff;font-size:1.5rem;font-weight:bold;cursor:pointer;padding:6px;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);line-height:1;";
   btnIn.textContent = "🔍 +";
-  btnIn.addEventListener("click", () => setZoomScaleWebXR(_zoomScale + 0.2));
+  btnIn.addEventListener("click", () => {
+    if (target === "exit") {
+      setExitSignScaleWebXR(_exitSignScale + 0.2);
+    } else {
+      setZoomScaleWebXR(_zoomScale + 0.2);
+    }
+  });
 
   const btnOut = document.createElement("button");
   btnOut.id = "btn-zoom-out";
-  btnOut.title = "Zoom Out";
+  btnOut.title = target === "exit" ? "Scale Exit Sign Down" : "Zoom Out";
   btnOut.style.cssText = "background:transparent !important;border:none !important;outline:none !important;box-shadow:none !important;color:#fff;font-size:1.5rem;font-weight:bold;cursor:pointer;padding:6px;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);line-height:1;";
   btnOut.textContent = "🔍 −";
-  btnOut.addEventListener("click", () => setZoomScaleWebXR(_zoomScale - 0.2));
+  btnOut.addEventListener("click", () => {
+    if (target === "exit") {
+      setExitSignScaleWebXR(_exitSignScale - 0.2);
+    } else {
+      setZoomScaleWebXR(_zoomScale - 0.2);
+    }
+  });
 
   zoomDiv.appendChild(btnIn);
   zoomDiv.appendChild(btnOut);
@@ -367,7 +414,7 @@ function _setupZoomControls() {
           const t0 = e.touches[0];
           const t1 = e.touches[1];
           _pinchStartDist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
-          _pinchStartScale = _zoomScale;
+          _pinchStartScale = target === "exit" ? _exitSignScale : _zoomScale;
         }
       },
       move: (e) => {
@@ -377,7 +424,11 @@ function _setupZoomControls() {
           const currentDist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
           if (_pinchStartDist > 10) {
             const factor = currentDist / _pinchStartDist;
-            setZoomScaleWebXR(_pinchStartScale * factor);
+            if (target === "exit") {
+              setExitSignScaleWebXR(_pinchStartScale * factor);
+            } else {
+              setZoomScaleWebXR(_pinchStartScale * factor);
+            }
           }
         }
       },
@@ -448,17 +499,9 @@ function cleanupWebXRFireModule() {
     window.removeEventListener("click", _step3ExitTapHandler);
     _step3ExitTapHandler = null;
   }
-  if (_zoomControlsEl && _zoomControlsEl.parentNode) {
-    _zoomControlsEl.parentNode.removeChild(_zoomControlsEl);
-    _zoomControlsEl = null;
-  }
-  if (_touchZoomHandler && typeof window !== "undefined") {
-    window.removeEventListener("touchstart", _touchZoomHandler.start);
-    window.removeEventListener("touchmove", _touchZoomHandler.move);
-    window.removeEventListener("touchend", _touchZoomHandler.end);
-    _touchZoomHandler = null;
-  }
+  _teardownZoomControls();
   _zoomScale = 1.0;
+  _exitSignScale = 1.0;
   if (_fireMesh && _controller && typeof _controller.removeFromScene === "function") {
     _controller.removeFromScene(_fireMesh);
     _fireMesh = null;
@@ -1082,6 +1125,9 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
   if (!_exitMesh && _controller && typeof _controller.addToScene === "function") {
     _exitMesh = createExitSignMesh({ position: { x: 0, y: 1.8, z: -1.8 } });
     if (_exitMesh) {
+      if (_exitSignScale !== 1.0) {
+        _exitMesh.scale.set(_exitSignScale, _exitSignScale, _exitSignScale);
+      }
       _controller.addToScene(_exitMesh);
       _ensureFrameHandler();
     }
@@ -1114,6 +1160,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
     confirmed = true;
     exitPlaced = true;
     _hideAimCrosshair();
+    _teardownZoomControls();
 
     if (_exitPlacementFrameHandler && _controller && typeof _controller.offFrame === "function") {
       _controller.offFrame(_exitPlacementFrameHandler);
@@ -1167,6 +1214,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
         _controller.offFrame(_exitPlacementFrameHandler);
         _exitPlacementFrameHandler = null;
       }
+      _setupZoomControls({ target: "exit" });
       const statusEl = document.getElementById("exit-status-hint");
       if (statusEl) {
         statusEl.style.color = "#00e676";
@@ -1973,6 +2021,8 @@ export {
   isDiagHudVisibleWebXR,
   setZoomScaleWebXR,
   getZoomScaleWebXR,
+  setExitSignScaleWebXR,
+  getExitSignScaleWebXR,
   getMethaneReadingWebXR,
   setMethaneReadingWebXR,
   getActiveBranchWebXR,

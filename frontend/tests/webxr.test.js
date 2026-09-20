@@ -271,6 +271,8 @@ import {
 import {
   setZoomScaleWebXR,
   getZoomScaleWebXR,
+  setExitSignScaleWebXR,
+  getExitSignScaleWebXR,
   getMethaneReadingWebXR,
   setMethaneReadingWebXR,
   getActiveBranchWebXR,
@@ -592,6 +594,23 @@ describe("WebXR Placement and Tracking", () => {
 
     // reset
     setZoomScaleWebXR(1.0);
+  });
+
+  it("setExitSignScaleWebXR clamps zoom factor between 0.5 and 2.0", () => {
+    assert.strictEqual(setExitSignScaleWebXR(1.5), 1.5);
+    assert.strictEqual(getExitSignScaleWebXR(), 1.5);
+
+    // clamped at lower bound
+    assert.strictEqual(setExitSignScaleWebXR(0.2), 0.5);
+    assert.strictEqual(getExitSignScaleWebXR(), 0.5);
+
+    // clamped at upper bound
+    assert.strictEqual(setExitSignScaleWebXR(3.5), 2.0);
+    assert.strictEqual(getExitSignScaleWebXR(), 2.0);
+
+    // reset
+    setExitSignScaleWebXR(1.0);
+    assert.strictEqual(getExitSignScaleWebXR(), 1.0);
   });
 
   it("createExtinguisherMesh base rests flush on floor plane Y=0", () => {
