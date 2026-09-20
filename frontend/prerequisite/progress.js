@@ -9,6 +9,7 @@ import { REQUIRED_EQUIPMENT_IDS, MODULE_IDS, requiredEquipmentForModule } from "
 // can itself throw, not just using it, so a bare try around setItem is not enough.
 
 const PREREQ_STORAGE_KEY = "safear_prerequisite_progress";
+const STAGE_2_PASS_THRESHOLD = 0.8;
 
 // get localStorage, or null when it is missing or throws on access
 function _getStorage() {
@@ -124,6 +125,43 @@ function getCompletedAt(workerId) {
   return record && record.completedAt ? record.completedAt : null;
 }
 
+// read one module stage result from the same worker progress record
+function getStageProgress(workerId, moduleId, stage = 2) {
+  const record = _readAll()[_workerKey(workerId)];
+  const stages = record && record.stages && typeof record.stages === "object" ? record.stages : {};
+  const moduleStages = stages[moduleId] && typeof stages[moduleId] === "object" ? stages[moduleId] : {};
+  const result = moduleStages[String(stage)];
+  return result && typeof result === "object" ? { ...result } : null;
+}
+
+// store a measured stage score beside equipment progress, never in a second store
+function recordStageResult(workerId, moduleId, stage, score) {
+  if (typeof moduleId !== "string" || moduleId.trim() === "") return false;
+  if (!Number.isFinite(score) || score < 0 || score > 1) return false;
+
+  const key = _workerKey(workerId);
+  const map = _readAll();
+  const record = map[key] && typeof map[key] === "object" ? map[key] : {};
+  const stages = record.stages && typeof record.stages === "object" ? { ...record.stages } : {};
+  const moduleStages = stages[moduleId] && typeof stages[moduleId] === "object" ? { ...stages[moduleId] } : {};
+  const previous = moduleStages[String(stage)];
+
+  moduleStages[String(stage)] = {
+    score,
+    passed: score >= STAGE_2_PASS_THRESHOLD,
+    completedAt: previous && previous.completedAt ? previous.completedAt : new Date().toISOString()
+  };
+  stages[moduleId] = moduleStages;
+  map[key] = { ...record, stages };
+  return _writeAll(map);
+}
+
+// stage three opens only after a stored stage two score reaches eighty percent
+function isStage2Passed(workerId, moduleId = "fire-response") {
+  const result = getStageProgress(workerId, moduleId, 2);
+  return Boolean(result && result.passed === true && Number(result.score) >= STAGE_2_PASS_THRESHOLD);
+}
+
 // wipe one worker's progress, leaving every other worker on the phone alone
 function resetPrerequisite(workerId) {
   const map = _readAll();
@@ -133,10 +171,14 @@ function resetPrerequisite(workerId) {
 
 export {
   PREREQ_STORAGE_KEY,
+  STAGE_2_PASS_THRESHOLD,
   getViewedEquipment,
   markEquipmentViewed,
   getPrerequisiteProgress,
   isPrerequisiteComplete,
   getCompletedAt,
+  getStageProgress,
+  recordStageResult,
+  isStage2Passed,
   resetPrerequisite
 };

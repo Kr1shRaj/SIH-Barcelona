@@ -182,7 +182,7 @@ function renderArShell(container, tierResult) {
 }
 
 // boot tier 2 marker tracking flow, loading moduleId once tracking is live
-async function bootTier2(container, decision, moduleId = null) {
+async function bootTier2(container, decision, moduleId = null, moduleOptions = {}) {
   const { viewport, statusCard } = renderArShell(container, decision);
   bindModuleLifecycleUI(statusCard);
 
@@ -214,7 +214,7 @@ async function bootTier2(container, decision, moduleId = null) {
 
     // marker tracking needs no user gesture, so the chosen module can start at once
     if (moduleId) {
-      await _startChosenModule(moduleId);
+      await _startChosenModule(moduleId, moduleOptions);
     }
     return trackingState;
   } catch (err) {
@@ -229,7 +229,7 @@ async function bootTier2(container, decision, moduleId = null) {
 }
 
 // fall back to tier 2 marker mode when webxr fail at runtime
-async function handleWebXRFallback(container, caps, err, loggerInstance = logger) {
+async function handleWebXRFallback(container, caps, err, loggerInstance = logger, moduleId = null, moduleOptions = {}) {
   const errorName = (err && err.name) || "Error";
   const errorMessage = (err && err.message) || String(err);
 
@@ -251,11 +251,11 @@ async function handleWebXRFallback(container, caps, err, loggerInstance = logger
   };
 
   const fallbackDecision = selectArTier(fallbackCaps);
-  return await bootTier2(container, fallbackDecision);
+  return await bootTier2(container, fallbackDecision, moduleId, moduleOptions);
 }
 
 // boot tier 1 webxr flow with user activation button, then load moduleId
-async function bootTier1(container, decision, caps, moduleId = null) {
+async function bootTier1(container, decision, caps, moduleId = null, moduleOptions = {}) {
   const { canvas, statusCard } = renderArShell(container, decision);
   bindModuleLifecycleUI(statusCard);
 
@@ -273,7 +273,7 @@ async function bootTier1(container, decision, caps, moduleId = null) {
       // mid-session fallback: if webxr session dies, degrade to tier 2
       window.addEventListener("safear:webxr_session_lost", async () => {
         logger.warn({ event: "webxr_mid_session_loss" }, "WebXR session lost mid-training");
-        await handleWebXRFallback(container, caps, new Error("WebXR session lost mid-training"), logger);
+        await handleWebXRFallback(container, caps, new Error("WebXR session lost mid-training"), logger, moduleId, moduleOptions);
       }, { once: true });
 
       if (statusCard) {
@@ -287,11 +287,11 @@ async function bootTier1(container, decision, caps, moduleId = null) {
       }
 
       if (moduleId) {
-        await _startChosenModule(moduleId);
+        await _startChosenModule(moduleId, moduleOptions);
       }
       return controller;
     } catch (err) {
-      await handleWebXRFallback(container, caps, err, logger);
+      await handleWebXRFallback(container, caps, err, logger, moduleId, moduleOptions);
       return null;
     }
   }
@@ -476,9 +476,9 @@ function bindModuleLifecycleUI(statusCard) {
 
 // hand the chosen module to the loader. the loader re-checks the prerequisite gate
 // and refuses if it is not done, so a failure here is reported, never swallowed.
-async function _startChosenModule(moduleId) {
+async function _startChosenModule(moduleId, moduleOptions = {}) {
   try {
-    await loadModule(moduleId);
+    await loadModule(moduleId, moduleOptions);
     return true;
   } catch (err) {
     logger.warn({ event: "module_start_failed", moduleId, error: err.message }, "Module start failed");
@@ -488,7 +488,7 @@ async function _startChosenModule(moduleId) {
 
 // turn the camera on and run the module. this is the first point at which SafeAR asks
 // for camera permission — the language and equipment screens never do.
-async function startTraining(container, moduleId) {
+async function startTraining(container, moduleId, moduleOptions = {}) {
   if (typeof document !== "undefined" && container && container.classList) {
     container.classList.remove("screen-mode");
   }
@@ -503,9 +503,9 @@ async function startTraining(container, moduleId) {
   }
 
   if (decision.tier === 1) {
-    await bootTier1(container, decision, caps, moduleId);
+    await bootTier1(container, decision, caps, moduleId, moduleOptions);
   } else {
-    await bootTier2(container, decision, moduleId);
+    await bootTier2(container, decision, moduleId, moduleOptions);
   }
 
   // expose unloadModule on window for manual dev testing
@@ -549,10 +549,11 @@ function startScreenFlow(container) {
         container: host,
         workerId,
         onStart: (moduleId) => showScreen("training", { moduleId }),
+        onStartTeam: (moduleId) => showScreen("training", { moduleId, team: true }),
         onBack: () => showScreen("prerequisite")
       });
     },
-    training: (host, params) => startTraining(host, params && params.moduleId)
+    training: (host, params) => startTraining(host, params && params.moduleId, params)
   });
 
   // The loading screen goes up first and hands over to the same first screen the

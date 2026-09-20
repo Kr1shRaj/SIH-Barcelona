@@ -54,6 +54,8 @@ import {
   getPrerequisiteProgress,
   isPrerequisiteComplete,
   getCompletedAt,
+  recordStageResult,
+  isStage2Passed,
   resetPrerequisite
 } from "../prerequisite/progress.js";
 import { renderScreenHtml, renderCard, renderCardArt } from "../prerequisite/screen.js";
@@ -2086,6 +2088,20 @@ describe("18. the gas leak and confined space equipment", () => {
     const both = renderModulesHtml({ "fire-response": true, "gas-leak": true });
     assert.ok(!both.includes("disabled"), "nothing is locked once both sets are read");
     assert.ok(!both.includes('data-role="locked-notice"'));
+  });
+
+  it("18d-i. team drill stays locked before an 80 percent solo pass", () => {
+    const html = renderModulesHtml({ "fire-response": true, "gas-leak": true, "fire-response-team": false });
+    assert.match(html, /data-action="start-team-drill"[^>]*disabled/);
+    assert.ok(html.includes(t("modules.team_drill_locked", {}, "")));
+  });
+
+  it("18d-ii. team drill opens after an 80 percent solo pass", () => {
+    recordStageResult(WORKER, "fire-response", 2, 0.8);
+    assert.strictEqual(isStage2Passed(WORKER, "fire-response"), true);
+    const html = renderModulesHtml({ "fire-response": true, "gas-leak": true, "fire-response-team": true });
+    assert.match(html, /data-action="start-team-drill"/);
+    assert.ok(!html.match(/data-action="start-team-drill"[^>]*disabled/));
   });
 
   it("18e. every gas card shows its photograph, its name and its viewed state", () => {

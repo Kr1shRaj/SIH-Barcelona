@@ -21,6 +21,13 @@ globalThis.window = {
   }
 };
 
+const _progressStore = {};
+globalThis.localStorage = {
+  getItem(key) { return Object.prototype.hasOwnProperty.call(_progressStore, key) ? _progressStore[key] : null; },
+  setItem(key, value) { _progressStore[key] = String(value); },
+  removeItem(key) { delete _progressStore[key]; }
+};
+
 // element store for stubbed dom
 const _elements = {};
 
@@ -244,13 +251,16 @@ import {
   getCurrentRole,
   getPeers
 } from "../modules/fire-response/team-session.js";
+import { recordStageResult } from "../prerequisite/progress.js";
 
 import {
   buildPeerAvatarEntity
 } from "../modules/fire-response/graphics.js";
+import { loadMarkerModuleScene } from "../ar/marker.js";
 
 // join team session fast for tests
-async function setupTeamScenario(role = "alarm", initialRoomState = {}) {
+async function setupTeamScenario(role = "alarm", initialRoomState = {}, viaMarker = false) {
+  recordStageResult("WRK-0001", "fire-response", 2, 0.8);
   let container = document.getElementById("ar-viewport");
   if (!container) {
     container = _makeEl("ar-viewport");
@@ -307,7 +317,11 @@ async function setupTeamScenario(role = "alarm", initialRoomState = {}) {
     return res;
   };
 
-  await startTeamScenario(container, { tier: 2 });
+  if (viaMarker) {
+    await loadMarkerModuleScene("fire-response", null, { team: true });
+  } else {
+    await startTeamScenario(container, { tier: 2 });
+  }
   container.appendChild = origAppend;
   return container;
 }
@@ -394,6 +408,12 @@ describe("Phase 3 Fire Team Session", () => {
       assert.strictEqual(chosenRole, "extinguisher_operator", "resolves with newly selected available role");
       assert.ok(!container.children.includes(overlay), "overlay removed on successful join");
     });
+  });
+
+  it("production marker route starts team scenario, not solo fire module", async () => {
+    await setupTeamScenario("alarm", {}, true);
+    assert.ok(document.getElementById("team-module-overlay"), "marker route must mount team overlay");
+    assert.ok(document.getElementById("team-instruction"), "marker route must mount team instructions");
   });
 
   describe("2. Peer position broadcast and avatar rendering", () => {

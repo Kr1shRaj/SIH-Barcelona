@@ -13,8 +13,10 @@ import {
   finishAssessmentSession,
   abortAssessmentSession,
   getActiveSession,
-  bindAssessmentSessionListeners
+  bindAssessmentSessionListeners,
+  getEffectiveWorkerId
 } from "../../assessment/engine.js";
+import { recordStageResult, isStage2Passed } from "../../prerequisite/progress.js";
 import {
   generateMethaneReading,
   isCorrectDecision,
@@ -2092,6 +2094,10 @@ function _showComplete(_lastPassed) {
       });
   }
 
+  if (evaluated && typeof evaluated.percentage === "number") {
+    recordStageResult(getEffectiveWorkerId(), "fire-response", 2, evaluated.percentage / 100);
+  }
+
   logger.info({ event: "fire_module_complete" }, "Fire module all steps done");
 }
 
@@ -2171,8 +2177,14 @@ let _teamEvacSetup = false;
 let _teamSessionMod = null;
 let _teamCheckpointHandler = null;
 
-async function startTeamScenario(container, tierInfo, options = {}) {
+async function startTeamScenario(container, tierInfo) {
   logger.info({ tier: tierInfo.tier }, "Starting Fire-Response Team Scenario");
+
+  if (!isStage2Passed(getEffectiveWorkerId(), "fire-response")) {
+    _createOverlay(container, `<div><h3>${t("fire.team_locked_title", "Team Drill Locked")}</h3><p>${t("fire.team_locked_desc", "Pass the solo fire drill with 80% or higher before joining a team drill.")}</p></div>`);
+    logger.warn({ event: "team_drill_blocked_stage" }, "Team drill blocked, solo stage not passed");
+    return false;
+  }
 
   if (tierInfo.tier === 1) {
     _createOverlay(container, `<div><h3 style="color:#ef4444;">${t("fire.team_tier1_error", "Team Scenario requires Tier-2 (Marker) Mode")}</h3><p>${t("fire.team_tier1_desc", "Please use the AR.js marker version for multiplayer so all devices share the same coordinate system.")}</p></div>`);
