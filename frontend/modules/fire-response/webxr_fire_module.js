@@ -110,11 +110,14 @@ function _raycastMesh(event, targetMesh) {
   return Array.isArray(hits) && hits.length > 0;
 }
 
-// find wall or floor spot from xr hit test or look straight ahead
+// find wall or floor spot and normal from xr hit test or look straight ahead
 function _computePlacementPose(frame, referenceSpace, defaultDist, elevateIfFloor, floorElevateY, camYOffset = 0) {
   const THREE = typeof window !== "undefined" && window.THREE;
   let hitPos = null;
   let isVertical = false;
+  let normal = null;
+  const camera = _controller && _controller.getCamera ? _controller.getCamera() : null;
+  const camPos = camera && camera.position ? camera.position : { x: 0, y: 1.5, z: 0 };
 
   if (frame && _controller && _controller.hitTestSource && referenceSpace) {
     try {
@@ -126,20 +129,45 @@ function _computePlacementPose(frame, referenceSpace, defaultDist, elevateIfFloo
           const hq = hitPose.transform.orientation;
 
           let normalY = 1.0;
+          let nx = 0;
+          let nz = 1;
           if (hq) {
             const hx = Number(hq.x) || 0;
+            const hy = Number(hq.y) || 0;
             const hz = Number(hq.z) || 0;
+            const hw = Number(hq.w) || 0;
             normalY = 1 - 2 * (hx * hx + hz * hz);
+            nx = 2 * (hx * hy - hw * hz);
+            nz = 2 * (hy * hz + hw * hx);
           }
 
           // vertical wall or door if normal Y near zero
           if (Math.abs(normalY) < 0.5) {
             isVertical = true;
             hitPos = { x: hp.x, y: hp.y, z: hp.z };
+            const len = Math.hypot(nx, nz);
+            let wallNx = len > 1e-4 ? nx / len : 0;
+            let wallNz = len > 1e-4 ? nz / len : 1;
+            const toCamX = camPos.x - hp.x;
+            const toCamZ = camPos.z - hp.z;
+            if (wallNx * toCamX + wallNz * toCamZ < 0) {
+              wallNx = -wallNx;
+              wallNz = -wallNz;
+            }
+            normal = { x: wallNx, y: 0, z: wallNz };
           } else if (elevateIfFloor) {
             hitPos = { x: hp.x, y: hp.y + floorElevateY, z: hp.z };
+            const toCamX = camPos.x - hp.x;
+            const toCamZ = camPos.z - hp.z;
+            const len = Math.hypot(toCamX, toCamZ);
+            normal = {
+              x: len > 1e-4 ? toCamX / len : 0,
+              y: 0,
+              z: len > 1e-4 ? toCamZ / len : 1
+            };
           } else {
             hitPos = { x: hp.x, y: hp.y, z: hp.z };
+            normal = { x: 0, y: 1, z: 0 };
           }
         }
       }
@@ -149,7 +177,6 @@ function _computePlacementPose(frame, referenceSpace, defaultDist, elevateIfFloo
   }
 
   if (!hitPos) {
-    const camera = _controller && _controller.getCamera ? _controller.getCamera() : null;
     if (camera && THREE && THREE.Vector3) {
       const fwd = new THREE.Vector3(0, 0, -1);
       if (camera.quaternion && fwd.applyQuaternion) {
@@ -164,12 +191,14 @@ function _computePlacementPose(frame, referenceSpace, defaultDist, elevateIfFloo
         y: camY + camYOffset,
         z: (camera.position ? camera.position.z : 0) + fwd.z * dist
       };
+      normal = { x: -fwd.x, y: 0, z: -fwd.z };
     } else {
       hitPos = { x: 0, y: floorElevateY || 0, z: -(defaultDist || 1.2) };
+      normal = { x: 0, y: 0, z: 1 };
     }
   }
 
-  return { pos: hitPos, isVertical };
+  return { pos: hitPos, isVertical, normal };
 }
 
 // keep frame loop ticking all active 3d models
@@ -1137,12 +1166,16 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
   if (_controller && typeof _controller.onFrame === "function") {
     _exitPlacementFrameHandler = ({ frame, referenceSpace }) => {
       if (exitPlaced || !_exitMesh) return;
-      const { pos, isVertical } = _computePlacementPose(frame, referenceSpace, 1.8, true, 1.80, 0.30);
+      const { pos, isVertical, normal } = _computePlacementPose(frame, referenceSpace, 1.8, true, 1.80, 0.30);
       if (pos && _exitMesh.position && _exitMesh.position.set) {
         _exitMesh.position.set(pos.x, pos.y, pos.z);
-        const camera = _controller.getCamera ? _controller.getCamera() : null;
-        if (camera && camera.position && typeof _exitMesh.lookAt === "function") {
-          _exitMesh.lookAt(camera.position.x, _exitMesh.position.y, camera.position.z);
+        if (normal && typeof _exitMesh.lookAt === "function") {
+          _exitMesh.lookAt(pos.x + normal.x, pos.y + (normal.y || 0), pos.z + normal.z);
+        } else {
+          const camera = _controller.getCamera ? _controller.getCamera() : null;
+          if (camera && camera.position && typeof _exitMesh.lookAt === "function") {
+            _exitMesh.lookAt(camera.position.x, _exitMesh.position.y, camera.position.z);
+          }
         }
       }
       const statusEl = document.getElementById("exit-status-hint");

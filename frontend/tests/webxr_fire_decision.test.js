@@ -89,7 +89,7 @@ class MockGroup {
     this.userData = {};
     this.visible = true;
   }
-  lookAt() {}
+  lookAt(x, y, z) { this._lookAtTarget = { x, y, z }; }
   add(obj) { this.children.push(obj); }
   remove(obj) { this.children = this.children.filter((c) => c !== obj); }
   getObjectByName(name) {
@@ -774,6 +774,9 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     assert.strictEqual(result.pos.x, 0.5);
     assert.strictEqual(result.pos.y, 1.2);
     assert.strictEqual(result.pos.z, -2.1);
+    assert.ok(result.normal, "Wall surface normal must be returned");
+    assert.strictEqual(Math.round(result.normal.z), 1);
+    assert.strictEqual(result.normal.y, 0);
   });
 
   it("_computePlacementPose elevates position when horizontal floor hit detected", () => {
@@ -805,6 +808,9 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     assert.strictEqual(result.pos.x, 0);
     assert.strictEqual(result.pos.y, 1.15);
     assert.strictEqual(result.pos.z, -1.5);
+    assert.ok(result.normal, "Normal facing approaching user must be returned");
+    assert.strictEqual(result.normal.y, 0);
+    assert.strictEqual(Math.round(result.normal.z), 1);
   });
 
   it("_computePlacementPose projects forward along camera gaze when no hit results", () => {
@@ -823,6 +829,9 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     assert.strictEqual(result.pos.x, 1);
     assert.strictEqual(result.pos.y, 1.15); // 1.5 + (-0.35)
     assert.strictEqual(result.pos.z, -3.2); // -2 + (-1.2)
+    assert.ok(result.normal, "Normal facing back along gaze must be returned");
+    assert.strictEqual(result.normal.y, 0);
+    assert.strictEqual(Math.round(result.normal.z), 1);
   });
 
   it("_raycastMesh returns true on direct intersection and false on miss", () => {
@@ -989,6 +998,62 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     assert.strictEqual(document.getElementById("safear-zoom-controls"), null);
     assert.strictEqual(getExitSignScaleWebXR(), 1.0);
   });
+
+  it("Branch A: Exit sign rotates to align flush with detected wall angle in live preview", () => {
+    const container = _makeEl("container");
+    let addedExitMesh = null;
+    let registeredFrameHandler = null;
+    const mockHitPose = {
+      transform: {
+        position: { x: 0.8, y: 1.8, z: -2.0 },
+        // normal rotated 90 deg around X
+        orientation: { x: Math.SQRT1_2, y: 0, z: 0, w: Math.SQRT1_2 }
+      }
+    };
+    const mockFrame = {
+      getHitTestResults() {
+        return [{ getPose() { return mockHitPose; } }];
+      }
+    };
+    const mockController = {
+      hitTestSource: {},
+      addToScene(m) {
+        if (m.name === "exit-graphic") addedExitMesh = m;
+      },
+      removeFromScene() {},
+      onFrame(fn) { registeredFrameHandler = fn; },
+      offFrame() { registeredFrameHandler = null; },
+      getCamera() { return { position: new MockVector3(0, 1.5, 0), quaternion: new MockQuaternion() }; }
+    };
+
+    startFireModuleWebXR(container, mockController, { reading: 6.2 });
+    const overlay = document.getElementById("fire-module-overlay");
+
+    _showEvacuateConfirmationWebXR(container, overlay, 6.2);
+    assert.ok(addedExitMesh);
+    assert.ok(registeredFrameHandler);
+
+    // run frame handler to simulate camera scanning wall
+    registeredFrameHandler({ frame: mockFrame, referenceSpace: {} });
+
+    // exit mesh position set to hit pos
+    assert.strictEqual(addedExitMesh.position.x, 0.8);
+    assert.strictEqual(addedExitMesh.position.y, 1.8);
+    assert.strictEqual(addedExitMesh.position.z, -2.0);
+
+    // exit mesh lookAt called with pos + normal to sit flush with wall
+    assert.ok(addedExitMesh._lookAtTarget);
+    assert.strictEqual(addedExitMesh._lookAtTarget.x, 0.8);
+    assert.strictEqual(addedExitMesh._lookAtTarget.y, 1.8);
+    assert.strictEqual(Math.round(addedExitMesh._lookAtTarget.z), -1); // -2.0 + 1.0 = -1.0 (looking along outward wall normal)
+
+    // locking placement detaches frame handler and keeps flush rotation
+    window.dispatchEvent(new CustomEvent("pointerdown", { detail: { clientX: 200, clientY: 300 } }));
+    assert.strictEqual(registeredFrameHandler, null);
+
+    cleanupWebXRFireModule();
+  });
 });
+
 
 
