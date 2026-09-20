@@ -232,7 +232,7 @@ class MockWebSocket {
 
 globalThis.WebSocket = MockWebSocket;
 
-import { registerCheckpoint, clearCheckpoints } from "../ar/interactions.js";
+import { clearCheckpoints } from "../ar/interactions.js";
 
 import {
   startTeamScenario,
@@ -241,7 +241,7 @@ import {
   PIN_PULL_THRESHOLD_PX,
   AIM_HOLD_DURATION_MS,
   SQUEEZE_HOLD_DURATION_MS,
-  CP_EXIT_ID
+  CP_ALARM_ID
 } from "../modules/fire-response/fire-response.js";
 
 import {
@@ -265,9 +265,6 @@ async function setupTeamScenario(role = "alarm", initialRoomState = {}, viaMarke
   if (!container) {
     container = _makeEl("ar-viewport");
   }
-
-  // guarantee checkpoint registered so fireCheckpointResult dispatches
-  registerCheckpoint({ id: CP_EXIT_ID, type: "proximity", onTrigger: () => {} });
 
   // guarantee viewport overlays and entities exist
   if (!document.getElementById("fire-module-overlay")) {
@@ -430,6 +427,17 @@ describe("Phase 3 Fire Team Session", () => {
     await setupTeamScenario("alarm", {}, true);
     assert.ok(document.getElementById("team-module-overlay"), "marker route must mount team overlay");
     assert.ok(document.getElementById("team-instruction"), "marker route must mount team instructions");
+  });
+
+  it("alarm pull fires alarm checkpoint, not exit checkpoint", async () => {
+    await setupTeamScenario("alarm");
+    const events = [];
+    const listener = (event) => events.push(event.detail.checkpointId);
+    window.addEventListener("safear:checkpoint", listener);
+    document.getElementById("btn-pull-alarm").click();
+    window.removeEventListener("safear:checkpoint", listener);
+    assert.deepStrictEqual(events, [CP_ALARM_ID]);
+    assert.ok(!events.includes("fire_exit_identification"));
   });
 
   describe("2. Peer position broadcast and avatar rendering", () => {

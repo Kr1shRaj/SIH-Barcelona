@@ -93,6 +93,16 @@ const CHECKPOINT_DEFINITIONS = [
   },
   {
     moduleId: "fire-response",
+    checkpointId: "fire_alarm_pull",
+    type: "select",
+    observationKind: "selection_single",
+    expectedValue: JSON.stringify("alarm_pull"),
+    allowedValues: JSON.stringify(["alarm_pull"]),
+    gradeable: 1,
+    required: 0
+  },
+  {
+    moduleId: "fire-response",
     checkpointId: "fire_evacuation_sequence_marker",
     type: "select",
     observationKind: "selection_single",
@@ -276,7 +286,7 @@ function seedDatabase(db) {
         min_frame_count: c.minFrameCount === undefined ? null : c.minFrameCount,
         gradeable: c.gradeable,
         weight: DEFAULT_CHECKPOINT_WEIGHT,
-        required: 1,
+        required: c.required === undefined ? 1 : c.required,
         critical: CRITICAL_PENDING,
         created_at: SEED_TIMESTAMP
       })

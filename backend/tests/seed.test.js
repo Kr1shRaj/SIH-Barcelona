@@ -81,6 +81,7 @@ describe("Deterministic seed data", () => {
       .all();
 
     assert.deepStrictEqual(rows, [
+      { module_id: "fire-response", checkpoint_id: "fire_alarm_pull", checkpoint_type: "select" },
       { module_id: "fire-response", checkpoint_id: "fire_evacuation_sequence_marker", checkpoint_type: "select" },
       { module_id: "fire-response", checkpoint_id: "fire_evacuation_sequence_webxr", checkpoint_type: "select" },
       { module_id: "fire-response", checkpoint_id: "fire_exit_identification", checkpoint_type: "proximity" },
@@ -148,6 +149,7 @@ describe("Deterministic seed data", () => {
       .map((row) => ({ checkpoint_id: row.checkpoint_id, expected: JSON.parse(row.expected_value) }));
 
     assert.deepStrictEqual(rows, [
+      { checkpoint_id: "fire_alarm_pull", expected: "alarm_pull" },
       { checkpoint_id: "fire_evacuation_sequence_marker", expected: "sound_alarm_then_evacuate" },
       { checkpoint_id: "fire_evacuation_sequence_webxr", expected: "wind_based_upwind" },
       { checkpoint_id: "gas_buddy_procedure", expected: "standby_outside_with_lifeline" },
@@ -155,10 +157,11 @@ describe("Deterministic seed data", () => {
     ]);
   });
 
-  it("marks every seeded checkpoint required with equal weight", () => {
+  it("marks required checkpoints and keeps alarm pull optional with equal weight", () => {
     seedDatabase(db);
     db.prepare("SELECT * FROM checkpoint_definition").all().forEach((row) => {
-      assert.strictEqual(row.required, 1, `${row.checkpoint_id} must be required`);
+      const expectedRequired = row.checkpoint_id === "fire_alarm_pull" ? 0 : 1;
+      assert.strictEqual(row.required, expectedRequired, `${row.checkpoint_id} required flag is wrong`);
       assert.strictEqual(row.weight, 1, `${row.checkpoint_id} must weigh 1 until content says otherwise`);
     });
   });

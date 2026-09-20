@@ -38,6 +38,7 @@ function addCleanup(fn) {
 
 // checkpoint ids — stable identifiers for assessment engine to key on
 const CP_EXIT_ID = "fire_exit_identification";
+const CP_ALARM_ID = "fire_alarm_pull";
 const CP_EXTINGUISHER_ID = "fire_extinguisher_aim";
 // tier 2 asks the marker variant of the evacuation question. tier 1 asks its own,
 // so the server holds a separate answer key for each and they must not be mixed.
@@ -381,6 +382,13 @@ function _executeBranchA_Evacuate(container, tierInfo, reading) {
 // show 3d alarm station and require pull action
 function _showAlarmPullStation(container, tierInfo, onDone) {
   _currentStep = 1;
+  registerCheckpoint({
+    id: CP_ALARM_ID,
+    type: "select",
+    onTrigger: (detail) => {
+      logger.info({ event: "checkpoint_cb", id: detail.checkpointId, passed: detail.passed }, "Alarm pull checkpoint triggered");
+    }
+  });
   const overlay = document.getElementById("fire-module-overlay");
 
   const camera = typeof document !== "undefined" && typeof document.querySelector === "function"
@@ -430,16 +438,10 @@ function _showAlarmPullStation(container, tierInfo, onDone) {
       btn.textContent = "✔ ALARM ACTIVATED! PREPARING EXTINGUISHER...";
 
       fireCheckpointResult(
-        CP_EXIT_ID,
+        CP_ALARM_ID,
         true,
-        { method: "alarm_pull_activated", reading: _methaneReading },
-        spatialAlignment({
-          anchorId: EXIT_ANCHOR_ID,
-          angularErrorRad: 0,
-          dwellMs: 500,
-          frameCount: 10,
-          trackingSource: trackingSourceForTier(tierInfo && tierInfo.tier)
-        })
+        { method: "alarm_pull_activated", reading: _methaneReading, tier: tierInfo && tierInfo.tier },
+        selectionSingle("alarm_pull")
       );
 
       if (alarmEntity && alarmEntity.remove) alarmEntity.remove();
@@ -2266,7 +2268,7 @@ async function startTeamScenario(container, tierInfo) {
   // listen for AR interactions to update shared state
   _teamCheckpointHandler = (e) => {
     const detail = e.detail || {};
-    if (detail.checkpointId === CP_EXIT_ID && role === "alarm" && detail.passed) {
+    if (detail.checkpointId === CP_ALARM_ID && role === "alarm" && detail.passed) {
       updateRoomState({ alarm_pulled: true });
     }
     if (detail.checkpointId === CP_EXTINGUISHER_ID && role === "extinguisher_operator" && detail.passed) {
@@ -2378,6 +2380,7 @@ export {
   canExecuteSelectedAction,
   evaluateGazeAimProgress,
   CP_EXIT_ID,
+  CP_ALARM_ID,
   CP_EXTINGUISHER_ID,
   CP_EVACUATION_ID,
   CP_EVACUATION_WEBXR_ID,
