@@ -3,6 +3,7 @@ const { getLogger, logConfigWarnings, createChildLogger } = require("./logger");
 const { initDatabase, closeDatabase } = require("./db/index");
 const { loadSigningKeys } = require("./services/certs/keys");
 const { createApp } = require("./app");
+const { initRealtimeServer } = require("./realtime/team-session");
 
 // start express server and hook routes
 function startServer(options = {}) {
@@ -33,9 +34,14 @@ function startServer(options = {}) {
     );
   });
 
+  const wss = initRealtimeServer(server, config, log);
+
   // let sqlite finish and close cleanly instead of dying mid write
   function close() {
     return new Promise((resolve) => {
+      if (wss) {
+        wss.close();
+      }
       server.close(() => {
         closeDatabase();
         log.info({ event: "server_closed" }, "Server stopped");

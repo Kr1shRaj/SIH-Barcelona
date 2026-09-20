@@ -442,6 +442,44 @@ function buildFireAlarmEntity() {
   return entity;
 }
 
+// build generic avatar for teammates in multiplayer mode
+function buildPeerAvatarEntity(role) {
+  const entity = document.createElement("a-entity");
+  
+  // a simple floating cone + sphere to represent a person
+  const head = document.createElement("a-sphere");
+  head.setAttribute("radius", "0.15");
+  head.setAttribute("position", "0 1.6 0");
+  head.setAttribute("color", role === "alarm" ? "#ef4444" : role === "extinguisher_operator" ? "#3b82f6" : "#10b981");
+  head.setAttribute("opacity", "0.7");
+  
+  const body = document.createElement("a-cone");
+  body.setAttribute("radius-bottom", "0.25");
+  body.setAttribute("radius-top", "0.05");
+  body.setAttribute("height", "1.2");
+  body.setAttribute("position", "0 0.8 0");
+  body.setAttribute("color", role === "alarm" ? "#ef4444" : role === "extinguisher_operator" ? "#3b82f6" : "#10b981");
+  body.setAttribute("opacity", "0.5");
+  
+  const text = document.createElement("a-text");
+  const roleName = role.replace("_", " ").toUpperCase();
+  text.setAttribute("value", roleName);
+  text.setAttribute("align", "center");
+  text.setAttribute("position", "0 2.0 0");
+  text.setAttribute("scale", "0.5 0.5 0.5");
+  text.setAttribute("color", "#ffffff");
+  text.setAttribute("side", "double");
+
+  entity.appendChild(head);
+  entity.appendChild(body);
+  entity.appendChild(text);
+  
+  // animate floating
+  entity.setAttribute("animation", "property: position; dir: alternate; dur: 2000; easing: easeInOutSine; loop: true; to: 0 0.05 0");
+  
+  return entity;
+}
+
 // aliases for backward compatibility
 const buildFireGraphic = buildFireEntity;
 const buildExitGraphic = buildExitEntity;
@@ -457,5 +495,6 @@ export {
   buildFireGraphic,
   buildExitGraphic,
   buildExtinguisherGraphic,
-  buildFireAlarmGraphic
+  buildFireAlarmGraphic,
+  buildPeerAvatarEntity
 };
