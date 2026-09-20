@@ -469,8 +469,26 @@ function bindModuleLifecycleUI(statusCard) {
     statusCard.style.display = "none";
   });
 
+  const returnToModules = () => {
+    if (typeof document === "undefined") return;
+    const appEl = document.getElementById("app");
+    if (appEl && appEl.classList) {
+      appEl.classList.add("screen-mode");
+    }
+    try {
+      showScreen("modules");
+    } catch {
+      // fallback if showScreen unmounted
+    }
+  };
+
   window.addEventListener("safear:module_unloaded", () => {
     statusCard.style.display = "block";
+    returnToModules();
+  });
+
+  window.addEventListener("safear:return_to_menu", () => {
+    returnToModules();
   });
 }
 

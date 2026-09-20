@@ -447,6 +447,44 @@ describe("WebXR Placement and Tracking", () => {
     assert.strictEqual(controller._destroyed, true);
   });
 
+  it("WebXRPlacementController.end() cleanly terminates session without emitting session_lost", async () => {
+    globalThis.window.THREE = mockTHREE;
+    const sessionListeners = {};
+    let sessionEnded = false;
+    const mockSession = {
+      addEventListener(type, fn) { sessionListeners[type] = fn; },
+      removeEventListener(type) { delete sessionListeners[type]; },
+      end: async () => {
+        sessionEnded = true;
+        if (sessionListeners["end"]) sessionListeners["end"]();
+      }
+    };
+    const mockGl = { canvas: {} };
+
+    const controller = new WebXRPlacementController({
+      session: mockSession,
+      gl: mockGl,
+      referenceSpace: {},
+      hitTestSource: null,
+      viewerSpace: null
+    });
+
+    let sessionLost = false;
+    let cleanEnd = false;
+    globalThis.window.addEventListener("safear:webxr_session_lost", () => {
+      sessionLost = true;
+    });
+    globalThis.window.addEventListener("safear:webxr_session_ended", () => {
+      cleanEnd = true;
+    });
+
+    await controller.end();
+    assert.strictEqual(sessionEnded, true);
+    assert.strictEqual(sessionLost, false);
+    assert.strictEqual(cleanEnd, true);
+    assert.strictEqual(controller._destroyed, true);
+  });
+
   it("endWebXRSession safely ends session", async () => {
     let ended = false;
     const session = {

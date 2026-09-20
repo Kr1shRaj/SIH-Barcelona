@@ -129,46 +129,44 @@ function _computePlacementPose(frame, referenceSpace, defaultDist, elevateIfFloo
           const hp = hitPose.transform.position;
           const hq = hitPose.transform.orientation;
 
-          let normalY = 1.0;
-          let nx = 0;
-          let nz = 1;
+          let surfaceNormal = null;
           if (hq) {
             const hx = Number(hq.x) || 0;
             const hy = Number(hq.y) || 0;
             const hz = Number(hq.z) || 0;
-            const hw = Number(hq.w) || 0;
-            normalY = 1 - 2 * (hx * hx + hz * hz);
-            nx = 2 * (hx * hy - hw * hz);
-            nz = 2 * (hy * hz + hw * hx);
+            const hw = (hq.w !== undefined && hq.w !== null) ? Number(hq.w) : 1;
+            surfaceNormal = {
+              x: 2 * (hx * hy - hw * hz),
+              y: 1 - 2 * (hx * hx + hz * hz),
+              z: 2 * (hy * hz + hw * hx)
+            };
           }
 
-          // vertical wall or door if normal Y near zero
-          if (Math.abs(normalY) < 0.5) {
-            isVertical = true;
-            hitPos = { x: hp.x, y: hp.y, z: hp.z };
-            const len = Math.hypot(nx, nz);
-            let wallNx = len > 1e-4 ? nx / len : 0;
-            let wallNz = len > 1e-4 ? nz / len : 1;
-            const toCamX = camPos.x - hp.x;
-            const toCamZ = camPos.z - hp.z;
-            if (wallNx * toCamX + wallNz * toCamZ < 0) {
-              wallNx = -wallNx;
-              wallNz = -wallNz;
+          if (surfaceNormal) {
+            const ny = surfaceNormal.y !== undefined ? surfaceNormal.y : 1;
+            if (Math.abs(ny) < 0.70) {
+              isVertical = true;
+              hitPos = { x: hp.x, y: hp.y, z: hp.z };
+              const len = Math.hypot(surfaceNormal.x, surfaceNormal.z) || 1;
+              let wallNx = surfaceNormal.x / len;
+              let wallNz = surfaceNormal.z / len;
+              const toCamX = camPos.x - hp.x;
+              const toCamZ = camPos.z - hp.z;
+              if (wallNx * toCamX + wallNz * toCamZ < 0) {
+                wallNx = -wallNx;
+                wallNz = -wallNz;
+              }
+              normal = { x: wallNx, y: 0, z: wallNz };
+            } else if (elevateIfFloor) {
+              hitPos = { x: hp.x, y: hp.y + floorElevateY, z: hp.z };
+              const toCamX = camPos.x - hp.x;
+              const toCamZ = camPos.z - hp.z;
+              const len = Math.hypot(toCamX, toCamZ) || 1;
+              normal = { x: toCamX / len, y: 0, z: toCamZ / len };
+            } else {
+              hitPos = { x: hp.x, y: hp.y, z: hp.z };
+              normal = { x: 0, y: 1, z: 0 };
             }
-            normal = { x: wallNx, y: 0, z: wallNz };
-          } else if (elevateIfFloor) {
-            hitPos = { x: hp.x, y: hp.y + floorElevateY, z: hp.z };
-            const toCamX = camPos.x - hp.x;
-            const toCamZ = camPos.z - hp.z;
-            const len = Math.hypot(toCamX, toCamZ);
-            normal = {
-              x: len > 1e-4 ? toCamX / len : 0,
-              y: 0,
-              z: len > 1e-4 ? toCamZ / len : 1
-            };
-          } else {
-            hitPos = { x: hp.x, y: hp.y, z: hp.z };
-            normal = { x: 0, y: 1, z: 0 };
           }
         }
       }
@@ -183,18 +181,17 @@ function _computePlacementPose(frame, referenceSpace, defaultDist, elevateIfFloo
       if (camera.quaternion && fwd.applyQuaternion) {
         fwd.applyQuaternion(camera.quaternion);
       }
-      fwd.y = 0;
-      fwd.normalize();
-      const dist = defaultDist || 1.2;
+      const dist = defaultDist || 2.5;
       const camY = camera.position ? camera.position.y : 1.5;
       hitPos = {
         x: (camera.position ? camera.position.x : 0) + fwd.x * dist,
-        y: camY + camYOffset,
+        y: camY + fwd.y * dist + camYOffset,
         z: (camera.position ? camera.position.z : 0) + fwd.z * dist
       };
-      normal = { x: -fwd.x, y: 0, z: -fwd.z };
+      const lenH = Math.hypot(fwd.x, fwd.z) || 1;
+      normal = { x: -fwd.x / lenH, y: 0, z: -fwd.z / lenH };
     } else {
-      hitPos = { x: 0, y: floorElevateY || 0, z: -(defaultDist || 1.2) };
+      hitPos = { x: 0, y: floorElevateY || 0, z: -(defaultDist || 2.5) };
       normal = { x: 0, y: 0, z: 1 };
     }
   }
@@ -1217,7 +1214,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
   if (_controller && typeof _controller.onFrame === "function") {
     _exitPlacementFrameHandler = ({ frame, referenceSpace }) => {
       if (exitPlaced || !_exitMesh) return;
-      const { pos, isVertical, normal } = _computePlacementPose(frame, referenceSpace, 1.8, true, 1.80, 0.30);
+      const { pos, isVertical, normal } = _computePlacementPose(frame, referenceSpace, 2.5, true, 1.80, 0.0);
       if (normal) lastNormal = normal;
       if (pos && _exitMesh.position && _exitMesh.position.set) {
         _exitMesh.position.set(pos.x, pos.y, pos.z);
@@ -1234,7 +1231,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
       if (statusEl && isVertical && !statusEl.dataset.wallDetected) {
         statusEl.dataset.wallDetected = "true";
         statusEl.style.color = "#00e676";
-        statusEl.textContent = t("fire.exit_door_found", "Door/wall surface detected! Tap screen or exit sign to lock.");
+        statusEl.textContent = t("fire.exit_door_found", "Door/wall surface detected! Tap button or screen to anchor.");
       }
     };
     _controller.onFrame(_exitPlacementFrameHandler);
@@ -1299,7 +1296,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
     _placedSignPos = {
       x: _exitMesh ? _exitMesh.position.x : 0,
       y: _exitMesh ? _exitMesh.position.y : 1.8,
-      z: _exitMesh ? _exitMesh.position.z : -1.8
+      z: _exitMesh ? _exitMesh.position.z : -2.5
     };
     _placedWallNormal = lastNormal || { x: 0, y: 0, z: 1 };
 
@@ -1328,7 +1325,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
 
     const btn = document.getElementById("btn-exit-found");
     if (btn) {
-      btn.textContent = t("fire.exit_fallback_btn", "🚪 Restricted test space? Tap to complete");
+      btn.textContent = t("fire.exit_fallback_btn", "🚪 Small Room / Obstacle? Tap to complete");
       btn.style.background = "#334155";
       btn.style.color = "#f1f5f9";
       btn.style.border = "1px solid #64748b";
@@ -1337,6 +1334,10 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
 
     _updateWebXRDiag("Exit Sign Locked -> Walk Toward Door (<= 0.8m)");
 
+    let _recentWalkSamples = [];
+    let _lastSpeedCalcTime = 0;
+    let _currentWalkingSpeed = 0;
+
     if (_controller && typeof _controller.onFrame === "function") {
       _exitWalkFrameHandler = () => {
         if (confirmed || !exitPlaced || !_exitMesh) return;
@@ -1344,6 +1345,22 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
         if (!currentCam || !currentCam.position) return;
 
         const res = checkEvacuationPhysicalExit(currentCam.position, _placedSignPos, _placedWallNormal);
+        const now = Date.now();
+
+        _recentWalkSamples.push({ t: now, d: res.distance });
+        _recentWalkSamples = _recentWalkSamples.filter(s => now - s.t <= 1200);
+
+        if (_recentWalkSamples.length >= 2 && now - _lastSpeedCalcTime >= 200) {
+          _lastSpeedCalcTime = now;
+          const s0 = _recentWalkSamples[0];
+          const sLatest = _recentWalkSamples[_recentWalkSamples.length - 1];
+          const dtSec = (sLatest.t - s0.t) / 1000;
+          if (dtSec >= 0.20) {
+            const speedMps = (s0.d - sLatest.d) / dtSec;
+            _currentWalkingSpeed = Math.round(speedMps * 10) / 10;
+          }
+        }
+
         const liveDistText = document.getElementById("exit-walk-dist-text");
         if (liveDistText) {
           liveDistText.textContent = `${res.distance.toFixed(1)}m`;
@@ -1354,8 +1371,19 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
           liveDistBar.style.width = `${pct}%`;
         }
 
+        const livePaceText = document.getElementById("exit-walk-pace-text");
+        if (livePaceText) {
+          if (_currentWalkingSpeed > 0.20) {
+            livePaceText.innerHTML = `🟢 <span>Walking forward (${_currentWalkingSpeed.toFixed(1)} m/s)</span>`;
+          } else if (_currentWalkingSpeed < -0.20) {
+            livePaceText.innerHTML = `⚠️ <span style="color:#f87171;">Moving away from exit (${Math.abs(_currentWalkingSpeed).toFixed(1)} m/s) — Turn toward door</span>`;
+          } else {
+            livePaceText.innerHTML = `🟡 <span style="color:#fde047;">Step forward toward doorway (${res.distance.toFixed(1)}m remaining)</span>`;
+          }
+        }
+
         if (res.reached) {
-          confirmEvac({ method: "physical_walk", distance: res.distance });
+          confirmEvac({ method: "physical_walk", distance: res.distance, speed: _currentWalkingSpeed });
         }
       };
       _controller.onFrame(_exitWalkFrameHandler);
@@ -1392,18 +1420,18 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
     <div class="hud-title">${isHigh ? "CRITICAL METHANE LEVEL (>= 5.0%)" : "PRECAUTIONARY EVACUATION"}</div>
     <div class="hud-desc">${isHigh ? "Atmosphere is explosive. Fire suppression is strictly forbidden under mining regulations. Follow emergency route immediately." : "Evacuation selected. Move promptly along marked emergency path to the nearest safe surface exit."}</div>
     <div id="exit-status-hint" style="margin:0.4rem 0 0.5rem 0;font-size:0.92rem;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">
-      ${t("fire.exit_door_hint", "Aim at exit door / frame and tap to lock route.")}
+      ${t("fire.exit_door_hint", "Aim crosshair at exit door / frame and tap button or screen to anchor.")}
     </div>
-    <div id="exit-walk-feedback" style="display:none;margin:0.4rem 0;padding:0.5rem;background:rgba(15,23,42,0.85);border:1px solid #00e676;border-radius:8px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.85rem;font-weight:600;color:#f1f5f9;">
-        <span>🚶 ${t("fire.exit_walk_dist", "Distance to Safe Exit:")}</span>
-        <span id="exit-walk-dist-text" style="color:#00e676;font-size:0.95rem;font-weight:bold;">--</span>
+    <div id="exit-walk-feedback" style="display:none;margin:0.4rem 0;padding:0.6rem;background:rgba(15,23,42,0.92);border:1.5px solid #00e676;border-radius:10px;box-shadow:0 0 16px rgba(0,230,118,0.25);">
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.88rem;font-weight:600;color:#f1f5f9;">
+        <span>🚪 Distance to Door:</span>
+        <span id="exit-walk-dist-text" style="color:#00e676;font-size:1.15rem;font-weight:bold;">--</span>
       </div>
-      <div style="margin-top:0.35rem;height:8px;background:#334155;border-radius:4px;overflow:hidden;">
-        <div id="exit-walk-bar" style="height:100%;width:0%;background:#00e676;transition:width 0.15s ease;"></div>
+      <div style="margin:0.4rem 0 0.25rem 0;height:10px;background:#334155;border-radius:5px;overflow:hidden;">
+        <div id="exit-walk-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#00e676,#38bdf8);transition:width 0.15s ease;"></div>
       </div>
-      <div style="font-size:0.75rem;color:#94a3b8;margin-top:0.25rem;">
-        ${t("fire.exit_walk_subtext", "Walk toward doorway (<= 0.8m) to complete evacuation.")}
+      <div id="exit-walk-pace-text" style="font-size:0.82rem;font-weight:600;color:#38bdf8;margin-top:0.35rem;display:flex;align-items:center;gap:0.3rem;">
+        <span>🚶</span> <span>Step forward toward exit door...</span>
       </div>
     </div>
   `;
@@ -1411,9 +1439,15 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
 
   const btn = document.createElement("button");
   btn.id = "btn-exit-found";
-  btn.style.cssText = "margin-top:0.6rem;padding:0.8rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;";
-  btn.textContent = "✔ Confirm Evacuation Route";
-  btn.addEventListener("click", () => confirmEvac());
+  btn.style.cssText = "margin-top:0.6rem;padding:0.8rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;box-shadow:0 0 14px rgba(0,230,118,0.3);";
+  btn.textContent = "📍 Lock Exit Sign on Door";
+  btn.addEventListener("click", () => {
+    if (!exitPlaced) {
+      lockPlacementAndStartWalk();
+    } else {
+      confirmEvac({ method: "small_room_fallback" });
+    }
+  });
   overlay.appendChild(btn);
 }
 
@@ -2105,9 +2139,21 @@ function _renderDebriefCardWebXR(overlay, passed = true) {
     "letter-spacing:0.5px !important", "margin-top:0.3rem !important"
   ].join(";");
   btnExit.textContent = "✔ Finish & Exit Drill";
-  btnExit.addEventListener("click", () => {
+  btnExit.addEventListener("click", async () => {
     cleanupWebXRFireModule();
     unloadModule();
+    if (_controller && typeof _controller.end === "function") {
+      await _controller.end();
+    } else if (_controller && _controller.session && typeof _controller.session.end === "function") {
+      try {
+        await _controller.session.end();
+      } catch {
+        // ignore already ended session
+      }
+    }
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("safear:return_to_menu"));
+    }
   });
   card.appendChild(btnExit);
 

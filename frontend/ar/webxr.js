@@ -224,17 +224,36 @@ class WebXRPlacementController {
     this.session.addEventListener("select", this._onSelect);
   }
 
-  // handle unexpected session termination
+  // handle session termination
   _bindSessionEnd() {
     if (!this.session) return;
     this._onEnd = () => {
       this._destroyed = true;
+      if (this._intentionalEnd) {
+        logger.info({ event: "webxr_session_ended_cleanly" }, "XR session ended cleanly");
+        if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+          window.dispatchEvent(new CustomEvent("safear:webxr_session_ended"));
+        }
+        return;
+      }
       logger.warn({ event: "webxr_session_ended_unexpectedly" }, "XR session ended");
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
         window.dispatchEvent(new CustomEvent("safear:webxr_session_lost"));
       }
     };
     this.session.addEventListener("end", this._onEnd);
+  }
+
+  // end active webxr session cleanly
+  async end() {
+    this._intentionalEnd = true;
+    if (this.session && typeof this.session.end === "function") {
+      try {
+        await this.session.end();
+      } catch {
+        // ignore already ended session
+      }
+    }
   }
 
   // get the placed world position or null if not yet placed
