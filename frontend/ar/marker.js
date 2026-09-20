@@ -55,7 +55,7 @@ function _showCameraPermissionModal() {
           <li>${t("marker.camera_step4", "Tap Reload & Enable below.")}</li>
         </ol>
       </div>
-      <button id="btn-retry-permission" style="padding:14px 28px;background:#00e676;color:#000;border:none;border-radius:10px;font-weight:700;font-size:1rem;cursor:pointer;display:inline-flex;align-items:center;gap:8px;box-shadow:0 4px 12px rgba(0,230,118,0.4);">
+      <button id="btn-retry-permission" class="hud-btn">
         ${t("marker.reload_enable", "🔄 Reload & Enable Camera")}
       </button>
     </div>

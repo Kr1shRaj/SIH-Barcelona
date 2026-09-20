@@ -1,6 +1,7 @@
 import { t, getLocale } from "../js/i18n.js";
 import { playNarration } from "../js/audio.js";
 import { createLogger } from "../js/logger.js";
+import { renderAppBar, bindAppBar } from "../screens/appbar.js";
 import {
   ART_VIEWBOX,
   ACTIVE_EQUIPMENT,
@@ -106,9 +107,12 @@ function renderScreenHtml(progress) {
 
   return `
     <section class="eq-screen" aria-labelledby="eq-screen-title">
+      ${renderAppBar({
+        title: _text("prerequisite.title", "Equipment Familiarization"),
+        subtitle: _text("prerequisite.subtitle", "Learn the equipment before training begins"),
+        titleId: "eq-screen-title"
+      })}
       <header class="eq-screen__head">
-        <h1 class="eq-screen__title" id="eq-screen-title">${_text("prerequisite.title", "Equipment Familiarization")}</h1>
-        <p class="eq-screen__subtitle">${_text("prerequisite.subtitle", "Learn the equipment before training begins")}</p>
         <div class="eq-progress" role="progressbar" aria-valuenow="${progress.viewedCount}" aria-valuemin="0" aria-valuemax="${progress.requiredCount}">
           <div class="eq-progress__bar" data-role="progress-bar" style="width:${percent}%"></div>
         </div>
@@ -159,6 +163,10 @@ function mountPrerequisiteScreen({ container, workerId, onContinue, fetchFn } = 
 
   paint();
 
+  // the bar's language selector redraws this screen in the new language. progress
+  // is read from storage by paint(), so nothing a worker has done is lost.
+  const appBar = bindAppBar(host, { onLocaleChange: () => paint() });
+
   const onClick = (event) => {
     const raw = event && event.target;
     if (!raw || typeof raw.closest !== "function") return;
@@ -202,7 +210,7 @@ function mountPrerequisiteScreen({ container, workerId, onContinue, fetchFn } = 
 
   logger.info({ event: "prerequisite_screen_mounted", workerId }, "Equipment familiarization shown");
 
-  return { repaint: paint };
+  return { repaint: paint, destroy: () => appBar && appBar.destroy() };
 }
 
 export {

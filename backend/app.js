@@ -8,6 +8,7 @@ const { createModulesRouter } = require("./routes/modules");
 const { createSyncRouter } = require("./routes/sync");
 const { createCertRouter } = require("./routes/certs");
 const { createDashboardRouter } = require("./routes/dashboard");
+const { createAuthRouter } = require("./routes/auth");
 
 // only echo an origin we were told about, no wildcard anywhere
 function _buildCorsOptions(allowedOrigins) {
@@ -20,7 +21,7 @@ function _buildCorsOptions(allowedOrigins) {
       return callback(null, allowedOrigins.indexOf(origin) !== -1);
     },
     methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "x-admin-key"],
+    allowedHeaders: ["Content-Type", "x-admin-key", "Authorization"],
     credentials: false,
     maxAge: 600
   };
@@ -82,6 +83,7 @@ function createApp({ db, config, logger, keys }) {
     });
   });
 
+  app.use("/api/auth", createAuthRouter({ db }));
   app.use("/api/modules", createModulesRouter({ db }));
   app.use("/api/sync", createSyncRouter({ db }));
   app.use("/api/certs", createCertRouter({ db, keys }));

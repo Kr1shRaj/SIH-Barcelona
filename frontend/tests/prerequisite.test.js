@@ -2740,7 +2740,15 @@ describe("22. the loading screen, and the logo it carries", () => {
     const src = fs.readFileSync(path.join(FRONTEND, "js/app.js"), "utf8");
     const flow = src.slice(src.indexOf("function startScreenFlow"));
     assert.ok(flow.includes("mountSplashScreen"), "the flow must open on the loading screen");
-    assert.match(flow, /onDone: \(\) => resolve\(showScreen\("language"\)\)/, "and hand over to the screen it always did");
+    assert.match(flow, /onDone: \(\) => resolve\(firstScreen\(\)\)/, "and hand over to the first screen");
+
+    // that first screen is the flow only for a worker who is already signed in;
+    // everyone else gets the sign in screen, and a remembered device is not a
+    // session — it only changes which question the prompt asks
+    assert.match(flow, /if \(isSessionFresh\(\)\) \{\s*return showScreen\("language"\);/);
+    assert.ok(flow.includes("mountAuthScreen"), "and everyone else must be asked to sign in");
+    assert.ok(!/canReenterOffline\(\)\s*\)\s*\{\s*return showScreen/.test(flow),
+      "a remembered device must never be a way into the flow on its own");
   });
 
   it("22g. nothing on the loading screen loops, and reduced motion stops it moving", () => {
@@ -2761,7 +2769,16 @@ describe("22. the loading screen, and the logo it carries", () => {
 
   it("22h. the palette comes from the logo, and the blue-slate one is gone", () => {
     const style = readCss("style.css");
-    const tokens = style.slice(style.indexOf(":root {"), style.indexOf("* {"));
+    // the dark theme is the default block; the light theme redefines the same names
+    const tokens = style.slice(style.indexOf('[data-theme="dark"] {'), style.indexOf('[data-theme="light"] {'));
+    const light = style.slice(style.indexOf(':root[data-theme="light"] {'), style.indexOf("* {"));
+
+    // both themes define every colour a screen can ask for, so neither can fall
+    // through to the other's values
+    ["--color-bg", "--color-surface", "--color-line", "--color-text", "--color-text-muted", "--color-primary"].forEach((token) => {
+      assert.ok(tokens.includes(token + ":"), `dark theme is missing ${token}`);
+      assert.ok(light.includes(token + ":"), `light theme is missing ${token}`);
+    });
 
     // the two values sampled out of the supplied file
     assert.match(tokens, /--brand-navy: #01172e;/);

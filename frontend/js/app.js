@@ -7,6 +7,10 @@ import { t, loadLocale, setLocale } from "./i18n.js";
 import { registerScreens, showScreen } from "../screens/router.js";
 import { mountLanguageScreen, readLocalePreference } from "../screens/language.js";
 import { mountSplashScreen } from "../screens/splash.js";
+import { initTheme } from "./theme.js";
+import { mountAuthScreen } from "../screens/auth.js";
+import { SIGN_OUT_EVENT } from "../screens/appbar.js";
+import { isSessionFresh } from "./session.js";
 import { mountModulesScreen } from "../screens/modules.js";
 import { mountPrerequisiteScreen } from "../prerequisite/screen.js";
 import { queueEligibleCertificates, flushPendingCertificates } from "./certificates.js";
@@ -124,8 +128,8 @@ function renderArShell(container, tierResult) {
         <a-light type="ambient" color="#ffffff" intensity="1.2"></a-light>
         <a-light type="directional" position="1 4 2" intensity="1.0"></a-light>
         <a-entity id="main-camera" camera cursor="rayOrigin: mouse" raycaster="objects: .clickable, [data-raycast-target]">
-          <a-entity id="gaze-laser" raycaster="objects: .aim-target, [data-raycast-target='aim'], #aim-reticle; showLine: true; far: 30; lineColor: #00e5ff; lineOpacity: 0.85;" position="0 0 0" rotation="0 0 0">
-            <a-ring id="gaze-dot" position="0 0 -1" radius-inner="0.008" radius-outer="0.016" material="color: #00e5ff; shader: flat; opacity: 0.9; side: double"></a-ring>
+          <a-entity id="gaze-laser" raycaster="objects: .aim-target, [data-raycast-target='aim'], #aim-reticle; showLine: true; far: 30; lineColor: #febc04; lineOpacity: 0.85;" position="0 0 0" rotation="0 0 0">
+            <a-ring id="gaze-dot" position="0 0 -1" radius-inner="0.008" radius-outer="0.016" material="color: #febc04; shader: flat; opacity: 0.9; side: double"></a-ring>
             <a-circle position="0 0 -1" radius="0.003" material="color: #ffffff; shader: flat; opacity: 0.95"></a-circle>
           </a-entity>
         </a-entity>
@@ -138,8 +142,11 @@ function renderArShell(container, tierResult) {
     <div class="ui-overlay">
       <div style="width:100%;display:flex;flex-direction:column;pointer-events:none;">
         <header class="header-bar">
-          <div class="app-title">🛡️ SafeAR <span class="connection-dot"></span></div>
-          <div style="margin-left:auto;display:flex;align-items:center;gap:10px;">
+          <div class="header-bar__side header-bar__side--start">
+            <span class="connection-dot" aria-hidden="true"></span>
+          </div>
+          <div class="app-title">SafeAR</div>
+          <div class="header-bar__side header-bar__side--end">
             <span class="tier-badge ${tierClass}">${tierLabel}</span>
           </div>
         </header>
@@ -420,7 +427,9 @@ async function startTraining(container, moduleId) {
 // wire the pre-AR flow: pick a language, meet the equipment, then choose a module.
 // each screen only hands control on when its own precondition is satisfied.
 function startScreenFlow(container) {
-  const workerId = getEffectiveWorkerId();
+  // the inline boot in index.html already stamped a theme; this takes over as the
+  // authority and keeps following the phone until the worker chooses for themselves
+  initTheme();
 
   const enterScreenMode = () => {
     if (container && container.classList) {
@@ -440,7 +449,7 @@ function startScreenFlow(container) {
       enterScreenMode();
       return mountPrerequisiteScreen({
         container: host,
-        workerId,
+        workerId: getEffectiveWorkerId(),
         onContinue: () => showScreen("modules")
       });
     },
@@ -448,7 +457,7 @@ function startScreenFlow(container) {
       enterScreenMode();
       return mountModulesScreen({
         container: host,
-        workerId,
+        workerId: getEffectiveWorkerId(),
         onStart: (moduleId) => showScreen("training", { moduleId }),
         onBack: () => showScreen("prerequisite")
       });
@@ -456,14 +465,48 @@ function startScreenFlow(container) {
     training: (host, params) => startTraining(host, params && params.moduleId)
   });
 
-  // The loading screen goes up first and hands over to the same first screen the
-  // flow has always started on. It is not a step in SCREEN_ORDER and it gates
-  // nothing — if its timers never fire, the handover still runs.
+  // Where the app opens once the loading screen is done.
+  //
+  //   a live session token -> straight into the flow
+  //   anything else        -> the sign in screen, which asks for a PIN offline
+  //                           and for a worker id and PIN online
+  //
+  // A REMEMBERED ACCOUNT IS NOT A WAY IN. A device that has been signed in before
+  // still gets a prompt; all the cached record buys is that the prompt asks for a
+  // PIN instead of a worker id, and the PIN is checked against this device's own
+  // verifier. Training itself is never gated on the network — once a worker is
+  // in, the rest of the app behaves exactly as it always has, queue and all.
+  const firstScreen = () => {
+    if (isSessionFresh()) {
+      return showScreen("language");
+    }
+
+    enterScreenMode();
+    const host = document.createElement("div");
+    host.className = "screen-host";
+    container.innerHTML = "";
+    container.appendChild(host);
+
+    return mountAuthScreen({
+      container: host,
+      onAuthenticated: () => showScreen("language")
+    });
+  };
+
+  // Signing out from any screen comes back here. The session is already gone by
+  // the time this fires; all that is left is to ask who is using the phone now.
+  if (container && typeof container.addEventListener === "function") {
+    container.addEventListener(SIGN_OUT_EVENT, () => { firstScreen(); });
+  }
+
+  // The loading screen goes up first and hands over to the first screen. It is
+  // not a step in SCREEN_ORDER and it gates nothing — if its timers never fire,
+  // the handover still runs.
   enterScreenMode();
   return new Promise((resolve) => {
     mountSplashScreen({
       container,
-      onDone: () => resolve(showScreen("language"))
+      onDone: () => resolve(firstScreen())
     });
   });
 }

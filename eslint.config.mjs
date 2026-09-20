@@ -24,7 +24,11 @@ export default [
         Date: "readonly",
         Math: "readonly",
         URLSearchParams: "readonly",
-        globalThis: "readonly"
+        globalThis: "readonly",
+        // base64 and text encoding, used by the device-local offline verifier
+        btoa: "readonly",
+        atob: "readonly",
+        TextEncoder: "readonly"
       }
     },
     rules: {

@@ -1,7 +1,7 @@
 const { describe, it, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert");
 const request = require("supertest");
-const { buildTestApp, measureSpatialCheckpoints } = require("./helpers/app");
+const { buildTestApp, measureSpatialCheckpoints, activateTestTrainee, asTrainee } = require("./helpers/app");
 const { fireAttempt, gasAttempt, syncEnvelope, forgedV1Attempt } = require("./fixtures/attempts");
 
 let ctx = null;
@@ -9,23 +9,39 @@ let ctx = null;
 const SECOND_BATCH = "c0ffee00-1111-4222-8333-444455556666";
 const OTHER_ATTEMPT = "11111111-2222-4333-8444-555566667777";
 
-function post(body) {
-  return request(ctx.app).post("/api/sync").send(body);
+// Sync now requires a signed in trainee. By default a suite posts as the worker
+// named on the envelope, which is what a real device does; a test that wants a
+// mismatch passes a different session on purpose.
+function post(body, session) {
+  const active = session || sessionFor((body && body.workerId) || "WRK-0001");
+  return request(ctx.app).post("/api/sync").set(asTrainee(active)).send(body);
+}
+
+// one activated account per worker per test, cached so repeated posts reuse it
+let _sessions = new Map();
+function sessionFor(workerId) {
+  if (!_sessions.has(workerId)) {
+    _sessions.set(workerId, activateTestTrainee(ctx.db, workerId));
+  }
+  return _sessions.get(workerId);
 }
 
 // fixture attempts aimed at workers the seed actually knows
 function fire(overrides) {
   return fireAttempt(Object.assign({ workerId: "WRK-0001" }, overrides || {}));
 }
+// A batch belongs to one signed in worker now, so the gas fixture is aimed at the
+// same worker as the fire one. Mixing two workers into a single envelope was only
+// ever possible because nobody had to prove who they were.
 function gas(overrides) {
-  return gasAttempt(Object.assign({ workerId: "WRK-0004" }, overrides || {}));
+  return gasAttempt(Object.assign({ workerId: "WRK-0001" }, overrides || {}));
 }
 function envelope(attempts, overrides) {
   return syncEnvelope(attempts, Object.assign({ workerId: "WRK-0001" }, overrides || {}));
 }
 
 describe("POST /api/sync", () => {
-  beforeEach(() => { ctx = buildTestApp(); });
+  beforeEach(() => { ctx = buildTestApp(); _sessions = new Map(); });
   afterEach(() => ctx.cleanup());
 
   // the shipped manifest leaves fire_exit_identification and gas_hazard_zone_recognition
@@ -278,9 +294,28 @@ describe("POST /api/sync", () => {
   });
 
   describe("referential failures are per attempt", () => {
+    it("refuses the whole batch when one attempt names another worker", async () => {
+      // Before authentication this was a per-attempt rejection: the good half
+      // landed and the bad half was reported. Now the session decides who the
+      // caller is, so an attempt for somebody else is not a bad record inside a
+      // good batch — it is a batch that is not this worker's, and none of it is
+      // written. The per-attempt unknown_worker check stays in the route as a
+      // backstop for a foreign key that slips through another path.
+      const good = fire();
+      const bad = fire({ workerId: "WRK-0004", attemptId: OTHER_ATTEMPT });
+
+      const res = await post(envelope([good, bad]));
+
+      assert.strictEqual(res.status, 403);
+      assert.strictEqual(res.body.error.code, "worker_mismatch");
+
+      const stored = ctx.db.prepare("SELECT COUNT(*) AS n FROM attempt").get();
+      assert.strictEqual(stored.n, 0, "a refused batch must write nothing at all");
+    });
+
     it("rejects an unknown worker without sinking the batch", async () => {
       const good = fire();
-      const bad = fire({ workerId: "WRK-DEFAULT", attemptId: OTHER_ATTEMPT });
+      const bad = fire({ moduleId: "not-a-real-module", attemptId: OTHER_ATTEMPT });
 
       const res = await post(envelope([good, bad]));
 
@@ -289,13 +324,13 @@ describe("POST /api/sync", () => {
       assert.strictEqual(res.body.rejected, 1);
 
       const rejection = res.body.results.find((r) => r.status === "rejected");
-      assert.strictEqual(rejection.reason, "unknown_worker");
-      assert.match(rejection.message, /WRK-DEFAULT/);
+      assert.strictEqual(rejection.reason, "unknown_module");
+      assert.match(rejection.message, /not-a-real-module/);
     });
 
     it("still stores the good attempt from a mixed batch", async () => {
       const good = fire();
-      const bad = fire({ workerId: "WRK-DEFAULT", attemptId: OTHER_ATTEMPT });
+      const bad = fire({ moduleId: "not-a-real-module", attemptId: OTHER_ATTEMPT });
       await post(envelope([good, bad]));
 
       assert.ok(ctx.db.prepare("SELECT 1 FROM attempt WHERE attempt_id = ?").get(good.attemptId));
@@ -363,7 +398,7 @@ describe("POST /api/sync", () => {
     });
 
     it("answers 422 when nothing in the batch landed", async () => {
-      const res = await post(envelope([fire({ workerId: "WRK-DEFAULT" })]));
+      const res = await post(envelope([fire({ moduleId: "not-a-real-module" })]));
 
       assert.strictEqual(res.status, 422);
       assert.strictEqual(res.body.accepted, 0);
@@ -511,7 +546,7 @@ describe("POST /api/sync", () => {
       await post(envelope([already]));
 
       const fresh = gas();
-      const bad = fire({ workerId: "WRK-DEFAULT", attemptId: OTHER_ATTEMPT });
+      const bad = fire({ moduleId: "not-a-real-module", attemptId: OTHER_ATTEMPT });
 
       const res = await post(envelope([already, fresh, bad], { batchId: SECOND_BATCH }));
 

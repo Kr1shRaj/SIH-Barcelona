@@ -5,6 +5,7 @@ const { ValidationError, REFERENTIAL, makeIssue } = require("../models/errors");
 const { getModule, getCheckpointDefinitions } = require("../services/modules");
 const { ingestAttempt, recordSyncBatch } = require("../services/attempts");
 const { GradingError } = require("../services/grading");
+const { requireTrainee } = require("../middleware/trainee-auth");
 const { createChildLogger } = require("../logger");
 
 const log = createChildLogger({ component: "sync" });
@@ -24,7 +25,14 @@ function _rejection(attemptId, code, message, issues) {
 function createSyncRouter({ db }) {
   const router = express.Router();
 
-  router.post("/", (req, res, next) => {
+  // Every attempt that lands here belongs to the session that sent it. The
+  // envelope still carries a workerId — the offline queue records one when the
+  // attempt is taken — but it is now a CLAIM the server checks, never the
+  // identity it trusts. A mismatch is refused rather than quietly rewritten, so
+  // a device queueing under the wrong worker is visible instead of silently
+  // producing somebody else's training record.
+  router.post("/", requireTrainee(db), (req, res, next) => {
+    const sessionWorkerId = req.trainee.workerId;
     let envelope;
 
     // layer 1. a malformed envelope or attempt sinks the whole batch with a 400,
@@ -37,10 +45,31 @@ function createSyncRouter({ db }) {
 
     const receivedAt = new Date().toISOString();
 
+    if (envelope.workerId !== sessionWorkerId) {
+      return res.status(403).json({
+        error: {
+          code: "worker_mismatch",
+          message: "this batch is for a different worker than the signed in one",
+          requestId: req.id
+        }
+      });
+    }
+
+    const mismatched = envelope.attempts.find((attempt) => attempt.workerId !== sessionWorkerId);
+    if (mismatched) {
+      return res.status(403).json({
+        error: {
+          code: "worker_mismatch",
+          message: "an attempt in this batch is for a different worker than the signed in one",
+          requestId: req.id
+        }
+      });
+    }
+
     try {
       recordSyncBatch(db, {
         batchId: envelope.batchId,
-        workerId: envelope.workerId,
+        workerId: sessionWorkerId,
         deviceId: envelope.deviceId,
         receivedAt,
         attemptCount: envelope.attempts.length

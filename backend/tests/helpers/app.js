@@ -56,4 +56,28 @@ function measureSpatialCheckpoints(db) {
   ).run(TEST_ONLY_ANGULAR_ERROR_RAD);
 }
 
-module.exports = { buildTestApp, measureSpatialCheckpoints, TEST_CONFIG, TEST_ONLY_ANGULAR_ERROR_RAD };
+// TEST ONLY. Activate a roster worker and hand back a bearer token.
+//
+// Sync and certificate issuance now require a signed in trainee, so a suite that
+// exercises them has to be somebody. This walks the real path — issue a code,
+// activate with it, set a PIN — rather than writing rows directly, so the tests
+// are using the same mechanism a worker would.
+function activateTestTrainee(db, workerId = "WRK-0001", pin = "846215") {
+  const { issueActivationCode, activateAccount } = require("../../services/accounts");
+  const { code } = issueActivationCode(db, { workerId });
+  return activateAccount(db, { workerId, code, pin, deviceId: "dev-test-01" });
+}
+
+// the Authorization header for a token, so a suite reads as "as this worker"
+function asTrainee(session) {
+  return { Authorization: `Bearer ${session.token}` };
+}
+
+module.exports = {
+  buildTestApp,
+  measureSpatialCheckpoints,
+  TEST_CONFIG,
+  TEST_ONLY_ANGULAR_ERROR_RAD,
+  activateTestTrainee,
+  asTrainee
+};

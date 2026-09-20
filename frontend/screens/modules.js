@@ -1,5 +1,6 @@
 import { t, getLocale } from "../js/i18n.js";
 import { createLogger } from "../js/logger.js";
+import { renderAppBar, bindAppBar } from "./appbar.js";
 import { getEquipmentForModule, equipmentNameKey } from "../prerequisite/equipment-data.js";
 import { isTranslationPending } from "../prerequisite/translation-status.js";
 import { isPrerequisiteComplete } from "../prerequisite/progress.js";
@@ -41,6 +42,11 @@ function _text(key, fallback) {
   return `<span class="eq-pending" data-translation-pending="true" title="${note}">${_esc(text)}</span>`;
 }
 
+// plain translated text, no markup, for attributes like aria-label
+function _plainText(key, fallback) {
+  return _esc(t(key, {}, fallback));
+}
+
 // the equipment this module expects the worker to already know
 function _equipmentLine(moduleId) {
   return getEquipmentForModule(moduleId)
@@ -80,13 +86,14 @@ function renderModulesHtml(unlocked) {
 
   return `
     <section class="mod-screen" aria-labelledby="mod-title">
-      <header class="mod-screen__head">
-        <h1 class="mod-screen__title" id="mod-title">${_text("modules.select_title", "Choose Your Training")}</h1>
-        <p class="mod-screen__subtitle">${_text("modules.select_subtitle", "Pick a module to begin")}</p>
-      </header>
+      ${renderAppBar({
+        title: _text("modules.select_title", "Choose Your Training"),
+        subtitle: _text("modules.select_subtitle", "Pick a module to begin"),
+        titleId: "mod-title",
+        back: { action: "back-to-equipment", label: _plainText("prerequisite.title", "Equipment Familiarization") }
+      })}
       ${notice}
       <ul class="mod-list">${cards}</ul>
-      <button type="button" class="eq-btn eq-btn--ghost eq-btn--wide" data-action="back-to-equipment">${_text("prerequisite.title", "Equipment Familiarization")}</button>
     </section>
   `;
 }
@@ -95,11 +102,19 @@ function renderModulesHtml(unlocked) {
 function mountModulesScreen({ container, workerId, onStart, onBack } = {}) {
   if (typeof document === "undefined" || !container) return null;
 
-  const unlocked = {};
-  TRAINING_MODULES.forEach((module) => {
-    unlocked[module.id] = isPrerequisiteComplete(workerId, module.id);
-  });
-  container.innerHTML = renderModulesHtml(unlocked);
+  // gating is re-read on every paint rather than captured once, so a redraw can
+  // never show a stale lock
+  const paint = () => {
+    const unlocked = {};
+    TRAINING_MODULES.forEach((module) => {
+      unlocked[module.id] = isPrerequisiteComplete(workerId, module.id);
+    });
+    container.innerHTML = renderModulesHtml(unlocked);
+  };
+
+  paint();
+
+  const appBar = bindAppBar(container, { onLocaleChange: () => paint() });
 
   const onClick = (event) => {
     const raw = event && event.target;
@@ -134,8 +149,15 @@ function mountModulesScreen({ container, workerId, onStart, onBack } = {}) {
     container.addEventListener("click", onClick);
   }
 
-  logger.info({ event: "module_screen_mounted", unlocked }, "Module selection shown");
-  return { unlocked };
+  // log what the gate says at mount time, read fresh rather than from a captured map
+  logger.info({
+    event: "module_screen_mounted",
+    unlocked: TRAINING_MODULES.reduce((acc, module) => {
+      acc[module.id] = isPrerequisiteComplete(workerId, module.id);
+      return acc;
+    }, {})
+  }, "Module selection shown");
+  return { repaint: paint, destroy: () => appBar && appBar.destroy() };
 }
 
 export {

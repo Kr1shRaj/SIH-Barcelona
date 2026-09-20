@@ -59,7 +59,7 @@ function _createOverlay(container, html) {
   panel.id = "fire-module-overlay";
   panel.style.cssText = [
     "position:fixed", "bottom:0", "left:0", "right:0",
-    "background:transparent", "color:#fff",
+    "background:transparent", "color:#f3f4f6",
     "font-family:sans-serif", "padding:1.2rem",
     "z-index:100", "pointer-events:auto"
   ].join(";");
@@ -219,7 +219,7 @@ function _renderEvacuationOptions(container, onSelect) {
 
   const wrapper = document.createElement("div");
   wrapper.id = "evacuation-options";
-  wrapper.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-top:0.8rem;";
+  wrapper.className = "hud-choices";
 
   options.forEach(({ id, label }) => {
     const btn = document.createElement("button");
@@ -227,8 +227,8 @@ function _renderEvacuationOptions(container, onSelect) {
     btn.dataset.optionId = id;
     btn.style.cssText = [
       "padding:0.7rem 0.5rem", "border-radius:8px",
-      "border:2px solid #ff6a00", "background:#1a0a00",
-      "color:#fff", "cursor:pointer", "font-size:0.9rem"
+      "border:2px solid #febc04", "background:#1a0a00",
+      "color:#f3f4f6", "cursor:pointer", "font-size:0.9rem"
     ].join(";");
     btn.textContent = label;
     btn.addEventListener("click", () => onSelect(id, id === CORRECT));
@@ -245,13 +245,13 @@ function _renderEvacuationOptions(container, onSelect) {
 function _renderSubscreen(overlay, { badge, title, desc, buttonText, onNext }) {
   if (!overlay) return;
   overlay.innerHTML = `
-    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${badge}</div>
-    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${title}</div>
-    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${desc}</div>
+    <div class="hud-eyebrow">${badge}</div>
+    <div class="hud-title">${title}</div>
+    <div class="hud-instruction">${desc}</div>
   `;
   const btnNext = document.createElement("button");
   btnNext.id = "btn-step-next";
-  btnNext.style.cssText = "margin-top:0.4rem;padding:0.75rem 1.4rem;background:#ff6a00;color:#fff;border:none;border-radius:8px;font-size:0.95rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
+  btnNext.className = "hud-btn";
   btnNext.textContent = buttonText || "Next ➜";
   btnNext.addEventListener("click", onNext);
   overlay.appendChild(btnNext);
@@ -305,13 +305,13 @@ function _setupStep1(container, tierInfo) {
   function showActionScreen() {
     if (overlay) {
       overlay.innerHTML = `
-        <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 1 / 3 — EXIT IDENTIFICATION (4/4)</div>
-        <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">Locate Emergency Exit</div>
-        <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Look for the illuminated green emergency sign anchored in AR space. Align your view with the evacuation path.</div>
+        <div class="hud-eyebrow">🔥 STEP 1 / 3 — EXIT IDENTIFICATION (4/4)</div>
+        <div class="hud-title">Locate Emergency Exit</div>
+        <div class="hud-instruction">Look for the illuminated green emergency sign anchored in AR space. Align your view with the evacuation path.</div>
       `;
       const btn = document.createElement("button");
       btn.id = "btn-exit-found";
-      btn.style.cssText = "margin-top:0.4rem;padding:0.8rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
+      btn.className = "hud-btn hud-btn--done";
       btn.textContent = t("modules.fire_response.btn_exit", {}, "✔ I see the exit");
       btn.addEventListener("click", () => {
         const sampled = _exitSampler ? _exitSampler.stop() : { angularErrorRad: null, dwellMs: 0, frameCount: 0 };
@@ -527,10 +527,10 @@ function _setupStep2(container, tierInfo) {
   function _renderPullPin() {
     if (!overlay) return;
     overlay.innerHTML = `
-      <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (1/4)</div>
-      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">P — Pull the Pin</div>
-      <div id="pin-instruction-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Tap the golden safety pin (or button below) to select, then drag right to unlock.</div>
-      <button id="pin-status-badge" style="display:block;width:100%;max-width:340px;padding:12px 18px;border-radius:10px;border:2px solid #00e5ff;background:#0f172a;color:#00e5ff;font-size:0.95rem;font-weight:bold;cursor:pointer;margin:0.5rem 0;box-shadow:0 0 15px rgba(0,229,255,0.3);pointer-events:auto !important;text-align:center;">👉 TAP HERE TO SELECT PIN</button>
+      <div class="hud-eyebrow">🔥 STEP 2 / 3 — PASS TECHNIQUE (1/4)</div>
+      <div class="hud-title">P — Pull the Pin</div>
+      <div id="pin-instruction-text" class="hud-instruction">Tap the golden safety pin (or button below) to select, then drag right to unlock.</div>
+      <button id="pin-status-badge" class="hud-btn">👉 TAP HERE TO SELECT PIN</button>
     `;
 
     // target 3d pin sub-entities and 3d progress bar
@@ -553,14 +553,14 @@ function _setupStep2(container, tierInfo) {
       if (statusBadge) {
         if (selected) {
           statusBadge.textContent = "👉 SWIPE RIGHT OR TAP TO PULL PIN";
-          statusBadge.style.background = "linear-gradient(135deg, #00e5ff, #00b0ff)";
-          statusBadge.style.color = "#000000";
-          statusBadge.style.boxShadow = "0 0 20px rgba(0, 229, 255, 0.6)";
+          statusBadge.style.background = "#febc04";
+          statusBadge.style.color = "#01172e";
+          statusBadge.style.boxShadow = "none";
         } else {
           statusBadge.textContent = "👉 TAP HERE TO SELECT PIN";
-          statusBadge.style.background = "#0f172a";
-          statusBadge.style.color = "#00e5ff";
-          statusBadge.style.boxShadow = "0 0 15px rgba(0, 229, 255, 0.3)";
+          statusBadge.style.background = "rgba(17, 19, 21, 0.9)";
+          statusBadge.style.color = "#febc04";
+          statusBadge.style.boxShadow = "none";
         }
       }
       if (instructionText) {
@@ -576,7 +576,7 @@ function _setupStep2(container, tierInfo) {
         shaft.setAttribute(
           "material",
           selected
-            ? "color: #00e5ff; emissive: #00e5ff; emissiveIntensity: 0.8; metalness: 0.8; roughness: 0.2"
+            ? "color: #febc04; emissive: #febc04; emissiveIntensity: 0.8; metalness: 0.8; roughness: 0.2"
             : "color: #fbbf24; metalness: 0.8; roughness: 0.2"
         );
       }
@@ -584,8 +584,8 @@ function _setupStep2(container, tierInfo) {
         ring.setAttribute(
           "material",
           selected
-            ? "color: #00e5ff; emissive: #00e5ff; emissiveIntensity: 0.9; metalness: 0.6; roughness: 0.2"
-            : "color: #fbbf24; emissive: #f59e0b; emissiveIntensity: 0.7; metalness: 0.6; roughness: 0.2"
+            ? "color: #febc04; emissive: #febc04; emissiveIntensity: 0.9; metalness: 0.6; roughness: 0.2"
+            : "color: #fbbf24; emissive: #febc04; emissiveIntensity: 0.7; metalness: 0.6; roughness: 0.2"
         );
       }
       if (guideArrow && typeof guideArrow.setAttribute === "function") {
@@ -625,16 +625,16 @@ function _setupStep2(container, tierInfo) {
       const pinShaft = document.getElementById("ext-pin-shaft");
       const pinRing = document.getElementById("ext-pin-ring");
       if (pinShaft && typeof pinShaft.setAttribute === "function") {
-        pinShaft.setAttribute("material", "color: #10b981; metalness: 0.8; roughness: 0.2");
+        pinShaft.setAttribute("material", "color: #2f9e63; metalness: 0.8; roughness: 0.2");
       }
       if (pinRing && typeof pinRing.setAttribute === "function") {
-        pinRing.setAttribute("material", "color: #10b981; metalness: 0.8; roughness: 0.2");
+        pinRing.setAttribute("material", "color: #2f9e63; metalness: 0.8; roughness: 0.2");
         if (typeof pinRing.removeAttribute === "function") pinRing.removeAttribute("animation");
       }
       if (statusBadge) {
         statusBadge.textContent = "✔ PIN UNLOCKED";
-        statusBadge.style.background = "rgba(16, 185, 129, 0.25)";
-        statusBadge.style.color = "#10b981";
+        statusBadge.style.background = "rgba(47, 158, 99, 0.25)";
+        statusBadge.style.color = "#2f9e63";
       }
       if (progressFill && typeof progressFill.setAttribute === "function") {
         progressFill.setAttribute("scale", "1 1 1");
@@ -824,14 +824,14 @@ function _setupStep2(container, tierInfo) {
   function _renderAim() {
     if (!overlay) return;
     overlay.innerHTML = `
-      <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (2/4)</div>
-      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">A — Aim at the Base</div>
-      <div id="aim-instruction-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Aim at the glowing green ring at the bottom of the fire. Tap the button below or point your phone camera at it.</div>
-      <button id="aim-status-badge" style="display:block;width:100%;max-width:340px;padding:12px 18px;border-radius:10px;border:2px solid #00e676;background:#0f172a;color:#00e676;font-size:0.95rem;font-weight:bold;cursor:pointer;margin:0.5rem 0;box-shadow:0 0 15px rgba(0,230,118,0.35);pointer-events:auto !important;text-align:center;">🎯 TAP TO LOCK AIM AT FIRE BASE</button>
-      <div style="width:100%;max-width:280px;height:8px;background:#334155;border-radius:4px;overflow:hidden;margin:0.5rem 0;">
-        <div id="aim-progress-bar" style="width:0%;height:100%;background:#00e676;transition:width 0.08s linear;"></div>
+      <div class="hud-eyebrow">🔥 STEP 2 / 3 — PASS TECHNIQUE (2/4)</div>
+      <div class="hud-title">A — Aim at the Base</div>
+      <div id="aim-instruction-text" class="hud-instruction">Aim at the glowing green ring at the bottom of the fire. Tap the button below or point your phone camera at it.</div>
+      <button id="aim-status-badge" class="hud-btn">🎯 TAP TO LOCK AIM AT FIRE BASE</button>
+      <div class="hud-meter">
+        <div id="aim-progress-bar" class="hud-meter__fill"></div>
       </div>
-      <div id="aim-status-label" style="font-size:0.85rem;color:#94a3b8;font-weight:bold;">READY — TAP BUTTON OR POINT AT BASE</div>
+      <div id="aim-status-label" class="hud-status">READY — TAP BUTTON OR POINT AT BASE</div>
     `;
 
     const progressBar = document.getElementById("aim-progress-bar");
@@ -868,18 +868,18 @@ function _setupStep2(container, tierInfo) {
       if (progressBar) progressBar.style.width = "100%";
       if (statusBadge) {
         statusBadge.textContent = "✔ AIM LOCKED ON FIRE BASE";
-        statusBadge.style.background = "rgba(16, 185, 129, 0.25)";
-        statusBadge.style.color = "#10b981";
+        statusBadge.style.background = "rgba(47, 158, 99, 0.25)";
+        statusBadge.style.color = "#2f9e63";
       }
       if (statusLabel) {
         statusLabel.textContent = "✔ AIM LOCKED!";
-        statusLabel.style.color = "#10b981";
+        statusLabel.style.color = "#2f9e63";
       }
       if (gazeDot && typeof gazeDot.setAttribute === "function") {
-        gazeDot.setAttribute("material", "color: #10b981; shader: flat; opacity: 0.95; side: double");
+        gazeDot.setAttribute("material", "color: #2f9e63; shader: flat; opacity: 0.95; side: double");
       }
       if (reticle && typeof reticle.setAttribute === "function") {
-        reticle.setAttribute("material", "color: #10b981; emissive: #10b981; emissiveIntensity: 0.9; side: double");
+        reticle.setAttribute("material", "color: #2f9e63; emissive: #2f9e63; emissiveIntensity: 0.9; side: double");
         if (typeof reticle.removeAttribute === "function") reticle.removeAttribute("animation");
       }
       if (sync) {
@@ -895,17 +895,17 @@ function _setupStep2(container, tierInfo) {
       clearInterval(holdTimer);
       if (statusBadge) {
         statusBadge.textContent = "🟢 LASER ON TARGET — HOLD PHONE STEADY";
-        statusBadge.style.background = "rgba(16, 185, 129, 0.25)";
-        statusBadge.style.color = "#10b981";
+        statusBadge.style.background = "rgba(47, 158, 99, 0.25)";
+        statusBadge.style.color = "#2f9e63";
       }
       if (statusLabel) {
         statusLabel.textContent = "AIMING AT BASE... HOLD STEADY";
-        statusLabel.style.color = "#00e676";
+        statusLabel.style.color = "#2f9e63";
       }
       const bPill = document.getElementById("billboard-pill-text");
       if (bPill) bPill.setAttribute("value", "🟢 HOLD STEADY (800ms)");
       if (gazeDot && typeof gazeDot.setAttribute === "function") {
-        gazeDot.setAttribute("material", "color: #00e676; shader: flat; opacity: 1.0; side: double");
+        gazeDot.setAttribute("material", "color: #2f9e63; shader: flat; opacity: 1.0; side: double");
       }
       holdTimer = setInterval(() => {
         const elapsed = Date.now() - holdStart;
@@ -926,15 +926,15 @@ function _setupStep2(container, tierInfo) {
       if (progressBar) progressBar.style.width = "0%";
       if (statusBadge) {
         statusBadge.textContent = "⚪ POINT PHONE AT BASE OF FIRE";
-        statusBadge.style.background = "#334155";
-        statusBadge.style.color = "#94a3b8";
+        statusBadge.style.background = "rgba(203, 209, 216, 0.18)";
+        statusBadge.style.color = "#a7adb5";
       }
       if (statusLabel) {
         statusLabel.textContent = "AWAITING GAZE INTERSECTION";
-        statusLabel.style.color = "#94a3b8";
+        statusLabel.style.color = "#a7adb5";
       }
       if (gazeDot && typeof gazeDot.setAttribute === "function") {
-        gazeDot.setAttribute("material", "color: #00e5ff; shader: flat; opacity: 0.9; side: double");
+        gazeDot.setAttribute("material", "color: #febc04; shader: flat; opacity: 0.9; side: double");
       }
     };
 
@@ -945,7 +945,7 @@ function _setupStep2(container, tierInfo) {
           stopHold();
           if (statusBadge) {
             statusBadge.textContent = "⚠️ TARGET LOST — POINT PHONE AT FIRE BASE";
-            statusBadge.style.color = "#f59e0b";
+            statusBadge.style.color = "#febc04";
           }
         }
       });
@@ -953,7 +953,7 @@ function _setupStep2(container, tierInfo) {
         if (!completed) {
           if (statusBadge) {
             statusBadge.textContent = "⚪ POINT PHONE AT BASE OF FIRE";
-            statusBadge.style.color = "#94a3b8";
+            statusBadge.style.color = "#a7adb5";
           }
         }
       });
@@ -1022,14 +1022,14 @@ function _setupStep2(container, tierInfo) {
   function _renderSqueeze() {
     if (!overlay) return;
     overlay.innerHTML = `
-      <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (3/4)</div>
-      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">S — Squeeze the Handle</div>
-      <div id="squeeze-instruction-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Tap the 3D operating lever (or button below) to select, then press &amp; hold 1.5s.</div>
-      <button id="squeeze-status-badge" style="display:block;width:100%;max-width:340px;padding:12px 18px;border-radius:10px;border:2px solid #ff9100;background:#0f172a;color:#ff9100;font-size:0.95rem;font-weight:bold;cursor:pointer;margin:0.5rem 0;box-shadow:0 0 15px rgba(255,145,0,0.3);pointer-events:auto !important;text-align:center;">👉 TAP HERE TO SELECT LEVER</button>
-      <div style="width:100%;max-width:280px;height:8px;background:#334155;border-radius:4px;overflow:hidden;margin:0.5rem 0;">
-        <div id="squeeze-progress-bar" style="width:0%;height:100%;background:#ff6a00;transition:width 0.08s linear;"></div>
+      <div class="hud-eyebrow">🔥 STEP 2 / 3 — PASS TECHNIQUE (3/4)</div>
+      <div class="hud-title">S — Squeeze the Handle</div>
+      <div id="squeeze-instruction-text" class="hud-instruction">Tap the 3D operating lever (or button below) to select, then press &amp; hold 1.5s.</div>
+      <button id="squeeze-status-badge" class="hud-btn">👉 TAP HERE TO SELECT LEVER</button>
+      <div class="hud-meter">
+        <div id="squeeze-progress-bar" style="width:0%;height:100%;background:#febc04;transition:width 0.08s linear;"></div>
       </div>
-      <div id="squeeze-status-label" style="font-size:0.85rem;color:#94a3b8;font-weight:bold;">AWAITING LEVER SELECTION</div>
+      <div id="squeeze-status-label" class="hud-status">AWAITING LEVER SELECTION</div>
     `;
 
     const progressBar = document.getElementById("squeeze-progress-bar");
@@ -1053,10 +1053,10 @@ function _setupStep2(container, tierInfo) {
       arrowText.setAttribute("value", "TAP LEVER");
     }
     if (arrowCone && typeof arrowCone.setAttribute === "function") {
-      arrowCone.setAttribute("material", "color: #ff9100; emissive: #ff9100; emissiveIntensity: 0.9");
+      arrowCone.setAttribute("material", "color: #febc04; emissive: #febc04; emissiveIntensity: 0.9");
     }
     if (arrowShaft && typeof arrowShaft.setAttribute === "function") {
-      arrowShaft.setAttribute("material", "color: #ff9100; emissive: #ff9100; emissiveIntensity: 0.8");
+      arrowShaft.setAttribute("material", "color: #febc04; emissive: #febc04; emissiveIntensity: 0.8");
     }
 
     const bTitle = document.getElementById("billboard-step-title");
@@ -1076,14 +1076,14 @@ function _setupStep2(container, tierInfo) {
       if (statusBadge) {
         if (selected) {
           statusBadge.textContent = "👉 PRESS & HOLD HERE (1.5s) TO DISCHARGE";
-          statusBadge.style.background = "linear-gradient(135deg, #ff9100, #ff6a00)";
-          statusBadge.style.color = "#000000";
-          statusBadge.style.boxShadow = "0 0 20px rgba(255, 145, 0, 0.6)";
+          statusBadge.style.background = "#febc04";
+          statusBadge.style.color = "#01172e";
+          statusBadge.style.boxShadow = "none";
         } else {
           statusBadge.textContent = "👉 TAP HERE TO SELECT LEVER";
-          statusBadge.style.background = "#0f172a";
-          statusBadge.style.color = "#ff9100";
-          statusBadge.style.boxShadow = "0 0 15px rgba(255, 145, 0, 0.3)";
+          statusBadge.style.background = "rgba(17, 19, 21, 0.9)";
+          statusBadge.style.color = "#febc04";
+          statusBadge.style.boxShadow = "none";
         }
       }
       if (instructionText) {
@@ -1093,7 +1093,7 @@ function _setupStep2(container, tierInfo) {
       }
       if (statusLabel) {
         statusLabel.textContent = selected ? "PRESS & HOLD SELECTED 3D LEVER" : "AWAITING LEVER SELECTION";
-        statusLabel.style.color = selected ? "#ff9100" : "#94a3b8";
+        statusLabel.style.color = selected ? "#febc04" : "#a7adb5";
       }
       if (arrowText && typeof arrowText.setAttribute === "function") {
         arrowText.setAttribute("value", selected ? "HOLD 1.5s" : "TAP LEVER");
@@ -1102,8 +1102,8 @@ function _setupStep2(container, tierInfo) {
         handle.setAttribute(
           "material",
           selected
-            ? "color: #ff9100; emissive: #ff9100; emissiveIntensity: 0.85; metalness: 0.5; roughness: 0.3"
-            : "color: #334155; metalness: 0.5; roughness: 0.3"
+            ? "color: #febc04; emissive: #febc04; emissiveIntensity: 0.85; metalness: 0.5; roughness: 0.3"
+            : "color: rgba(203, 209, 216, 0.18); metalness: 0.5; roughness: 0.3"
         );
         if (selected) {
           handle.setAttribute("animation", "property: scale; to: 1.15 1.15 1.15; dir: alternate; dur: 500; loop: true; easing: easeInOutSine");
@@ -1123,15 +1123,15 @@ function _setupStep2(container, tierInfo) {
       if (progressBar) progressBar.style.width = "100%";
       if (statusBadge) {
         statusBadge.textContent = "✔ AGENT DISCHARGED";
-        statusBadge.style.background = "rgba(16, 185, 129, 0.25)";
-        statusBadge.style.color = "#10b981";
+        statusBadge.style.background = "rgba(47, 158, 99, 0.25)";
+        statusBadge.style.color = "#2f9e63";
       }
       if (statusLabel) {
         statusLabel.textContent = "✔ DISCHARGING AGENT!";
-        statusLabel.style.color = "#10b981";
+        statusLabel.style.color = "#2f9e63";
       }
       if (handle && typeof handle.setAttribute === "function") {
-        handle.setAttribute("material", "color: #10b981; emissive: #10b981; emissiveIntensity: 0.8; metalness: 0.5; roughness: 0.3");
+        handle.setAttribute("material", "color: #2f9e63; emissive: #2f9e63; emissiveIntensity: 0.8; metalness: 0.5; roughness: 0.3");
         if (typeof handle.removeAttribute === "function") handle.removeAttribute("animation");
       }
       if (sync) {
@@ -1174,7 +1174,7 @@ function _setupStep2(container, tierInfo) {
         clearInterval(timer);
         if (statusLabel) {
           statusLabel.textContent = "SQUEEZING LEVER... DISCHARGING";
-          statusLabel.style.color = "#ff6a00";
+          statusLabel.style.color = "#febc04";
         }
         const powderSpray = document.getElementById("powder-spray-cone");
         if (powderSpray && typeof powderSpray.setAttribute === "function") {
@@ -1200,7 +1200,7 @@ function _setupStep2(container, tierInfo) {
         if (progressBar) progressBar.style.width = "0%";
         if (statusLabel && isSelected) {
           statusLabel.textContent = "PRESS & HOLD SELECTED 3D LEVER";
-          statusLabel.style.color = "#ff9100";
+          statusLabel.style.color = "#febc04";
         }
         const powderSpray = document.getElementById("powder-spray-cone");
         if (powderSpray && typeof powderSpray.setAttribute === "function") {
@@ -1266,14 +1266,14 @@ function _setupStep2(container, tierInfo) {
   function _renderSweep() {
     if (!overlay) return;
     overlay.innerHTML = `
-      <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">🔥 STEP 2 / 3 — PASS TECHNIQUE (4/4)</div>
-      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">S — Sweep Side to Side</div>
-      <div style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">Physically move your phone side to side across the fire base.</div>
-      <div style="width:100%;max-width:280px;height:12px;background:#334155;border-radius:6px;overflow:hidden;margin:0.5rem 0;">
-        <div id="sweep-progress-fill" style="width:0%;height:100%;background:#00e676;transition:width 0.08s ease;"></div>
+      <div class="hud-eyebrow">🔥 STEP 2 / 3 — PASS TECHNIQUE (4/4)</div>
+      <div class="hud-title">S — Sweep Side to Side</div>
+      <div class="hud-instruction">Physically move your phone side to side across the fire base.</div>
+      <div style="width:100%;max-width:280px;height:12px;background:rgba(203, 209, 216, 0.18);border-radius:6px;overflow:hidden;margin:0.5rem 0;">
+        <div id="sweep-progress-fill" class="hud-meter__fill"></div>
       </div>
-      <div id="sweep-status-text" style="font-size:0.85rem;color:#00e676;font-weight:bold;">↔ SWEEP PHONE SIDE TO SIDE (0% COVERED)</div>
-      <button id="btn-sweep-complete-fallback" style="margin-top:0.6rem;padding:0.6rem 1rem;background:#334155;color:#94a3b8;border:1px solid #475569;border-radius:8px;font-size:0.85rem;cursor:pointer;display:block;width:100%;max-width:280px;">Tap here if motion not detected ➜</button>
+      <div id="sweep-status-text" class="hud-status hud-status--done">↔ SWEEP PHONE SIDE TO SIDE (0% COVERED)</div>
+      <button id="btn-sweep-complete-fallback" style="margin-top:0.6rem;padding:0.6rem 1rem;background:rgba(203, 209, 216, 0.18);color:#a7adb5;border:1px solid #343a40;border-radius:8px;font-size:0.85rem;cursor:pointer;display:block;width:100%;max-width:280px;">Tap here if motion not detected ➜</button>
     `;
 
     // invisible sweep zone controller for tests and fallback
@@ -1310,7 +1310,7 @@ function _setupStep2(container, tierInfo) {
 
       if (statusText) {
         statusText.textContent = "✔ FIRE EXTINGUISHED!";
-        statusText.style.color = "#00e676";
+        statusText.style.color = "#2f9e63";
       }
       if (progressFill) progressFill.style.width = "100%";
 
@@ -1470,9 +1470,9 @@ function _setupStep3(_container) {
   function showActionScreen() {
     if (overlay) {
       overlay.innerHTML = `
-        <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;">${t("fire.evac_badge_3", "🔥 STEP 3 / 3 — EVACUATION (3/3)")}</div>
-        <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("fire.evac_title_3", "Evacuation Protocol Choice")}</div>
-        <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("fire.evac_desc_3", "What is the correct immediate action after attempting extinguisher use?")}</div>
+        <div class="hud-eyebrow">${t("fire.evac_badge_3", "🔥 STEP 3 / 3 — EVACUATION (3/3)")}</div>
+        <div class="hud-title">${t("fire.evac_title_3", "Evacuation Protocol Choice")}</div>
+        <div class="hud-instruction">${t("fire.evac_desc_3", "What is the correct immediate action after attempting extinguisher use?")}</div>
       `;
 
       _renderEvacuationOptions(overlay, (selectedId, passed) => {
@@ -1565,7 +1565,7 @@ function _showComplete(_lastPassed) {
   _currentStep = 0;
 
   const overlay = document.getElementById("fire-module-overlay");
-  const theme = { passColor: "#00e676", failColor: "#ff6a00", exitColor: "#ff6a00", exitTextColor: "#fff" };
+  const theme = { passColor: "#2f9e63", failColor: "#febc04", exitColor: "#febc04", exitTextColor: "#fff" };
 
   let evaluated = null;
   if (getActiveSession()) {
