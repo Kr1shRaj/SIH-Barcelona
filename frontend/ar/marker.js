@@ -4,12 +4,16 @@ import { t } from "../js/i18n.js";
 const logger = createLogger("ARMarker");
 
 // load marker scene for named module — fire-response and gas-leak implemented, others throw
-async function loadMarkerModuleScene(moduleId, trackingState) {
+async function loadMarkerModuleScene(moduleId, trackingState, options = {}) {
   if (moduleId === "fire-response") {
     // overlay UI anchors to document body; marker tracking handle available for future use
-    const { startFireModule } = await import("../modules/fire-response/fire-response.js");
+    const fireModule = await import("../modules/fire-response/fire-response.js");
     const container = typeof document !== "undefined" ? document.getElementById("ar-viewport") : null;
-    startFireModule(container, { tier: 2, trackingState });
+    if (options.team === true) {
+      await fireModule.startTeamScenario(container, { tier: 2, trackingState });
+    } else {
+      fireModule.startFireModule(container, { tier: 2, trackingState });
+    }
     return;
   }
   if (moduleId === "gas-leak") {
@@ -168,4 +172,3 @@ export {
   stopMarkerTracking,
   loadMarkerModuleScene
 };
-

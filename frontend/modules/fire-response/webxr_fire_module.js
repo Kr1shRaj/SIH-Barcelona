@@ -1874,8 +1874,8 @@ function _renderDebriefCardWebXR(overlay, passed = true) {
     </div>
     <div style="font-size:0.71rem;color:#cbd5e1;line-height:1.3;margin:0.25rem 0 0.35rem 0;word-break:break-word;overflow-wrap:break-word;">
       ${isExplosive
-        ? "Mines Act Compliance: Trainee correctly recognized explosive atmosphere above 5.0% LEL and executed immediate evacuation without risking secondary blast."
-        : "Mines Act Compliance: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit."
+        ? t("fire.training_feedback_explosive", "Training feedback: Trainee recognized explosive atmosphere above 5.0% LEL and executed immediate evacuation without risking secondary blast.")
+        : t("fire.training_feedback_standard", "Training feedback: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit.")
       }
     </div>
   `;

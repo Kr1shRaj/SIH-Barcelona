@@ -37,7 +37,7 @@ describe("GET /api/dashboard/compliance", () => {
     assert.strictEqual(summary.certificateSystemStatus.isImplemented, true);
     assert.strictEqual(summary.certificateSystemStatus.algo, "Ed25519");
 
-    assert.strictEqual(modules.length, 2);
+    assert.strictEqual(modules.length, 3);
     assert.strictEqual(mines.length, 2);
     assert.strictEqual(contractors.length, 2);
     assert.strictEqual(roster.length, 6);
@@ -48,6 +48,7 @@ describe("GET /api/dashboard/compliance", () => {
       assert.strictEqual(w.passedModulesCount, 0);
       assert.strictEqual(w.modules["fire-response"].status, "not_started");
       assert.strictEqual(w.modules["gas-leak"].status, "not_started");
+      assert.strictEqual(w.modules["fire-response-team"].status, "not_started");
     });
   });
 
@@ -98,7 +99,7 @@ describe("GET /api/dashboard/compliance", () => {
     assert.strictEqual(fireMod.uniqueWorkersPassed, 1);
     assert.strictEqual(fireMod.averageScore, 95.0);
 
-    // now pass second module (gas-leak) for WRK-0001
+    // now pass second module (gas-leak) and third (fire-response-team) for WRK-0001
     db.prepare(`
       INSERT INTO attempt (
         attempt_id, worker_id, module_id, module_version, contract_version,
@@ -113,6 +114,24 @@ describe("GET /api/dashboard/compliance", () => {
         ?, ?, 50000, 'completed',
         3.0, 3.0, 100.0, 1,
         0.7, 100.0, 1, 0,
+        'batch-test-1', ?
+      )
+    `).run(now, now, now);
+
+    db.prepare(`
+      INSERT INTO attempt (
+        attempt_id, worker_id, module_id, module_version, contract_version,
+        engine_version, device_id, ar_tier, locale,
+        started_at, completed_at, duration_ms, status,
+        server_total_score, server_max_score, server_percentage, server_passed,
+        threshold_applied, client_percentage, client_passed, client_claim_mismatch,
+        sync_batch_id, server_received_at
+      ) VALUES (
+        'att-dash-3', 'WRK-0001', 'fire-response-team', 1, '1.0',
+        '1.0.0', 'dev-1', 2, 'hi',
+        ?, ?, 50000, 'completed',
+        3.0, 3.0, 100.0, 1,
+        0.8, 100.0, 1, 0,
         'batch-test-1', ?
       )
     `).run(now, now, now);

@@ -2,7 +2,7 @@ import { t, getLocale } from "../js/i18n.js";
 import { createLogger } from "../js/logger.js";
 import { getEquipmentForModule, equipmentNameKey } from "../prerequisite/equipment-data.js";
 import { isTranslationPending } from "../prerequisite/translation-status.js";
-import { isPrerequisiteComplete } from "../prerequisite/progress.js";
+import { isPrerequisiteComplete, isStage2Passed } from "../prerequisite/progress.js";
 
 const logger = createLogger("ModuleScreen");
 
@@ -59,6 +59,26 @@ function _isUnlocked(unlocked, moduleId) {
   return Boolean(unlocked && unlocked[moduleId]);
 }
 
+// keep old boolean render calls working while real screens pass team gate state
+function _isTeamUnlocked(unlocked) {
+  if (typeof unlocked === "boolean") return unlocked;
+  if (!unlocked || typeof unlocked !== "object") return false;
+  return Object.prototype.hasOwnProperty.call(unlocked, "fire-response-team")
+    ? Boolean(unlocked["fire-response-team"])
+    : Boolean(unlocked["fire-response"]);
+}
+
+// render phase three action only for the real module screen
+function _renderTeamEntry(unlocked) {
+  if (typeof unlocked === "boolean" || !unlocked || typeof unlocked !== "object") return "";
+  const open = _isTeamUnlocked(unlocked);
+  return `<button type="button" class="mod-card__team-btn" data-action="start-team-drill"
+      ${open ? "" : 'disabled aria-disabled="true"'}>
+      ${_text("modules.team_drill", "Team Drill")}
+    </button>
+    ${open ? "" : `<span class="mod-card__team-lock">${_text("modules.team_drill_locked", "Pass solo fire drill with 80% or higher to unlock")}</span>`}`;
+}
+
 function renderModulesHtml(unlocked) {
   const cards = TRAINING_MODULES.map((module) => `
     <li class="mod-card mod-card--${_esc(module.tone)}${_isUnlocked(unlocked, module.id) ? "" : " mod-card--locked"}">
@@ -70,6 +90,7 @@ function renderModulesHtml(unlocked) {
           <span class="mod-card__equipment">${_equipmentLine(module.id)}</span>
         </span>
       </button>
+      ${module.id === "fire-response" ? _renderTeamEntry(unlocked) : ""}
     </li>`).join("");
 
   // the notice stands while anything is still locked
@@ -92,13 +113,14 @@ function renderModulesHtml(unlocked) {
 }
 
 // draw module selection and wire it. the gate is checked here and again in loadModule.
-function mountModulesScreen({ container, workerId, onStart, onBack } = {}) {
+function mountModulesScreen({ container, workerId, onStart, onStartTeam, onBack } = {}) {
   if (typeof document === "undefined" || !container) return null;
 
   const unlocked = {};
   TRAINING_MODULES.forEach((module) => {
     unlocked[module.id] = isPrerequisiteComplete(workerId, module.id);
   });
+  unlocked["fire-response-team"] = unlocked["fire-response"] && isStage2Passed(workerId, "fire-response");
   container.innerHTML = renderModulesHtml(unlocked);
 
   const onClick = (event) => {
@@ -112,6 +134,15 @@ function mountModulesScreen({ container, workerId, onStart, onBack } = {}) {
 
     if (action === "back-to-equipment") {
       if (typeof onBack === "function") onBack();
+      return;
+    }
+
+    if (action === "start-team-drill") {
+      if (!unlocked["fire-response-team"] || !isStage2Passed(workerId, "fire-response")) {
+        logger.warn({ event: "team_drill_start_blocked", workerId }, "Team drill blocked, solo stage not passed");
+        return;
+      }
+      if (typeof onStartTeam === "function") onStartTeam("fire-response");
       return;
     }
 

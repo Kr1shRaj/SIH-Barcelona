@@ -54,6 +54,9 @@ import {
   getPrerequisiteProgress,
   isPrerequisiteComplete,
   getCompletedAt,
+  recordStageResult,
+  getStageProgress,
+  isStage2Passed,
   resetPrerequisite
 } from "../prerequisite/progress.js";
 import { renderScreenHtml, renderCard, renderCardArt } from "../prerequisite/screen.js";
@@ -2088,6 +2091,20 @@ describe("18. the gas leak and confined space equipment", () => {
     assert.ok(!both.includes('data-role="locked-notice"'));
   });
 
+  it("18d-i. team drill stays locked before an 80 percent solo pass", () => {
+    const html = renderModulesHtml({ "fire-response": true, "gas-leak": true, "fire-response-team": false });
+    assert.match(html, /data-action="start-team-drill"[^>]*disabled/);
+    assert.ok(html.includes(t("modules.team_drill_locked", {}, "")));
+  });
+
+  it("18d-ii. team drill opens after an 80 percent solo pass", () => {
+    recordStageResult(WORKER, "fire-response", 2, 0.8);
+    assert.strictEqual(isStage2Passed(WORKER, "fire-response"), true);
+    const html = renderModulesHtml({ "fire-response": true, "gas-leak": true, "fire-response-team": true });
+    assert.match(html, /data-action="start-team-drill"/);
+    assert.ok(!html.match(/data-action="start-team-drill"[^>]*disabled/));
+  });
+
   it("18e. every gas card shows its photograph, its name and its viewed state", () => {
     setLocale("en");
     const screen = renderScreenHtml(getPrerequisiteProgress(WORKER));
@@ -2815,3 +2832,64 @@ describe("22. the loading screen, and the logo it carries", () => {
     assert.ok(!sw.includes("safear-logo-source.png"), "the source file is not something a phone needs");
   });
 });
+
+describe("23. recordStageResult keeps best score and never un-passes", () => {
+  beforeEach(() => {
+    resetPrerequisite(WORKER);
+  });
+
+  // pass 85% then retake 60% stays at 85%
+  it("23a. retake with lower score keeps old best", () => {
+    recordStageResult(WORKER, "fire-response", 2, 0.85);
+    const first = getStageProgress(WORKER, "fire-response", 2);
+    assert.strictEqual(first.score, 0.85);
+    assert.strictEqual(first.passed, true);
+    const firstAt = first.completedAt;
+    assert.ok(firstAt, "first pass has a completedAt");
+
+    recordStageResult(WORKER, "fire-response", 2, 0.60);
+    const second = getStageProgress(WORKER, "fire-response", 2);
+    assert.strictEqual(second.score, 0.85, "score must not drop");
+    assert.strictEqual(second.passed, true, "must stay passed");
+    assert.strictEqual(second.completedAt, firstAt, "completedAt of first pass preserved");
+    assert.strictEqual(isStage2Passed(WORKER, "fire-response"), true);
+  });
+
+  // pass 50% then retake 90% updates to 90%
+  it("23b. retake with higher score updates to new best", () => {
+    recordStageResult(WORKER, "fire-response", 2, 0.50);
+    const first = getStageProgress(WORKER, "fire-response", 2);
+    assert.strictEqual(first.score, 0.50);
+    assert.strictEqual(first.passed, false);
+    assert.strictEqual(first.completedAt, null, "failing attempt has no completedAt");
+
+    recordStageResult(WORKER, "fire-response", 2, 0.90);
+    const second = getStageProgress(WORKER, "fire-response", 2);
+    assert.strictEqual(second.score, 0.90, "score updates to higher value");
+    assert.strictEqual(second.passed, true);
+    assert.ok(second.completedAt, "passing attempt now has completedAt");
+  });
+
+  // once passed never reverts even with zero
+  it("23c. once passed stays passed even with score 0", () => {
+    recordStageResult(WORKER, "fire-response", 2, 0.85);
+    recordStageResult(WORKER, "fire-response", 2, 0.0);
+    const result = getStageProgress(WORKER, "fire-response", 2);
+    assert.strictEqual(result.score, 0.85);
+    assert.strictEqual(result.passed, true);
+    assert.strictEqual(isStage2Passed(WORKER, "fire-response"), true);
+  });
+
+  // different modules keep independent scores
+  it("23d. different modules keep independent best scores", () => {
+    recordStageResult(WORKER, "fire-response", 2, 0.90);
+    recordStageResult(WORKER, "gas-leak", 2, 0.70);
+    recordStageResult(WORKER, "fire-response", 2, 0.60);
+
+    const fire = getStageProgress(WORKER, "fire-response", 2);
+    const gas = getStageProgress(WORKER, "gas-leak", 2);
+    assert.strictEqual(fire.score, 0.90, "fire keeps its own best");
+    assert.strictEqual(gas.score, 0.70, "gas keeps its own best");
+  });
+});
+

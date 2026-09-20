@@ -11,6 +11,7 @@ import {
   apiFetch,
   apiPost,
   resolveApiBase,
+  resolveWebSocketUrl,
   API_BASE_STORAGE_KEY
 } from "../js/api.js";
 import { flushPendingCertificates, clearPendingCertificates, clearCertificates } from "../js/certificates.js";
@@ -227,6 +228,36 @@ describe("resolveApiBase", () => {
     assert.strictEqual(resolveApiBase(), "http://localhost:3000");
     globalThis.window.location.hostname = "10.1.2.3";
     assert.strictEqual(resolveApiBase(), "http://10.1.2.3:3000");
+  });
+});
+
+describe("resolveWebSocketUrl", () => {
+  beforeEach(() => {
+    delete globalThis.window;
+    globalThis.localStorage.clear();
+  });
+
+  it("maps frontend dev port to backend websocket port", () => {
+    setWindow({ location: { protocol: "http:", hostname: "localhost", port: "5173", search: "" } });
+    assert.strictEqual(resolveWebSocketUrl(), "ws://localhost:3000");
+  });
+
+  it("honours configured and query API bases", () => {
+    setWindow({ SAFEAR_API_BASE: "https://configured:9443", location: { protocol: "http:", host: "localhost:5173", search: "" } });
+    assert.strictEqual(resolveWebSocketUrl(), "wss://configured:9443");
+
+    setWindow({ location: { protocol: "http:", hostname: "localhost", port: "5173", search: "?api=http://query:3000" }, URLSearchParams: globalThis.URLSearchParams });
+    assert.strictEqual(resolveWebSocketUrl(), "ws://query:3000");
+  });
+
+  it("uses secure same-origin websocket on https", () => {
+    setWindow({ location: { protocol: "https:", host: "safear.local", search: "" } });
+    assert.strictEqual(resolveWebSocketUrl(), "wss://safear.local");
+  });
+
+  it("returns no URL for an unconfigured Capacitor origin", () => {
+    setWindow({ location: { protocol: "capacitor:", host: "localhost", search: "" } });
+    assert.strictEqual(resolveWebSocketUrl(), null);
   });
 });
 
