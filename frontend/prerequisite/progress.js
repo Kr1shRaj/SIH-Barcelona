@@ -146,10 +146,18 @@ function recordStageResult(workerId, moduleId, stage, score) {
   const moduleStages = stages[moduleId] && typeof stages[moduleId] === "object" ? { ...stages[moduleId] } : {};
   const previous = moduleStages[String(stage)];
 
+  // keep best score, never lower it. once passed stays passed.
+  const prevScore = previous && typeof previous.score === "number" ? previous.score : -1;
+  const bestScore = Math.max(score, prevScore);
+  const wasPassed = Boolean(previous && previous.passed);
+  const nowPassed = bestScore >= STAGE_2_PASS_THRESHOLD;
+  const firstPassAt = wasPassed && previous.completedAt
+    ? previous.completedAt
+    : (nowPassed ? new Date().toISOString() : null);
   moduleStages[String(stage)] = {
-    score,
-    passed: score >= STAGE_2_PASS_THRESHOLD,
-    completedAt: previous && previous.completedAt ? previous.completedAt : new Date().toISOString()
+    score: bestScore,
+    passed: wasPassed || nowPassed,
+    completedAt: firstPassAt
   };
   stages[moduleId] = moduleStages;
   map[key] = { ...record, stages };
