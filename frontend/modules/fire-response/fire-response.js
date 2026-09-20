@@ -2257,12 +2257,12 @@ function _showPeerActionBanner(peerRole, action, status) {
 
   const peerPos = _peerPosMap[peerRole];
   const dist = _localMarkerPos && peerPos ? markerDistance(_localMarkerPos, peerPos) : null;
-  const distText = dist !== null ? ` (${formatDistance(dist)} away)` : "";
+  const distText = dist !== null ? t("fire.dist_away", { dist: formatDistance(dist) }, ` (${formatDistance(dist)} away)`) : "";
 
   if (status === "started") {
-    banner.textContent = `${roleName} approaching ${actionLabel}${distText}`;
+    banner.textContent = t("fire.peer_action_started", { role: roleName, action: actionLabel, dist: distText }, `${roleName} approaching ${actionLabel}${distText}`);
   } else {
-    banner.textContent = `${actionLabel} completed by ${roleName}${distText}`;
+    banner.textContent = t("fire.peer_action_completed", { action: actionLabel, role: roleName, dist: distText }, `${actionLabel} completed by ${roleName}${distText}`);
   }
 
   banner.style.display = "block";
@@ -2294,7 +2294,7 @@ function _updateDistanceHud(ui) {
 
   for (const [pRole, pPos] of Object.entries(_peerPosMap)) {
     const d = _localMarkerPos && pPos ? markerDistance(_localMarkerPos, pPos) : null;
-    const name = pRole.replace("_", " ");
+    const name = t(`modules.fire_response.role_${pRole}`, {}, pRole.replace("_", " "));
     parts.push(`${name}: ${d !== null ? formatDistance(d) : "--"}`);
   }
 

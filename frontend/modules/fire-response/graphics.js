@@ -446,7 +446,7 @@ function buildFireAlarmEntity() {
 function buildPeerAvatarEntity(role) {
   const entity = document.createElement("a-entity");
   const color = role === "alarm" ? "#ef4444" : role === "extinguisher_operator" ? "#3b82f6" : "#10b981";
-  const roleName = role.replace("_", " ").toUpperCase();
+  const roleName = t(`modules.fire_response.role_${role}`, {}, role.replace("_", " ").toUpperCase());
 
   // ground shadow disc
   const shadow = document.createElement("a-circle");

@@ -86,6 +86,9 @@ describe("Deterministic seed data", () => {
       { module_id: "fire-response", checkpoint_id: "fire_evacuation_sequence_webxr", checkpoint_type: "select" },
       { module_id: "fire-response", checkpoint_id: "fire_exit_identification", checkpoint_type: "proximity" },
       { module_id: "fire-response", checkpoint_id: "fire_extinguisher_aim", checkpoint_type: "aim" },
+      { module_id: "fire-response-team", checkpoint_id: "team_alarm_pull", checkpoint_type: "select" },
+      { module_id: "fire-response-team", checkpoint_id: "team_evac_coordinate", checkpoint_type: "select" },
+      { module_id: "fire-response-team", checkpoint_id: "team_fire_extinguish", checkpoint_type: "select" },
       { module_id: "gas-leak", checkpoint_id: "gas_buddy_procedure", checkpoint_type: "select" },
       { module_id: "gas-leak", checkpoint_id: "gas_hazard_zone_recognition", checkpoint_type: "proximity" },
       { module_id: "gas-leak", checkpoint_id: "gas_ppe_selection", checkpoint_type: "select" }
@@ -153,7 +156,10 @@ describe("Deterministic seed data", () => {
       { checkpoint_id: "fire_evacuation_sequence_marker", expected: "sound_alarm_then_evacuate" },
       { checkpoint_id: "fire_evacuation_sequence_webxr", expected: "wind_based_upwind" },
       { checkpoint_id: "gas_buddy_procedure", expected: "standby_outside_with_lifeline" },
-      { checkpoint_id: "gas_ppe_selection", expected: ["scba_respirator", "multi_gas_detector", "safety_harness"] }
+      { checkpoint_id: "gas_ppe_selection", expected: ["scba_respirator", "multi_gas_detector", "safety_harness"] },
+      { checkpoint_id: "team_alarm_pull", expected: "alarm_pulled" },
+      { checkpoint_id: "team_evac_coordinate", expected: "evac_checked" },
+      { checkpoint_id: "team_fire_extinguish", expected: "fire_extinguished" }
     ]);
   });
 
@@ -213,7 +219,7 @@ describe("Deterministic seed data", () => {
     seedDatabase(db);
     const ids = db.prepare("SELECT module_id FROM module ORDER BY module_id").all().map((r) => r.module_id);
 
-    assert.deepStrictEqual(ids, ["fire-response", "gas-leak"]);
+    assert.deepStrictEqual(ids, ["fire-response", "fire-response-team", "gas-leak"]);
   });
 
   it("gives every module a pass threshold between 0 and 1", () => {
