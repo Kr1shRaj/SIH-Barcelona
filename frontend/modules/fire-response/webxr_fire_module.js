@@ -117,14 +117,36 @@ function _computePlacementPose(frame, referenceSpace, defaultDist = 2.0, elevate
   let hitPos = null;
   let isVertical = false;
   let normal = null;
-  const camera = _controller && _controller.getCamera ? _controller.getCamera() : null;
-  const camPos = camera && camera.position ? camera.position : { x: 0, y: 1.5, z: 0 };
+  let camPos = { x: 0, y: 1.5, z: 0 };
+  let camQuat = { x: 0, y: 0, z: 0, w: 1 };
+
+  if (_controller && typeof _controller.getViewerPosition === "function") {
+    const vp = _controller.getViewerPosition();
+    if (vp) camPos = { x: vp.x, y: vp.y, z: vp.z };
+  } else {
+    const camera = _controller && _controller.getCamera ? _controller.getCamera() : null;
+    if (camera && camera.position) camPos = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+  }
+
+  if (_controller && typeof _controller.getViewerQuaternion === "function") {
+    const vq = _controller.getViewerQuaternion();
+    if (vq) camQuat = { x: vq.x, y: vq.y, z: vq.z, w: vq.w };
+  } else {
+    const camera = _controller && _controller.getCamera ? _controller.getCamera() : null;
+    if (camera && camera.quaternion) camQuat = { x: camera.quaternion.x, y: camera.quaternion.y, z: camera.quaternion.z, w: camera.quaternion.w };
+  }
 
   let fwd = null;
-  if (camera && THREE && THREE.Vector3) {
+  if (THREE && THREE.Vector3) {
     fwd = new THREE.Vector3(0, 0, -1);
-    if (camera.quaternion && fwd.applyQuaternion) {
-      fwd.applyQuaternion(camera.quaternion);
+    if (THREE.Quaternion) {
+      const q = new THREE.Quaternion(camQuat.x, camQuat.y, camQuat.z, camQuat.w);
+      fwd.applyQuaternion(q);
+    } else {
+      const qx = camQuat.x || 0, qy = camQuat.y || 0, qz = camQuat.z || 0, qw = (camQuat.w !== undefined) ? camQuat.w : 1;
+      fwd.x = -2 * (qx * qz + qw * qy);
+      fwd.y = 2 * (qw * qx - qy * qz);
+      fwd.z = 2 * (qx * qx + qy * qy) - 1;
     }
   }
 
@@ -219,7 +241,7 @@ function _ensureFrameHandler() {
       }
       animateExtinguisherMesh(_extMesh, deltaMs, false, targetPos);
     }
-    if (_exitMesh) animateExitSignMesh(_exitMesh, deltaMs);
+    if (_exitMesh && (!_exitMesh.userData || !_exitMesh.userData.isLocked)) animateExitSignMesh(_exitMesh, deltaMs);
     if (_alarmMesh) animateAlarmStationMesh(_alarmMesh, deltaMs);
   };
   _controller.onFrame(_frameHandler);
@@ -1320,6 +1342,11 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
       _exitPlacementFrameHandler = null;
     }
 
+    if (_exitMesh) {
+      if (!_exitMesh.userData) _exitMesh.userData = {};
+      _exitMesh.userData.isLocked = true;
+    }
+
     _placedSignPos = {
       x: _exitMesh ? _exitMesh.position.x : 0,
       y: _exitMesh ? _exitMesh.position.y : 1.8,
@@ -1327,8 +1354,14 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
     };
     _placedWallNormal = lastNormal || { x: 0, y: 0, z: 1 };
 
-    const camera = _controller && _controller.getCamera ? _controller.getCamera() : null;
-    const camPos = (camera && camera.position) ? camera.position : { x: 0, y: 1.5, z: 0 };
+    let camPos = { x: 0, y: 1.5, z: 0 };
+    if (_controller && typeof _controller.getViewerPosition === "function") {
+      const vp = _controller.getViewerPosition();
+      if (vp) camPos = { x: vp.x, y: vp.y, z: vp.z };
+    } else {
+      const camera = _controller && _controller.getCamera ? _controller.getCamera() : null;
+      if (camera && camera.position) camPos = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+    }
     const initDx = camPos.x - _placedSignPos.x;
     const initDz = camPos.z - _placedSignPos.z;
     _initialWalkDist = Math.max(0.81, Math.min(3.5, Math.hypot(initDx, initDz)));
@@ -1368,10 +1401,16 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
     if (_controller && typeof _controller.onFrame === "function") {
       _exitWalkFrameHandler = () => {
         if (confirmed || !exitPlaced || !_exitMesh) return;
-        const currentCam = _controller.getCamera ? _controller.getCamera() : null;
-        if (!currentCam || !currentCam.position) return;
+        let currentPos = null;
+        if (_controller && typeof _controller.getViewerPosition === "function") {
+          currentPos = _controller.getViewerPosition();
+        } else {
+          const currentCam = _controller && _controller.getCamera ? _controller.getCamera() : null;
+          if (currentCam && currentCam.position) currentPos = currentCam.position;
+        }
+        if (!currentPos) return;
 
-        const res = checkEvacuationPhysicalExit(currentCam.position, _placedSignPos, _placedWallNormal);
+        const res = checkEvacuationPhysicalExit(currentPos, _placedSignPos, _placedWallNormal);
         const now = Date.now();
 
         _recentWalkSamples.push({ t: now, d: res.distance });

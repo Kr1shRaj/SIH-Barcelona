@@ -485,6 +485,27 @@ describe("WebXR Placement and Tracking", () => {
     assert.strictEqual(controller._destroyed, true);
   });
 
+  it("WebXRPlacementController exposes getViewerPosition and getViewerQuaternion from viewer pose", () => {
+    globalThis.window.THREE = mockTHREE;
+    const controller = new WebXRPlacementController({
+      session: { addEventListener() {}, removeEventListener() {} },
+      gl: { canvas: {} },
+      referenceSpace: {},
+      hitTestSource: null,
+      viewerSpace: null
+    });
+
+    controller._lastViewerPose = {
+      transform: {
+        position: { x: 1.2, y: 1.7, z: -0.8 },
+        orientation: { x: 0, y: 0.707, z: 0, w: 0.707 }
+      }
+    };
+
+    assert.deepStrictEqual(controller.getViewerPosition(), { x: 1.2, y: 1.7, z: -0.8 });
+    assert.deepStrictEqual(controller.getViewerQuaternion(), { x: 0, y: 0.707, z: 0, w: 0.707 });
+  });
+
   it("endWebXRSession safely ends session", async () => {
     let ended = false;
     const session = {

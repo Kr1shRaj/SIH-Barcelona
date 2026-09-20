@@ -752,7 +752,7 @@ function createExitSignMesh(options = {}) {
 
 // float exit sign gently up and down
 function animateExitSignMesh(exitGroup, deltaMs) {
-  if (!exitGroup || !exitGroup.userData) return;
+  if (!exitGroup || !exitGroup.userData || exitGroup.userData.isLocked) return;
   exitGroup.userData._animTime = (exitGroup.userData._animTime || 0) + deltaMs;
   const t = exitGroup.userData._animTime;
   const basePosY = exitGroup.userData.basePosY !== undefined ? exitGroup.userData.basePosY : exitGroup.position.y;

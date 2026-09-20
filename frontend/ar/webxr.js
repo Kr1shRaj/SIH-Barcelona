@@ -291,18 +291,26 @@ class WebXRPlacementController {
   // get three.js scene for direct access
   getScene() { return this._scene; }
 
-  // get three.js camera
-  // get three.js camera synced to latest xr viewer pose
+  // get latest viewer world position
+  getViewerPosition() {
+    if (this._lastViewerPose && this._lastViewerPose.transform) {
+      return this._lastViewerPose.transform.position;
+    }
+    return (this._camera && this._camera.position) ? this._camera.position : { x: 0, y: 1.5, z: 0 };
+  }
+
+  // get latest viewer world orientation quaternion
+  getViewerQuaternion() {
+    if (this._lastViewerPose && this._lastViewerPose.transform) {
+      return this._lastViewerPose.transform.orientation;
+    }
+    return (this._camera && this._camera.quaternion) ? this._camera.quaternion : { x: 0, y: 0, z: 0, w: 1 };
+  }
+
+  // get camera for rendering/raycasting
   getCamera() {
-    if (this._lastViewerPose && this._lastViewerPose.transform && this._camera) {
-      const p = this._lastViewerPose.transform.position;
-      const o = this._lastViewerPose.transform.orientation;
-      if (p && this._camera.position) {
-        this._camera.position.set(p.x, p.y, p.z);
-      }
-      if (o && this._camera.quaternion) {
-        this._camera.quaternion.set(o.x, o.y, o.z, o.w);
-      }
+    if (this._renderer && this._renderer.xr && this._renderer.xr.isPresenting) {
+      return this._renderer.xr.getCamera();
     }
     return this._camera;
   }
@@ -318,18 +326,6 @@ class WebXRPlacementController {
       if (!pose) return;
 
       this._lastViewerPose = pose;
-
-      // sync camera position and quaternion with physical device pose
-      if (this._camera && pose.transform) {
-        const p = pose.transform.position;
-        const o = pose.transform.orientation;
-        if (p && this._camera.position) {
-          this._camera.position.set(p.x, p.y, p.z);
-        }
-        if (o && this._camera.quaternion) {
-          this._camera.quaternion.set(o.x, o.y, o.z, o.w);
-        }
-      }
 
       const deltaMs = this._lastTime ? (time - this._lastTime) : 16;
       this._lastTime = time;
