@@ -35,7 +35,8 @@ function createRoom() {
     readyUsers: new Set(),
     phaseStartedAtMs: 0,
     timeline: { guided: [], unguided: [] },
-    actions: new Map()
+    actions: new Map(),
+    roleDoubling: null
   };
 }
 
@@ -50,7 +51,7 @@ function sendError(ws, message) {
 }
 
 // validate every state flag before changing room state
-function validateStateUpdate(state, role, currentState) {
+function validateStateUpdate(state, role, currentState, roleDoubling = null) {
   if (!state || typeof state !== "object" || Array.isArray(state)) {
     return { ok: false, reason: "state update must be an object" };
   }
@@ -65,7 +66,8 @@ function validateStateUpdate(state, role, currentState) {
     const rule = STATE_RULES[key];
     if (!rule) return { ok: false, reason: "unknown team state" };
     if (state[key] !== true) return { ok: false, reason: `${key} must be true` };
-    if (rule.role !== role) return { ok: false, reason: `${role} cannot set ${key}` };
+    const isOwner = rule.role === role || (roleDoubling && roleDoubling[rule.role] === role);
+    if (!isOwner) return { ok: false, reason: `${role} cannot set ${key}` };
     if (rule.requires && nextState[rule.requires] !== true) {
       return { ok: false, reason: `${key} requires ${rule.requires}` };
     }
@@ -99,8 +101,9 @@ function removeUser(ws, roomId, role, rooms, broadcastToRoom, log) {
       room.state = {};
       room.readyUsers.clear();
       room.actions.clear();
+      room.roleDoubling = null;
       broadcastToRoom(roomId, { type: "drill_aborted", reason: `${role} disconnected` });
-      broadcastToRoom(roomId, { type: "phase", phase: "lobby" });
+      broadcastToRoom(roomId, { type: "phase", phase: "lobby", roleDoubling: null });
     }
     log.info({ roomId, role }, "user left room");
   }
@@ -273,7 +276,7 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
           currentRoomId = roomId;
           currentRole = role;
 
-          ws.send(JSON.stringify({ type: "joined", roomId, role, state: room.state, phase: room.phase }));
+          ws.send(JSON.stringify({ type: "joined", roomId, role, state: room.state, phase: room.phase, roleDoubling: room.roleDoubling }));
           log.info({ roomId, role }, "user joined room");
           
           // broadcast to others that someone joined
@@ -291,24 +294,27 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
           if (!room) return;
 
           if (room.phase === "complete") {
-            // all 3 ready returns to lobby for fresh drill
+            // all ready returns to lobby for fresh drill
             room.readyUsers.add(ws);
-            if (room.readyUsers.size >= 3) {
+            const requiredReady = (room.users && room.users.size <= 2) ? 2 : 3;
+            if (room.readyUsers.size >= requiredReady) {
               room.phase = "lobby";
               room.state = {};
               room.readyUsers.clear();
               room.timeline = { guided: [], unguided: [] };
               room.actions.clear();
-              broadcastToRoom(currentRoomId, { type: "phase", phase: "lobby" });
+              room.roleDoubling = null;
+              broadcastToRoom(currentRoomId, { type: "phase", phase: "lobby", roleDoubling: null });
             }
             return;
           }
 
           if (room.phase === "lobby") {
             room.readyUsers.add(ws);
-            // all 3 roles present and ready -> start guided
-            const hasAllRoles = ALLOWED_ROLES.every((r) => Array.from(room.users.values()).includes(r));
+            const rolesInRoom = Array.from(room.users.values());
+            const hasAllRoles = ALLOWED_ROLES.every((r) => rolesInRoom.includes(r));
             if (hasAllRoles && room.readyUsers.size >= 3) {
+              room.roleDoubling = null;
               room.phase = "guided";
               room.phaseStartedAtMs = clock.now();
               room.state = {};
@@ -317,8 +323,26 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
               broadcastToRoom(currentRoomId, {
                 type: "phase",
                 phase: "guided",
-                startedAtMs: room.phaseStartedAtMs
+                startedAtMs: room.phaseStartedAtMs,
+                roleDoubling: null
               });
+            } else if (room.users.size === 2 && room.readyUsers.size >= 2) {
+              const hasAlarm = rolesInRoom.includes("alarm");
+              const hasExt = rolesInRoom.includes("extinguisher_operator");
+              if (hasAlarm && hasExt && !rolesInRoom.includes("backup_coordinator")) {
+                room.roleDoubling = { backup_coordinator: "alarm" };
+                room.phase = "guided";
+                room.phaseStartedAtMs = clock.now();
+                room.state = {};
+                room.timeline = { guided: [], unguided: [] };
+                room.actions.clear();
+                broadcastToRoom(currentRoomId, {
+                  type: "phase",
+                  phase: "guided",
+                  startedAtMs: room.phaseStartedAtMs,
+                  roleDoubling: room.roleDoubling
+                });
+              }
             }
           }
         } else if (data.type === "action_start") {
@@ -331,7 +355,8 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
             sendError(ws, "unknown action");
             return;
           }
-          if (rule.role !== currentRole) {
+          const isOwner = rule.role === currentRole || (room.roleDoubling && room.roleDoubling[rule.role] === currentRole);
+          if (!isOwner) {
             const reason = `${rule.role} role owns ${action}; you are ${currentRole}`;
             if (room.phase === "guided" || room.phase === "unguided") {
               const tMs = clock.now() - room.phaseStartedAtMs;
@@ -362,7 +387,8 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
             sendError(ws, "unknown action");
             return;
           }
-          if (rule.role !== currentRole) {
+          const isOwner = rule.role === currentRole || (room.roleDoubling && room.roleDoubling[rule.role] === currentRole);
+          if (!isOwner) {
             sendError(ws, `${rule.role} role owns ${action}; you are ${currentRole}`);
             return;
           }
@@ -396,7 +422,7 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
 
             const currentPhase = room.phase;
             const tMs = clock.now() - room.phaseStartedAtMs;
-            const result = validateStateUpdate(data.state, currentRole, room.state);
+            const result = validateStateUpdate(data.state, currentRole, room.state, room.roleDoubling);
 
             if (!result.ok) {
               log.warn({
@@ -438,7 +464,8 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
                 broadcastToRoom(currentRoomId, {
                   type: "phase",
                   phase: "unguided",
-                  startedAtMs: room.phaseStartedAtMs
+                  startedAtMs: room.phaseStartedAtMs,
+                  roleDoubling: room.roleDoubling
                 });
                 broadcastToRoom(currentRoomId, { type: "state_changed", state: room.state });
               } else if (currentPhase === "unguided") {
@@ -446,12 +473,12 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
                 room.phase = "complete";
                 room.state = result.state;
                 broadcastToRoom(currentRoomId, { type: "state_changed", state: room.state }, ws);
-                broadcastToRoom(currentRoomId, { type: "phase", phase: "complete" });
+                broadcastToRoom(currentRoomId, { type: "phase", phase: "complete", roleDoubling: room.roleDoubling });
                 const rolesInRoom = Array.from(room.users.values());
                 const scored = scoreTeamDrill(room.timeline.unguided, rolesInRoom);
 
                 const attempts = {};
-                if (scored.passed && db) {
+                if (db) {
                   const nowIso = new Date(clock.now()).toISOString();
                   const startedAtMs = room.phaseStartedAtMs || clock.now();
                   const startedAtIso = new Date(startedAtMs).toISOString();
@@ -510,8 +537,8 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
                           }
                         }
                       ],
-                      clientClaimedPercentage: 100,
-                      clientClaimedPassed: true
+                      clientClaimedPercentage: scored.teamScore,
+                      clientClaimedPassed: Boolean(scored.passed)
                     };
 
                     if (moduleRow && definitions && definitions.length > 0) {

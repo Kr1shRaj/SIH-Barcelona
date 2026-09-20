@@ -11,6 +11,7 @@ let currentRole = null;
 let currentPhase = "lobby";
 const peers = new Map(); // role -> { position, rotation }
 let roomState = {};
+let roleDoubling = null;
 
 const stateChangeListeners = [];
 const peerPositionListeners = [];
@@ -114,6 +115,7 @@ function _connectWebSocket(roomId, role, joinOptions = {}) {
           currentRole = msg.role;
           roomState = msg.state || {};
           if (msg.phase) currentPhase = msg.phase;
+          if (msg.roleDoubling !== undefined) roleDoubling = msg.roleDoubling;
           if (Array.isArray(msg.peers)) {
             msg.peers.forEach(p => peers.set(p, { stale: false }));
           }
@@ -144,8 +146,9 @@ function _connectWebSocket(roomId, role, joinOptions = {}) {
           stateChangeListeners.forEach(cb => cb(roomState));
         } else if (msg.type === "phase") {
           currentPhase = msg.phase;
+          if (msg.roleDoubling !== undefined) roleDoubling = msg.roleDoubling;
           logger.info(`phase changed to ${msg.phase}`);
-          phaseChangeListeners.forEach(cb => cb(msg.phase, msg.startedAtMs));
+          phaseChangeListeners.forEach(cb => cb(msg.phase, msg.startedAtMs, msg.roleDoubling));
         } else if (msg.type === "peer_action") {
           peerActionListeners.forEach(cb => cb(msg.role, msg.action, msg.status));
         } else if (msg.type === "drill_result") {
@@ -277,6 +280,11 @@ export function getCurrentPhase() {
   return currentPhase;
 }
 
+// get active role doubling mapping if 2-player drill
+export function getRoleDoubling() {
+  return roleDoubling;
+}
+
 export function getPeers() {
   return Array.from(peers.keys());
 }
@@ -292,6 +300,7 @@ export function resetTeamSession() {
   currentPhase = "lobby";
   peers.clear();
   roomState = {};
+  roleDoubling = null;
   stateChangeListeners.length = 0;
   peerPositionListeners.length = 0;
   peerJoinLeaveListeners.length = 0;

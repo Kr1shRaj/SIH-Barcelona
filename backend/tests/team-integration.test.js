@@ -204,7 +204,7 @@ test("Team Drill Full Integration: attempts and certs", async (t) => {
     }
   });
 
-  await t.test("failing drill creates no attempts and allows retry", async () => {
+  await t.test("failing drill ingests failed attempts with server_passed = 0 and allows retry", async () => {
     const roomId = `fail-room-${Date.now()}`;
     let wsAlarm;
     let wsExt;
@@ -249,13 +249,27 @@ test("Team Drill Full Integration: attempts and certs", async (t) => {
       const res = await pResult;
       assert.strictEqual(res.passed, false);
       assert.ok(res.teamScore < 80);
-      assert.deepStrictEqual(res.attempts, {});
+      assert.ok(res.attempts.alarm, "attempt id created for alarm");
+      assert.ok(res.attempts.extinguisher_operator, "attempt id created for extinguisher");
+      assert.ok(res.attempts.backup_coordinator, "attempt id created for backup");
 
-      // verify no attempts created in db for these workers in fire-response-team
+      // verify failed attempts created in db with server_passed = 0
       const checkAttempt = ctx.db.prepare("SELECT * FROM attempt WHERE worker_id = ? AND module_id = 'fire-response-team'");
-      assert.strictEqual(checkAttempt.all("WRK-0004").length, 0);
-      assert.strictEqual(checkAttempt.all("WRK-0005").length, 0);
-      assert.strictEqual(checkAttempt.all("WRK-0006").length, 0);
+      const att4 = checkAttempt.all("WRK-0004");
+      const att5 = checkAttempt.all("WRK-0005");
+      const att6 = checkAttempt.all("WRK-0006");
+      assert.strictEqual(att4.length, 1);
+      assert.strictEqual(att4[0].server_passed, 0);
+      assert.strictEqual(att5.length, 1);
+      assert.strictEqual(att5[0].server_passed, 0);
+      assert.strictEqual(att6.length, 1);
+      assert.strictEqual(att6[0].server_passed, 0);
+
+      // verify no certificates issued on fail
+      const checkCert = ctx.db.prepare("SELECT * FROM certificate WHERE worker_id = ? AND module_id = 'fire-response-team'");
+      assert.strictEqual(checkCert.all("WRK-0004").length, 0);
+      assert.strictEqual(checkCert.all("WRK-0005").length, 0);
+      assert.strictEqual(checkCert.all("WRK-0006").length, 0);
 
       // retry: all 3 send ready to reset to lobby
       const pLobby = nextMessage(wsAlarm, "phase");

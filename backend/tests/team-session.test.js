@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert");
 const http = require("node:http");
 const { WebSocket } = require("ws");
-const { initRealtimeServer, getRoom } = require("../realtime/team-session");
+const { initRealtimeServer, getRoom, ACTION_RULES } = require("../realtime/team-session");
 
 // wait for one websocket message of the requested type
 function nextMessage(ws, type) {
@@ -615,6 +615,73 @@ test("Team Drill State Machine Phases and Timeline", async (t) => {
     assert.strictEqual(wrongRoleErr.message, "alarm role owns fire_alarm; you are backup_coordinator");
 
     await Promise.all([closeSocket(alarm.ws), closeSocket(extinguisher.ws), closeSocket(backup.ws)]);
+  });
+
+  // contract test: client action names are subset of server ACTION_RULES keys
+  await t.test("contract: client action names subset of ACTION_RULES keys", () => {
+    const clientActionNames = ["fire_alarm", "fire_extinguisher", "evacuation_check"];
+    const serverActionRulesKeys = Object.keys(ACTION_RULES);
+    for (const name of clientActionNames) {
+      assert.ok(
+        serverActionRulesKeys.includes(name),
+        `client action name "${name}" must exist in server ACTION_RULES (${serverActionRulesKeys.join(", ")})`
+      );
+    }
+  });
+
+  // 2-player alarm + extinguisher starts guided with role doubling
+  await t.test("2-player mode: alarm + extinguisher starts with role doubling", async () => {
+    const roomId = `twoplayer-room-${Date.now()}`;
+    const alarm = await joinRoom(port, roomId, "alarm");
+    const extinguisher = await joinRoom(port, roomId, "extinguisher_operator");
+
+    alarm.ws.send(JSON.stringify({ type: "ready" }));
+    extinguisher.ws.send(JSON.stringify({ type: "ready" }));
+
+    const phaseMsg = await nextMessage(alarm.ws, "phase");
+    assert.strictEqual(phaseMsg.type, "phase");
+    assert.strictEqual(phaseMsg.phase, "guided");
+    assert.deepStrictEqual(phaseMsg.roleDoubling, { backup_coordinator: "alarm" });
+
+    const room = getRoom(roomId);
+    assert.deepStrictEqual(room.roleDoubling, { backup_coordinator: "alarm" });
+
+    // alarm player can execute both alarm and backup coordinator actions
+    alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
+    const st1 = await nextMessage(extinguisher.ws, "state_changed");
+    assert.strictEqual(st1.state.alarm_pulled, true);
+
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
+    const st2 = await nextMessage(alarm.ws, "state_changed");
+    assert.strictEqual(st2.state.fire_extinguished, true);
+
+    // doubled alarm player completes evac_checked and advances to unguided
+    alarm.ws.send(JSON.stringify({ type: "state_update", state: { evac_checked: true } }));
+    const unguidedPhase = await nextMessage(alarm.ws, "phase");
+    assert.strictEqual(unguidedPhase.phase, "unguided");
+    assert.deepStrictEqual(unguidedPhase.roleDoubling, { backup_coordinator: "alarm" });
+
+    await Promise.all([closeSocket(alarm.ws), closeSocket(extinguisher.ws)]);
+  });
+
+  // invalid 2-player pairings do not start
+  await t.test("2-player mode: invalid pairing does not start", async () => {
+    const roomId = `invalid-two-room-${Date.now()}`;
+    const alarm = await joinRoom(port, roomId, "alarm");
+    const backup = await joinRoom(port, roomId, "backup_coordinator");
+
+    alarm.ws.send(JSON.stringify({ type: "ready" }));
+    backup.ws.send(JSON.stringify({ type: "ready" }));
+
+    // wait a brief moment, ensure no phase message sent
+    const phasePromise = nextMessage(alarm.ws, "phase");
+    await assert.rejects(phasePromise, /timed out waiting for phase/);
+
+    const room = getRoom(roomId);
+    assert.strictEqual(room.phase, "lobby");
+    assert.strictEqual(room.roleDoubling, null);
+
+    await Promise.all([closeSocket(alarm.ws), closeSocket(backup.ws)]);
   });
 
   await t.test("teardown state machine server", () => {

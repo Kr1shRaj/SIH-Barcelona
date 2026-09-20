@@ -293,7 +293,8 @@ async function setupTeamScenario(role = "alarm", initialRoomState = {}, viaMarke
         roomId: msg.roomId,
         role: msg.role,
         phase: initialRoomState.phase || "guided",
-        state: initialRoomState
+        state: initialRoomState,
+        roleDoubling: initialRoomState.roleDoubling || null
       });
     } else if (msg.type === "state_update") {
       Object.assign(initialRoomState, msg.state);
@@ -867,8 +868,10 @@ describe("Phase 3 Fire Team Session", () => {
       assert.strictEqual(document.getElementById("team-debrief-card"), null, "card dismissed on replay");
     });
 
-    // drill result pass records stage 3 result and queues certificate request
-    it("drill_result pass records stage 3 and queues certificate request", async () => {
+    // drill result pass queues certificate request and does not write solo stage 3 (M10)
+    it("drill_result pass queues certificate request and does not overwrite solo stage 3", async () => {
+      delete _progressStore["safear_prerequisite_progress"];
+      delete _progressStore["safear_pending_certificates"];
       await setupTeamScenario("alarm", { phase: "unguided" });
 
       const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
@@ -886,15 +889,13 @@ describe("Phase 3 Fire Team Session", () => {
         }
       });
 
-      // verify stage 3 progress written
+      // verify solo stage 3 progress is NOT written (per M10 decision: team drill does not unlock solo stage 3)
       const progressRaw = globalThis.localStorage.getItem("safear_prerequisite_progress");
-      assert.ok(progressRaw, "progress stored");
-      const progress = JSON.parse(progressRaw);
-      assert.ok(progress["WRK-0001"] && progress["WRK-0001"].stages, "stages exist");
-      const stage3 = progress["WRK-0001"].stages["fire-response"]["3"];
-      assert.ok(stage3, "stage 3 recorded");
-      assert.strictEqual(stage3.passed, true);
-      assert.strictEqual(stage3.score, 0.88);
+      if (progressRaw) {
+        const progress = JSON.parse(progressRaw);
+        const stage3 = progress["WRK-0001"]?.stages?.["fire-response"]?.["3"];
+        assert.strictEqual(stage3, undefined, "solo stage 3 must not be written by team drill pass");
+      }
 
       // verify pending cert queued for worker
       const pendingRaw = globalThis.localStorage.getItem("safear_pending_certificates");
@@ -925,6 +926,82 @@ describe("Phase 3 Fire Team Session", () => {
       const pendingRaw = globalThis.localStorage.getItem("safear_pending_certificates");
       const pending = pendingRaw ? JSON.parse(pendingRaw) : [];
       assert.strictEqual(pending.length, 0, "no certificate queued on fail");
+    });
+
+    // guided to unguided resets flags and mounts interaction for role (M1 regression)
+    it("guided to unguided phase transition resets setup flags and mounts interactions", async () => {
+      await setupTeamScenario("alarm", { phase: "guided" });
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      assert.ok(document.getElementById("btn-pull-alarm"), "alarm pull button mounted in guided");
+
+      // complete guided alarm step
+      document.getElementById("btn-pull-alarm").click();
+      assert.strictEqual(document.getElementById("btn-pull-alarm"), null, "alarm station removed on pull");
+
+      // simulate server transitioning phase to unguided
+      ws.receive({
+        type: "phase",
+        phase: "unguided",
+        startedAtMs: Date.now()
+      });
+
+      // in unguided, setup flags must have been reset and interaction re-mounted (M1 fix)
+      assert.ok(document.getElementById("btn-pull-alarm"), "alarm pull button mounted again in unguided phase (M1 fix)");
+      assert.ok(document.getElementById("fire-alarm-station"), "alarm station mounted in unguided phase");
+
+      // pull alarm in unguided
+      document.getElementById("btn-pull-alarm").click();
+
+      // simulate server sending drill_result
+      ws.receive({
+        type: "drill_result",
+        teamScore: 90,
+        passed: true,
+        perRole: { alarm: 90, extinguisher_operator: 90, backup_coordinator: 90 },
+        attempts: { alarm: "att-alarm-1" }
+      });
+
+      const debrief = document.getElementById("team-debrief-card");
+      assert.ok(debrief, "drill debrief card mounted upon unguided completion");
+      assert.match(debrief.textContent, /DRILL PASSED/);
+    });
+
+    // 2-player mode role doubling allows alarm player to cover evacuation (M4)
+    it("alarm player covers evacuation in 2-player mode with roleDoubling", async () => {
+      await setupTeamScenario("alarm", {
+        phase: "guided",
+        roleDoubling: { backup_coordinator: "alarm" }
+      });
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+
+      // guided: simulate fire_extinguished
+      ws.receive({
+        type: "state_changed",
+        state: { alarm_pulled: true, fire_extinguished: true }
+      });
+
+      const teamOverlay = document.getElementById("team-module-overlay");
+      assert.match(teamOverlay.querySelector("#team-instruction").textContent, /Coordinate evacuation/i);
+      assert.ok(document.getElementById("btn-step-next"), "step 3 evacuation UI mounted for doubled alarm player");
+    });
+
+    // coverage strip chips turn green on state changes (M9)
+    it("coverage strip displays chips and turns green on state changes", async () => {
+      await setupTeamScenario("alarm", { phase: "guided" });
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+
+      const strip = document.getElementById("team-coverage-strip");
+      assert.ok(strip, "coverage strip exists");
+      const chipAlarm = strip.querySelector("#chip-alarm");
+      assert.ok(chipAlarm, "alarm chip exists");
+      assert.ok(chipAlarm.textContent.includes("○"), "alarm chip initial state unchecked");
+
+      ws.receive({
+        type: "state_changed",
+        state: { alarm_pulled: true }
+      });
+
+      assert.ok(strip.querySelector("#chip-alarm").textContent.includes("✔"), "alarm chip checked after state_changed");
     });
   });
 });

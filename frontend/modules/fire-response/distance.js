@@ -1,13 +1,16 @@
 // pure distance and motion math for multi-user marker space
 
+// default printed hiro marker size in cm
+const MARKER_SIZE_CM = 20;
+
 // compute distance in metres between two points in marker-local space
-function markerDistance(a, b, markerSizeCm = 20) {
+function markerDistance(a, b, markerSizeCm = MARKER_SIZE_CM) {
   if (!a || !b) return 0;
   const ax = typeof a.x === "number" ? a.x : 0;
   const az = typeof a.z === "number" ? a.z : 0;
   const bx = typeof b.x === "number" ? b.x : 0;
   const bz = typeof b.z === "number" ? b.z : 0;
-  const scale = (typeof markerSizeCm === "number" && markerSizeCm > 0 ? markerSizeCm : 20) / 100;
+  const scale = (typeof markerSizeCm === "number" && markerSizeCm > 0 ? markerSizeCm : MARKER_SIZE_CM) / 100;
   const distUnits = Math.hypot(ax - bx, az - bz);
   return distUnits * scale;
 }
@@ -49,6 +52,7 @@ function formatDistance(distMeters) {
 }
 
 export {
+  MARKER_SIZE_CM,
   markerDistance,
   lerp,
   lerpAngleDeg,

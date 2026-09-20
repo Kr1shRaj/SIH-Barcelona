@@ -174,6 +174,7 @@ describe("Admin Compliance Dashboard Client", () => {
     assert.ok(html.includes("Budhan Murmu"));
     assert.ok(html.includes("WRK-0001"));
     assert.ok(html.includes("Compliant"));
+    assert.ok(html.includes("Team Fire Drill"));
 
     // Attention checks
     assert.ok(html.includes("Sita Devi"));
@@ -181,6 +182,32 @@ describe("Admin Compliance Dashboard Client", () => {
 
     // Recent activity checks
     assert.ok(html.includes("Recent Assessment Sync Activity"));
+  });
+
+  it("renderDashboard includes Team Fire Drill roster column and module pill", () => {
+    const container = createMockContainer();
+    const metricsWithTeam = {
+      ...SAMPLE_METRICS,
+      roster: [
+        {
+          workerId: "WRK-0001",
+          name: "Budhan Murmu",
+          mineName: "Jharia Coal Block A",
+          contractorName: "Jharkhand Mining Contractors Pvt Ltd",
+          overallStatus: "compliant",
+          modules: {
+            "fire-response": { passed: true, bestScore: 95.0, attemptsCount: 1 },
+            "gas-leak": { passed: true, bestScore: 90.0, attemptsCount: 1 },
+            "fire-response-team": { passed: true, bestScore: 88.0, attemptsCount: 1 }
+          }
+        }
+      ]
+    };
+    renderDashboard(container, metricsWithTeam);
+    const html = container.innerHTML;
+    assert.ok(html.includes("<th>Team Fire Drill</th>"));
+    assert.ok(html.includes('data-label="Team Fire Drill"'));
+    assert.ok(html.includes("88%"));
   });
 
   it("fetchComplianceMetrics retrieves data or throws on failure", async () => {
