@@ -9,9 +9,16 @@ const { getModule, getCheckpointDefinitions } = require("../services/modules");
 const rooms = new Map(); // roomId -> { users, state, marker, userMeta }
 
 const ALLOWED_ROLES = ["alarm", "extinguisher_operator", "backup_coordinator"];
+const EXTINGUISHER_MEDIA = Object.freeze({ ABC_POWDER: "abc_powder", CO2: "co2", WATER: "water" });
+const SCENARIOS = Object.freeze({
+  standard:   { id: "standard",   fireClass: "A", acceptableMedia: ["abc_powder", "water"] },
+  electrical: { id: "electrical", fireClass: "E", acceptableMedia: ["abc_powder", "co2"] }
+});
+
 const STATE_RULES = Object.freeze({
   alarm_pulled: { role: "alarm" },
-  fire_extinguished: { role: "extinguisher_operator", requires: "alarm_pulled" },
+  extinguisher_selected: { role: "extinguisher_operator", requires: "alarm_pulled" },
+  fire_extinguished: { role: "extinguisher_operator", requires: "extinguisher_selected" },
   evac_checked: { role: "backup_coordinator", requires: "fire_extinguished" }
 });
 
@@ -35,7 +42,9 @@ function createRoom() {
     readyUsers: new Set(),
     phaseStartedAtMs: 0,
     timeline: { guided: [], unguided: [] },
-    actions: new Map()
+    actions: new Map(),
+    roleDoubling: null,
+    scenario: null
   };
 }
 
@@ -50,7 +59,7 @@ function sendError(ws, message) {
 }
 
 // validate every state flag before changing room state
-function validateStateUpdate(state, role, currentState) {
+function validateStateUpdate(state, role, currentState, roleDoubling = null) {
   if (!state || typeof state !== "object" || Array.isArray(state)) {
     return { ok: false, reason: "state update must be an object" };
   }
@@ -65,7 +74,8 @@ function validateStateUpdate(state, role, currentState) {
     const rule = STATE_RULES[key];
     if (!rule) return { ok: false, reason: "unknown team state" };
     if (state[key] !== true) return { ok: false, reason: `${key} must be true` };
-    if (rule.role !== role) return { ok: false, reason: `${role} cannot set ${key}` };
+    const isOwner = rule.role === role || (roleDoubling && roleDoubling[rule.role] === role);
+    if (!isOwner) return { ok: false, reason: `${role} cannot set ${key}` };
     if (rule.requires && nextState[rule.requires] !== true) {
       return { ok: false, reason: `${key} requires ${rule.requires}` };
     }
@@ -99,14 +109,36 @@ function removeUser(ws, roomId, role, rooms, broadcastToRoom, log) {
       room.state = {};
       room.readyUsers.clear();
       room.actions.clear();
+      room.roleDoubling = null;
+      room.scenario = null;
       broadcastToRoom(roomId, { type: "drill_aborted", reason: `${role} disconnected` });
-      broadcastToRoom(roomId, { type: "phase", phase: "lobby" });
+      broadcastToRoom(roomId, { type: "phase", phase: "lobby", roleDoubling: null });
     }
     log.info({ roomId, role }, "user left room");
   }
 
   if (room.users.size === 0) {
     rooms.delete(roomId);
+  }
+}
+
+// deterministic alternation between standard and electrical scenarios
+let defaultScenarioCounter = 0;
+const DEFAULT_SCENARIO_SELECTOR = () => {
+  const scenario = (defaultScenarioCounter % 2 === 0) ? SCENARIOS.standard : SCENARIOS.electrical;
+  defaultScenarioCounter++;
+  return scenario;
+};
+
+// pick scenario safely, falling back to standard on invalid return
+function selectScenarioSafely(selector) {
+  try {
+    const s = typeof selector === "function" ? selector() : null;
+    if (s && s.id && SCENARIOS[s.id]) return SCENARIOS[s.id];
+    if (typeof s === "string" && SCENARIOS[s]) return SCENARIOS[s];
+    return SCENARIOS.standard;
+  } catch (_e) {
+    return SCENARIOS.standard;
   }
 }
 
@@ -126,6 +158,7 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
 
   let clock = DEFAULT_CLOCK;
   let db = (config && config.db) || null;
+  let scenarioSelector = DEFAULT_SCENARIO_SELECTOR;
 
   if (optionsOrClock) {
     if (typeof optionsOrClock.now === "function") {
@@ -133,6 +166,7 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
     } else if (typeof optionsOrClock === "object") {
       if (optionsOrClock.clock) clock = optionsOrClock.clock;
       if (optionsOrClock.db) db = optionsOrClock.db;
+      if (optionsOrClock.scenarioSelector) scenarioSelector = optionsOrClock.scenarioSelector;
     }
   }
 
@@ -273,7 +307,7 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
           currentRoomId = roomId;
           currentRole = role;
 
-          ws.send(JSON.stringify({ type: "joined", roomId, role, state: room.state, phase: room.phase }));
+          ws.send(JSON.stringify({ type: "joined", roomId, role, state: room.state, phase: room.phase, roleDoubling: room.roleDoubling, scenario: room.scenario }));
           log.info({ roomId, role }, "user joined room");
           
           // broadcast to others that someone joined
@@ -291,24 +325,29 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
           if (!room) return;
 
           if (room.phase === "complete") {
-            // all 3 ready returns to lobby for fresh drill
+            // all ready returns to lobby for fresh drill
             room.readyUsers.add(ws);
-            if (room.readyUsers.size >= 3) {
+            const requiredReady = (room.users && room.users.size <= 2) ? 2 : 3;
+            if (room.readyUsers.size >= requiredReady) {
               room.phase = "lobby";
               room.state = {};
               room.readyUsers.clear();
               room.timeline = { guided: [], unguided: [] };
               room.actions.clear();
-              broadcastToRoom(currentRoomId, { type: "phase", phase: "lobby" });
+              room.roleDoubling = null;
+              room.scenario = null;
+              broadcastToRoom(currentRoomId, { type: "phase", phase: "lobby", roleDoubling: null });
             }
             return;
           }
 
           if (room.phase === "lobby") {
             room.readyUsers.add(ws);
-            // all 3 roles present and ready -> start guided
-            const hasAllRoles = ALLOWED_ROLES.every((r) => Array.from(room.users.values()).includes(r));
+            const rolesInRoom = Array.from(room.users.values());
+            const hasAllRoles = ALLOWED_ROLES.every((r) => rolesInRoom.includes(r));
             if (hasAllRoles && room.readyUsers.size >= 3) {
+              room.roleDoubling = null;
+              room.scenario = selectScenarioSafely(scenarioSelector);
               room.phase = "guided";
               room.phaseStartedAtMs = clock.now();
               room.state = {};
@@ -317,8 +356,29 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
               broadcastToRoom(currentRoomId, {
                 type: "phase",
                 phase: "guided",
-                startedAtMs: room.phaseStartedAtMs
+                startedAtMs: room.phaseStartedAtMs,
+                roleDoubling: null,
+                scenario: room.scenario
               });
+            } else if (room.users.size === 2 && room.readyUsers.size >= 2) {
+              const hasAlarm = rolesInRoom.includes("alarm");
+              const hasExt = rolesInRoom.includes("extinguisher_operator");
+              if (hasAlarm && hasExt && !rolesInRoom.includes("backup_coordinator")) {
+                room.roleDoubling = { backup_coordinator: "alarm" };
+                room.scenario = selectScenarioSafely(scenarioSelector);
+                room.phase = "guided";
+                room.phaseStartedAtMs = clock.now();
+                room.state = {};
+                room.timeline = { guided: [], unguided: [] };
+                room.actions.clear();
+                broadcastToRoom(currentRoomId, {
+                  type: "phase",
+                  phase: "guided",
+                  startedAtMs: room.phaseStartedAtMs,
+                  roleDoubling: room.roleDoubling,
+                  scenario: room.scenario
+                });
+              }
             }
           }
         } else if (data.type === "action_start") {
@@ -331,7 +391,8 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
             sendError(ws, "unknown action");
             return;
           }
-          if (rule.role !== currentRole) {
+          const isOwner = rule.role === currentRole || (room.roleDoubling && room.roleDoubling[rule.role] === currentRole);
+          if (!isOwner) {
             const reason = `${rule.role} role owns ${action}; you are ${currentRole}`;
             if (room.phase === "guided" || room.phase === "unguided") {
               const tMs = clock.now() - room.phaseStartedAtMs;
@@ -362,7 +423,8 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
             sendError(ws, "unknown action");
             return;
           }
-          if (rule.role !== currentRole) {
+          const isOwner = rule.role === currentRole || (room.roleDoubling && room.roleDoubling[rule.role] === currentRole);
+          if (!isOwner) {
             sendError(ws, `${rule.role} role owns ${action}; you are ${currentRole}`);
             return;
           }
@@ -396,7 +458,35 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
 
             const currentPhase = room.phase;
             const tMs = clock.now() - room.phaseStartedAtMs;
-            const result = validateStateUpdate(data.state, currentRole, room.state);
+
+            // media validation for extinguisher_selected
+            if (data.state && typeof data.state === "object" && data.state.extinguisher_selected) {
+              const allowedMedia = [EXTINGUISHER_MEDIA.ABC_POWDER, EXTINGUISHER_MEDIA.CO2, EXTINGUISHER_MEDIA.WATER];
+              const scenario = room.scenario || SCENARIOS.standard;
+              const isAllowedMedia = allowedMedia.includes(data.media);
+              const isAcceptable = isAllowedMedia && scenario.acceptableMedia && scenario.acceptableMedia.includes(data.media);
+
+              if (!isAcceptable) {
+                const reason = "wrong_media";
+                log.warn({
+                  event: "team_state_update_rejected",
+                  roomId: currentRoomId,
+                  role: currentRole,
+                  reason
+                }, "Team state update rejected");
+                room.timeline[currentPhase].push({
+                  role: currentRole,
+                  action: "extinguisher_selected",
+                  reason,
+                  tMs,
+                  accepted: false
+                });
+                sendError(ws, reason);
+                return;
+              }
+            }
+
+            const result = validateStateUpdate(data.state, currentRole, room.state, room.roleDoubling);
 
             if (!result.ok) {
               log.warn({
@@ -438,7 +528,9 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
                 broadcastToRoom(currentRoomId, {
                   type: "phase",
                   phase: "unguided",
-                  startedAtMs: room.phaseStartedAtMs
+                  startedAtMs: room.phaseStartedAtMs,
+                  roleDoubling: room.roleDoubling,
+                  scenario: room.scenario
                 });
                 broadcastToRoom(currentRoomId, { type: "state_changed", state: room.state });
               } else if (currentPhase === "unguided") {
@@ -446,20 +538,29 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
                 room.phase = "complete";
                 room.state = result.state;
                 broadcastToRoom(currentRoomId, { type: "state_changed", state: room.state }, ws);
-                broadcastToRoom(currentRoomId, { type: "phase", phase: "complete" });
+                broadcastToRoom(currentRoomId, {
+                  type: "phase",
+                  phase: "complete",
+                  roleDoubling: room.roleDoubling,
+                  scenario: room.scenario
+                });
                 const rolesInRoom = Array.from(room.users.values());
                 const scored = scoreTeamDrill(room.timeline.unguided, rolesInRoom);
 
                 const attempts = {};
-                if (scored.passed && db) {
+                if (db) {
                   const nowIso = new Date(clock.now()).toISOString();
                   const startedAtMs = room.phaseStartedAtMs || clock.now();
                   const startedAtIso = new Date(startedAtMs).toISOString();
                   const durationMs = Math.max(0, clock.now() - startedAtMs);
 
                   const alarmEv = room.timeline.unguided.find((e) => e.action === "alarm_pulled" && e.accepted);
+                  const selOk = room.timeline.unguided.find((e) => e.action === "extinguisher_selected" && e.accepted);
+                  const selBad = room.timeline.unguided.find((e) => e.action === "extinguisher_selected" && !e.accepted);
                   const fireEv = room.timeline.unguided.find((e) => e.action === "fire_extinguished" && e.accepted);
                   const evacEv = room.timeline.unguided.find((e) => e.action === "evac_checked" && e.accepted);
+
+                  const selectedMedia = !selOk ? "skipped" : (selBad ? "wrong_selection" : "correct_selection");
 
                   const moduleRow = getModule(db, "fire-response-team");
                   const definitions = getCheckpointDefinitions(db, "fire-response-team");
@@ -494,6 +595,14 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
                           }
                         },
                         {
+                          checkpointId: "team_extinguisher_select",
+                          observedAt: selOk ? new Date(startedAtMs + selOk.tMs).toISOString() : nowIso,
+                          observation: {
+                            kind: "selection_single",
+                            selected: selectedMedia
+                          }
+                        },
+                        {
                           checkpointId: "team_fire_extinguish",
                           observedAt: fireEv ? new Date(startedAtMs + fireEv.tMs).toISOString() : nowIso,
                           observation: {
@@ -508,10 +617,18 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
                             kind: "selection_single",
                             selected: evacEv ? "evac_checked" : "skipped"
                           }
+                        },
+                        {
+                          checkpointId: "team_drill_outcome",
+                          observedAt: nowIso,
+                          observation: {
+                            kind: "selection_single",
+                            selected: scored.passed ? "drill_passed" : "drill_failed"
+                          }
                         }
                       ],
-                      clientClaimedPercentage: 100,
-                      clientClaimedPassed: true
+                      clientClaimedPercentage: scored.teamScore,
+                      clientClaimedPassed: Boolean(scored.passed)
                     };
 
                     if (moduleRow && definitions && definitions.length > 0) {
@@ -588,6 +705,10 @@ module.exports = {
   ALLOWED_ROLES,
   STATE_RULES,
   ACTION_RULES,
+  EXTINGUISHER_MEDIA,
+  SCENARIOS,
+  DEFAULT_SCENARIO_SELECTOR,
+  resetDefaultScenarioCounter: () => { defaultScenarioCounter = 0; },
   STALE_MS,
   DEAD_MS,
   getRoom: (roomId) => rooms.get(roomId)

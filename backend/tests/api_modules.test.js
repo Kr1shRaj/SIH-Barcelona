@@ -30,8 +30,8 @@ describe("GET /api/modules", () => {
       res.body.map((manifest) => [manifest.moduleId, manifest.requiredCheckpoints.length])
     );
 
-    // fire-response carries four because the evacuation question is split per tier, team carries three
-    assert.deepStrictEqual(counts, { "fire-response": 4, "fire-response-team": 3, "gas-leak": 3 });
+    // fire-response carries four because the evacuation question is split per tier, team carries five
+    assert.deepStrictEqual(counts, { "fire-response": 4, "fire-response-team": 5, "gas-leak": 3 });
   });
 
   it("exposes the checkpoint ids the AR modules actually emit", async () => {
@@ -57,12 +57,13 @@ describe("GET /api/modules", () => {
     assert.strictEqual(typeof checkpoint.critical, "boolean");
   });
 
-  it("reports critical as false everywhere, the team has not ruled yet", async () => {
+  it("reports critical as false everywhere except team_drill_outcome", async () => {
     const res = await request(ctx.app).get("/api/modules");
 
     res.body.forEach((manifest) => {
       manifest.requiredCheckpoints.forEach((checkpoint) => {
-        assert.strictEqual(checkpoint.critical, false, `${checkpoint.checkpointId} must not claim a safety ruling`);
+        const expected = checkpoint.checkpointId === "team_drill_outcome";
+        assert.strictEqual(checkpoint.critical, expected, `${checkpoint.checkpointId} critical flag is wrong`);
       });
     });
   });

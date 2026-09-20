@@ -131,6 +131,7 @@ test("Team Drill Full Integration: attempts and certs", async (t) => {
       const pUnguidedEvac = nextMessage(wsEvac, "phase");
 
       wsAlarm.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
+      wsExt.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "abc_powder" }));
       wsExt.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
       wsEvac.send(JSON.stringify({ type: "state_update", state: { evac_checked: true } }));
 
@@ -149,6 +150,7 @@ test("Team Drill Full Integration: attempts and certs", async (t) => {
       wsAlarm.send(JSON.stringify({ type: "action_end", action: "fire_alarm" }));
 
       wsExt.send(JSON.stringify({ type: "action_start", action: "fire_extinguisher" }));
+      wsExt.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "abc_powder" }));
       wsExt.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
       wsExt.send(JSON.stringify({ type: "action_end", action: "fire_extinguisher" }));
 
@@ -179,6 +181,14 @@ test("Team Drill Full Integration: attempts and certs", async (t) => {
         assert.strictEqual(row.grading_status, "graded");
         assert.strictEqual(row.contract_version, "2.0");
 
+        // verify all 5 checkpoints ingested including team_extinguisher_select
+        const checkCp = ctx.db.prepare("SELECT * FROM checkpoint_result WHERE attempt_id = ?");
+        const cpRows = checkCp.all(attempts[role]);
+        assert.strictEqual(cpRows.length, 5, "all 5 checkpoints ingested into database");
+        const selCp = cpRows.find((c) => c.checkpoint_id === "team_extinguisher_select");
+        assert.ok(selCp, "team_extinguisher_select checkpoint exists");
+        assert.strictEqual(JSON.parse(selCp.observation_json).selected, "correct_selection");
+
         // issue certificate for this attempt
         const issueRes = await request(ctx.app)
           .post("/api/certs/issue")
@@ -204,7 +214,7 @@ test("Team Drill Full Integration: attempts and certs", async (t) => {
     }
   });
 
-  await t.test("failing drill creates no attempts and allows retry", async () => {
+  await t.test("failing drill ingests failed attempts with server_passed = 0 and allows retry", async () => {
     const roomId = `fail-room-${Date.now()}`;
     let wsAlarm;
     let wsExt;
@@ -228,6 +238,7 @@ test("Team Drill Full Integration: attempts and certs", async (t) => {
 
       // complete guided
       wsAlarm.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
+      wsExt.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "abc_powder" }));
       wsExt.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
       wsEvac.send(JSON.stringify({ type: "state_update", state: { evac_checked: true } }));
 
@@ -243,19 +254,34 @@ test("Team Drill Full Integration: attempts and certs", async (t) => {
 
       // now fulfill sequence so it finishes but with negative/low score
       wsAlarm.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
+      wsExt.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "abc_powder" }));
       wsExt.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
       wsEvac.send(JSON.stringify({ type: "state_update", state: { evac_checked: true } }));
 
       const res = await pResult;
       assert.strictEqual(res.passed, false);
       assert.ok(res.teamScore < 80);
-      assert.deepStrictEqual(res.attempts, {});
+      assert.ok(res.attempts.alarm, "attempt id created for alarm");
+      assert.ok(res.attempts.extinguisher_operator, "attempt id created for extinguisher");
+      assert.ok(res.attempts.backup_coordinator, "attempt id created for backup");
 
-      // verify no attempts created in db for these workers in fire-response-team
+      // verify failed attempts created in db with server_passed = 0
       const checkAttempt = ctx.db.prepare("SELECT * FROM attempt WHERE worker_id = ? AND module_id = 'fire-response-team'");
-      assert.strictEqual(checkAttempt.all("WRK-0004").length, 0);
-      assert.strictEqual(checkAttempt.all("WRK-0005").length, 0);
-      assert.strictEqual(checkAttempt.all("WRK-0006").length, 0);
+      const att4 = checkAttempt.all("WRK-0004");
+      const att5 = checkAttempt.all("WRK-0005");
+      const att6 = checkAttempt.all("WRK-0006");
+      assert.strictEqual(att4.length, 1);
+      assert.strictEqual(att4[0].server_passed, 0);
+      assert.strictEqual(att5.length, 1);
+      assert.strictEqual(att5[0].server_passed, 0);
+      assert.strictEqual(att6.length, 1);
+      assert.strictEqual(att6[0].server_passed, 0);
+
+      // verify no certificates issued on fail
+      const checkCert = ctx.db.prepare("SELECT * FROM certificate WHERE worker_id = ? AND module_id = 'fire-response-team'");
+      assert.strictEqual(checkCert.all("WRK-0004").length, 0);
+      assert.strictEqual(checkCert.all("WRK-0005").length, 0);
+      assert.strictEqual(checkCert.all("WRK-0006").length, 0);
 
       // retry: all 3 send ready to reset to lobby
       const pLobby = nextMessage(wsAlarm, "phase");
@@ -265,6 +291,70 @@ test("Team Drill Full Integration: attempts and certs", async (t) => {
 
       const l = await pLobby;
       assert.strictEqual(l.phase, "lobby");
+    } finally {
+      if (wsAlarm) await closeSocket(wsAlarm);
+      if (wsExt) await closeSocket(wsExt);
+      if (wsEvac) await closeSocket(wsEvac);
+    }
+  });
+
+  await t.test("ingestion derives wrong_selection when initial media pick was rejected", async () => {
+    const roomId = `wrong-sel-room-${Date.now()}`;
+    let wsAlarm;
+    let wsExt;
+    let wsEvac;
+
+    try {
+      wsAlarm = await joinRoom(port, roomId, "alarm", "WRK-0001");
+      await nextMessage(wsAlarm, "joined");
+
+      wsExt = await joinRoom(port, roomId, "extinguisher_operator", "WRK-0002");
+      await nextMessage(wsExt, "joined");
+
+      wsEvac = await joinRoom(port, roomId, "backup_coordinator", "WRK-0003");
+      await nextMessage(wsEvac, "joined");
+
+      wsAlarm.send(JSON.stringify({ type: "ready" }));
+      wsExt.send(JSON.stringify({ type: "ready" }));
+      wsEvac.send(JSON.stringify({ type: "ready" }));
+
+      await nextMessage(wsAlarm, "phase");
+
+      // guided
+      wsAlarm.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
+      wsExt.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "abc_powder" }));
+      wsExt.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
+      wsEvac.send(JSON.stringify({ type: "state_update", state: { evac_checked: true } }));
+
+      await nextMessage(wsAlarm, "phase");
+
+      // unguided: alarm pulled
+      wsAlarm.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
+      await nextMessage(wsExt, "state_changed");
+
+      // extinguisher picks bad media first
+      wsExt.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "nonexistent_media" }));
+      const err = await nextMessage(wsExt, "error");
+      assert.strictEqual(err.message, "wrong_media");
+
+      // extinguisher recovers with correct media
+      wsExt.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "abc_powder" }));
+      await nextMessage(wsAlarm, "state_changed");
+
+      wsExt.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
+      await nextMessage(wsAlarm, "state_changed");
+
+      const pResult = nextMessage(wsAlarm, "drill_result");
+      wsEvac.send(JSON.stringify({ type: "state_update", state: { evac_checked: true } }));
+
+      const res = await pResult;
+      assert.ok(res.attempts.extinguisher_operator);
+
+      const checkCp = ctx.db.prepare("SELECT * FROM checkpoint_result WHERE attempt_id = ? AND checkpoint_id = 'team_extinguisher_select'");
+      const cpRow = checkCp.get(res.attempts.extinguisher_operator);
+      assert.ok(cpRow, "checkpoint row exists");
+      const obs = JSON.parse(cpRow.observation_json);
+      assert.strictEqual(obs.selected, "wrong_selection", "derived wrong_selection due to prior rejection");
     } finally {
       if (wsAlarm) await closeSocket(wsAlarm);
       if (wsExt) await closeSocket(wsExt);

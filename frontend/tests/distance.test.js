@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import {
+  MARKER_SIZE_CM,
   markerDistance,
   lerp,
   lerpAngleDeg,
@@ -9,6 +10,12 @@ import {
 } from "../modules/fire-response/distance.js";
 
 describe("Team Distance and Interpolation Math", () => {
+  describe("MARKER_SIZE_CM constant", () => {
+    it("exports MARKER_SIZE_CM constant matching default 20cm Hiro marker", () => {
+      assert.strictEqual(MARKER_SIZE_CM, 20);
+    });
+  });
+
   describe("markerDistance", () => {
     it("returns zero for identical points or null inputs", () => {
       assert.strictEqual(markerDistance({ x: 1, z: 2 }, { x: 1, z: 2 }), 0);
@@ -18,7 +25,10 @@ describe("Team Distance and Interpolation Math", () => {
 
     it("computes 2D distance in marker units scaled to metres", () => {
       // 3 units in X, 4 units in Z = 5 units hypot
-      // with 20cm marker: 5 * 0.20 = 1.0 metre
+      // with default 20cm marker (MARKER_SIZE_CM): 5 * 0.20 = 1.0 metre
+      const distDefault = markerDistance({ x: 0, z: 0 }, { x: 3, z: 4 });
+      assert.strictEqual(Math.abs(distDefault - 1.0) < 1e-6, true);
+
       const dist = markerDistance({ x: 0, z: 0 }, { x: 3, z: 4 }, 20);
       assert.strictEqual(Math.abs(dist - 1.0) < 1e-6, true);
 

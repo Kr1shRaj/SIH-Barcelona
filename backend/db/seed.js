@@ -186,6 +186,17 @@ const CHECKPOINT_DEFINITIONS = [
   },
   {
     moduleId: "fire-response-team",
+    checkpointId: "team_extinguisher_select",
+    type: "select",
+    observationKind: "selection_single",
+    expectedValue: JSON.stringify("correct_selection"),
+    allowedValues: JSON.stringify(["correct_selection", "wrong_selection", "skipped"]),
+    gradeable: 1,
+    required: 1
+    // no critical flag — defaults to CRITICAL_PENDING (0) per existing convention
+  },
+  {
+    moduleId: "fire-response-team",
     checkpointId: "team_fire_extinguish",
     type: "select",
     observationKind: "selection_single",
@@ -203,6 +214,19 @@ const CHECKPOINT_DEFINITIONS = [
     allowedValues: JSON.stringify(["evac_checked", "skipped"]),
     gradeable: 1,
     required: 1
+  },
+  {
+    moduleId: "fire-response-team",
+    checkpointId: "team_drill_outcome",
+    type: "select",
+    observationKind: "selection_single",
+    expectedValue: JSON.stringify("drill_passed"),
+    allowedValues: JSON.stringify(["drill_passed", "drill_failed"]),
+    gradeable: 1,
+    required: 1,
+    // failed drill fails every participant attempt, the result screen already
+    // shows FAILED to the whole team
+    critical: 1
   }
 ];
 
@@ -319,7 +343,7 @@ function seedDatabase(db) {
         gradeable: c.gradeable,
         weight: DEFAULT_CHECKPOINT_WEIGHT,
         required: c.required === undefined ? 1 : c.required,
-        critical: CRITICAL_PENDING,
+        critical: c.critical === undefined ? CRITICAL_PENDING : c.critical,
         created_at: SEED_TIMESTAMP
       })
     );

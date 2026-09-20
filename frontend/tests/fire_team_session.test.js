@@ -252,7 +252,8 @@ import {
   resetTeamSession,
   getRoomState,
   getCurrentRole,
-  getPeers
+  getPeers,
+  getCurrentScenario
 } from "../modules/fire-response/team-session.js";
 import { recordStageResult } from "../prerequisite/progress.js";
 
@@ -293,7 +294,9 @@ async function setupTeamScenario(role = "alarm", initialRoomState = {}, viaMarke
         roomId: msg.roomId,
         role: msg.role,
         phase: initialRoomState.phase || "guided",
-        state: initialRoomState
+        state: initialRoomState,
+        roleDoubling: initialRoomState.roleDoubling || null,
+        scenario: initialRoomState.scenario || { id: "standard", fireClass: "A", acceptableMedia: ["abc_powder", "water"] }
       });
     } else if (msg.type === "state_update") {
       Object.assign(initialRoomState, msg.state);
@@ -507,8 +510,9 @@ describe("Phase 3 Fire Team Session", () => {
         position: { x: 3.0, z: -1.0, headingDeg: 180 }
       });
 
-      assert.strictEqual(avatar.getAttribute("position"), "3 0 -1");
-      assert.strictEqual(avatar.getAttribute("rotation"), "0 180 0");
+      // M7: avatar eases toward the target at alpha 0.5 instead of snapping
+      assert.strictEqual(avatar.getAttribute("position"), "2.125 0 -1.75");
+      assert.strictEqual(avatar.getAttribute("rotation"), "0 127.5 0");
 
       const avatars = marker.children.filter((c) => c.children.some((ch) => ch.getAttribute("value") === "ALARM"));
       assert.strictEqual(avatars.length, 1, "reuses same avatar entity without creating duplicates");
@@ -571,25 +575,25 @@ describe("Phase 3 Fire Team Session", () => {
 
     // second extinguisher run get fresh pass step
     it("resets extinguisher setup state allowing second extinguisher session", async () => {
-      await setupTeamScenario("extinguisher_operator", { alarm_pulled: true });
+      await setupTeamScenario("extinguisher_operator", { alarm_pulled: true, extinguisher_selected: true });
       assert.ok(document.getElementById("pin-status-badge"), "pass step 2 mounted in session 1");
 
       cleanupFireModule();
       assert.strictEqual(document.getElementById("pin-status-badge"), null);
 
-      await setupTeamScenario("extinguisher_operator", { alarm_pulled: true });
+      await setupTeamScenario("extinguisher_operator", { alarm_pulled: true, extinguisher_selected: true });
       assert.ok(document.getElementById("pin-status-badge"), "pass step 2 mounted again in session 2");
     });
 
     // second evac run get fresh step three
     it("resets evacuation setup state allowing second evacuation session", async () => {
-      await setupTeamScenario("backup_coordinator", { alarm_pulled: true, fire_extinguished: true });
+      await setupTeamScenario("backup_coordinator", { alarm_pulled: true, extinguisher_selected: true, fire_extinguished: true });
       assert.ok(document.getElementById("btn-step-next"), "step 3 UI mounted in session 1");
 
       cleanupFireModule();
       assert.strictEqual(document.getElementById("btn-step-next"), null, "step 3 UI removed on cleanup");
 
-      await setupTeamScenario("backup_coordinator", { alarm_pulled: true, fire_extinguished: true });
+      await setupTeamScenario("backup_coordinator", { alarm_pulled: true, extinguisher_selected: true, fire_extinguished: true });
       assert.ok(document.getElementById("btn-step-next"), "step 3 UI mounted again in session 2");
     });
   });
@@ -598,7 +602,7 @@ describe("Phase 3 Fire Team Session", () => {
     // esm calls not spyable, reuse verified by simulate threshold pass fail
     // aim gating not observable from outside, handleAimSuccess transitions unconditionally
     it("calls isPinPullComplete, isSqueezeComplete, and isSweepComplete during PASS flow and updates room state", async () => {
-      const roomState = { alarm_pulled: true, fire_extinguished: false };
+      const roomState = { alarm_pulled: true, extinguisher_selected: true, fire_extinguished: false };
       await setupTeamScenario("extinguisher_operator", roomState);
 
       const instr = document.getElementById("team-instruction");
@@ -867,8 +871,10 @@ describe("Phase 3 Fire Team Session", () => {
       assert.strictEqual(document.getElementById("team-debrief-card"), null, "card dismissed on replay");
     });
 
-    // drill result pass records stage 3 result and queues certificate request
-    it("drill_result pass records stage 3 and queues certificate request", async () => {
+    // drill result pass queues certificate request and does not write solo stage 3 (M10)
+    it("drill_result pass queues certificate request and does not overwrite solo stage 3", async () => {
+      delete _progressStore["safear_prerequisite_progress"];
+      delete _progressStore["safear_pending_certificates"];
       await setupTeamScenario("alarm", { phase: "unguided" });
 
       const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
@@ -886,15 +892,13 @@ describe("Phase 3 Fire Team Session", () => {
         }
       });
 
-      // verify stage 3 progress written
+      // verify solo stage 3 progress is NOT written (per M10 decision: team drill does not unlock solo stage 3)
       const progressRaw = globalThis.localStorage.getItem("safear_prerequisite_progress");
-      assert.ok(progressRaw, "progress stored");
-      const progress = JSON.parse(progressRaw);
-      assert.ok(progress["WRK-0001"] && progress["WRK-0001"].stages, "stages exist");
-      const stage3 = progress["WRK-0001"].stages["fire-response"]["3"];
-      assert.ok(stage3, "stage 3 recorded");
-      assert.strictEqual(stage3.passed, true);
-      assert.strictEqual(stage3.score, 0.88);
+      if (progressRaw) {
+        const progress = JSON.parse(progressRaw);
+        const stage3 = progress["WRK-0001"]?.stages?.["fire-response"]?.["3"];
+        assert.strictEqual(stage3, undefined, "solo stage 3 must not be written by team drill pass");
+      }
 
       // verify pending cert queued for worker
       const pendingRaw = globalThis.localStorage.getItem("safear_pending_certificates");
@@ -925,6 +929,168 @@ describe("Phase 3 Fire Team Session", () => {
       const pendingRaw = globalThis.localStorage.getItem("safear_pending_certificates");
       const pending = pendingRaw ? JSON.parse(pendingRaw) : [];
       assert.strictEqual(pending.length, 0, "no certificate queued on fail");
+    });
+
+    // guided to unguided resets flags and mounts interaction for role (M1 regression)
+    it("guided to unguided phase transition resets setup flags and remounts interactions", async () => {
+      await setupTeamScenario("alarm", { phase: "guided" });
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      const guidedBtn = document.getElementById("btn-pull-alarm");
+      assert.ok(guidedBtn, "alarm pull button mounted in guided");
+      assert.strictEqual(guidedBtn.disabled, false, "guided button starts enabled");
+
+      // complete guided alarm step: the spent button deactivates but stays mounted
+      guidedBtn.click();
+      assert.strictEqual(guidedBtn.disabled, true, "guided button deactivates after pull");
+
+      // server resets room state and moves to unguided, like the real drill flow
+      ws.receive({ type: "phase", phase: "unguided", startedAtMs: Date.now() });
+      ws.receive({ type: "state_changed", state: {} });
+
+      // M1 fix: setup flags reset so the interaction remounts fresh for unguided.
+      // without the fix no remount happens and the spent guided button stays.
+      const unguidedBtn = document.getElementById("btn-pull-alarm");
+      assert.ok(unguidedBtn, "alarm pull button mounted again in unguided phase (M1 fix)");
+      assert.notStrictEqual(unguidedBtn, guidedBtn, "unguided mounts a fresh button, not the spent guided one");
+      assert.strictEqual(unguidedBtn.disabled, false, "remounted button is enabled");
+      assert.ok(document.getElementById("fire-alarm-station"), "alarm station mounted in unguided phase");
+
+      // pull alarm in unguided
+      unguidedBtn.click();
+
+      // simulate server sending drill_result
+      ws.receive({
+        type: "drill_result",
+        teamScore: 90,
+        passed: true,
+        perRole: { alarm: 90, extinguisher_operator: 90, backup_coordinator: 90 },
+        attempts: { alarm: "att-alarm-1" }
+      });
+
+      const debrief = document.getElementById("team-debrief-card");
+      assert.ok(debrief, "drill debrief card mounted upon unguided completion");
+      assert.match(debrief.textContent, /DRILL PASSED/);
+    });
+
+    // 2-player mode role doubling allows alarm player to cover evacuation (M4)
+    it("alarm player covers evacuation in 2-player mode with roleDoubling", async () => {
+      await setupTeamScenario("alarm", {
+        phase: "guided",
+        roleDoubling: { backup_coordinator: "alarm" }
+      });
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+
+      // guided: simulate fire_extinguished
+      ws.receive({
+        type: "state_changed",
+        state: { alarm_pulled: true, extinguisher_selected: true, fire_extinguished: true }
+      });
+
+      const teamOverlay = document.getElementById("team-module-overlay");
+      assert.match(teamOverlay.querySelector("#team-instruction").textContent, /Coordinate evacuation/i);
+      assert.ok(document.getElementById("btn-step-next"), "step 3 evacuation UI mounted for doubled alarm player");
+    });
+
+    // coverage strip chips turn green on state changes (M9)
+    it("coverage strip displays chips and turns green on state changes", async () => {
+      await setupTeamScenario("alarm", { phase: "guided" });
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+
+      const strip = document.getElementById("team-coverage-strip");
+      assert.ok(strip, "coverage strip exists");
+      const chipAlarm = strip.querySelector("#chip-alarm");
+      assert.ok(chipAlarm, "alarm chip exists");
+      assert.ok(chipAlarm.textContent.includes("○"), "alarm chip initial state unchecked");
+
+      ws.receive({
+        type: "state_changed",
+        state: { alarm_pulled: true }
+      });
+
+      assert.ok(strip.querySelector("#chip-alarm").textContent.includes("✔"), "alarm chip checked after state_changed");
+    });
+  });
+
+  describe("5. Extinguisher Media Selection (MS1)", () => {
+    it("extinguisher operator sees selection prompt and buttons after alarm is pulled; _setupStep2 not called before acceptance", async () => {
+      await setupTeamScenario("extinguisher_operator", { alarm_pulled: true, extinguisher_selected: false });
+
+      const instr = document.getElementById("team-instruction");
+      assert.match(instr.textContent, /Select the correct fire extinguisher/i);
+
+      assert.strictEqual(document.getElementById("pin-status-badge"), null, "_setupStep2 must NOT be called before media acceptance");
+      assert.ok(document.getElementById("extinguisher-selection-panel"), "selection panel mounted");
+      assert.ok(document.getElementById("btn-media-abc_powder"), "ABC powder button exists");
+      assert.ok(document.getElementById("btn-media-co2"), "CO2 button exists");
+      assert.ok(document.getElementById("btn-media-water"), "Water button exists");
+      assert.ok(getCurrentScenario(), "getCurrentScenario returns scenario object");
+      assert.strictEqual(getCurrentScenario().id, "standard");
+    });
+
+    it("tapping media button sends state_update with extinguisher_selected: true and media sibling field", async () => {
+      await setupTeamScenario("extinguisher_operator", { alarm_pulled: true, extinguisher_selected: false });
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+
+      let sentMsg = null;
+      const origSend = ws.send.bind(ws);
+      ws.send = (raw) => {
+        sentMsg = JSON.parse(raw);
+        origSend(raw);
+      };
+
+      const btnAbc = document.getElementById("btn-media-abc_powder");
+      assert.ok(btnAbc, "ABC button present");
+      btnAbc.click();
+
+      assert.ok(sentMsg, "sent state_update message");
+      assert.strictEqual(sentMsg.type, "state_update");
+      assert.strictEqual(sentMsg.state.extinguisher_selected, true);
+      assert.strictEqual(sentMsg.media, "abc_powder", "media sent as sibling field, NOT inside state object");
+    });
+
+    it("wrong_media error token renders localized warning banner based on active scenario", async () => {
+      // standard scenario test
+      await setupTeamScenario("extinguisher_operator", {
+        alarm_pulled: true,
+        extinguisher_selected: false,
+        scenario: { id: "standard", fireClass: "A", acceptableMedia: ["abc_powder", "water"] }
+      });
+      const ws1 = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      ws1.receive({ type: "error", message: "wrong_media" });
+
+      const errEl1 = document.getElementById("team-error");
+      assert.ok(errEl1);
+      assert.match(errEl1.textContent, /CO2 won't knock down a Class-A fire/i, "renders standard wrong-media warning");
+
+      cleanupFireModule();
+
+      // electrical scenario test
+      await setupTeamScenario("extinguisher_operator", {
+        alarm_pulled: true,
+        extinguisher_selected: false,
+        scenario: { id: "electrical", fireClass: "E", acceptableMedia: ["abc_powder", "co2"] }
+      });
+      const ws2 = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      ws2.receive({ type: "error", message: "wrong_media" });
+
+      const errEl2 = document.getElementById("team-error");
+      assert.ok(errEl2);
+      assert.match(errEl2.textContent, /Water on an electrical fire can kill/i, "renders electrical wrong-media warning");
+    });
+
+    it("guided ladder cannot skip selection rung: non-extinguisher roles see waiting banner until extinguisher is selected", async () => {
+      await setupTeamScenario("alarm", { alarm_pulled: true, extinguisher_selected: false });
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+
+      const instr = document.getElementById("team-instruction");
+      assert.match(instr.textContent, /Waiting for Extinguisher Operator to select extinguisher/i);
+
+      ws.receive({
+        type: "state_changed",
+        state: { alarm_pulled: true, extinguisher_selected: true }
+      });
+
+      assert.match(instr.textContent, /Waiting for Extinguisher Operator to suppress the fire/i);
     });
   });
 });
