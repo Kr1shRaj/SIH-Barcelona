@@ -8,6 +8,7 @@ import { renderCompletionPanel } from "../../js/certificate-panel.js";
 import { buildFireGraphic, buildExitGraphic, buildExtinguisherGraphic, buildFireAlarmEntity, buildPeerAvatarEntity } from "./graphics.js";
 import { t } from "../../js/i18n.js";
 import { playNarration, stopNarration } from "../../js/audio.js";
+import { cameraToMarkerSpace } from "../../ar/marker-pose.js";
 import {
   startAssessmentSession,
   finishAssessmentSession,
@@ -2195,7 +2196,7 @@ async function startTeamScenario(container, tierInfo) {
 
   // dynamic import so solo play never loads ws client
   _teamSessionMod = await import("./team-session.js");
-  const { promptJoinTeamSession, sendPositionUpdate, updateRoomState, getRoomState, onStateChange, onPeerPosition, onPeerJoinLeave, onSessionError } = _teamSessionMod;
+  const { promptJoinTeamSession, sendPositionUpdate, sendHeartbeat, updateRoomState, getRoomState, onStateChange, onPeerPosition, onPeerJoinLeave, onSessionError } = _teamSessionMod;
 
   const role = await promptJoinTeamSession(container);
   logger.info({ role }, "Team session joined");
@@ -2226,21 +2227,33 @@ async function startTeamScenario(container, tierInfo) {
     if (errorEl) errorEl.textContent = message;
   });
 
-  // broadcast position as minimal {x, z, headingDeg} at 250ms
+  // broadcast position in marker-local space, only when marker tracked
   const camera = document.querySelector("[camera]");
+  const marker = document.querySelector("a-marker");
+  if (!marker) return;
+
   const sendPosInterval = setInterval(() => {
-    if (camera) {
-      const pos = camera.getAttribute("position");
-      const rot = camera.getAttribute("rotation");
-      sendPositionUpdate(
-        { x: pos.x, z: pos.z, headingDeg: rot.y }
+    if (camera && marker && tierInfo.trackingState && tierInfo.trackingState.markerVisible) {
+      const camPos = camera.getAttribute("position");
+      const camRot = camera.getAttribute("rotation");
+      const markerPos = marker.getAttribute("position");
+      const markerRot = marker.getAttribute("rotation");
+      const local = cameraToMarkerSpace(
+        camPos, camRot && camRot.y,
+        markerPos, markerRot && markerRot.y
       );
+      if (local) {
+        sendPositionUpdate({ x: local.x, z: local.z, headingDeg: local.yawDeg });
+      }
     }
   }, 250);
   addCleanup(() => clearInterval(sendPosInterval));
 
-  const marker = document.querySelector("a-marker");
-  if (!marker) return;
+  // heartbeat every 2s so server can tell marker-lost from phone-dead
+  const heartbeatInterval = setInterval(() => {
+    sendHeartbeat(tierInfo.trackingState ? tierInfo.trackingState.markerVisible : false);
+  }, 2000);
+  addCleanup(() => clearInterval(heartbeatInterval));
 
   onPeerPosition((peerRole, pos) => {
     if (!_peerAvatars[peerRole]) {

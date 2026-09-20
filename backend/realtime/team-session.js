@@ -66,9 +66,22 @@ function initRealtimeServer(server, config, logger) {
           }
 
           if (!rooms.has(roomId)) {
-            rooms.set(roomId, { users: new Map(), state: {} });
+            rooms.set(roomId, { users: new Map(), state: {}, marker: null });
           }
           const room = rooms.get(roomId);
+
+          // marker calibration: first joiner sets room marker, others must match
+          const joinMarker = data.markerId && data.markerSizeCm
+            ? { markerId: data.markerId, markerSizeCm: data.markerSizeCm }
+            : null;
+          if (joinMarker) {
+            if (!room.marker) {
+              room.marker = joinMarker;
+            } else if (room.marker.markerId !== joinMarker.markerId || room.marker.markerSizeCm !== joinMarker.markerSizeCm) {
+              sendError(ws, "different marker");
+              return;
+            }
+          }
 
           // check if role already claimed in this room
           for (let existingRole of room.users.values()) {
@@ -88,6 +101,8 @@ function initRealtimeServer(server, config, logger) {
           
           // broadcast to others that someone joined
           broadcastToRoom(roomId, { type: "peer_joined", role }, ws);
+        } else if (data.type === "heartbeat") {
+          // heartbeat keeps presence alive, no relay needed
         } else if (data.type === "update_position") {
           // relay minimal marker-relative position: { x, z, headingDeg }
           if (currentRoomId && currentRole) {

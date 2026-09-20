@@ -135,6 +135,33 @@ test("Team Session Realtime Server", async (t) => {
     await Promise.all([closeSocket(alarm.ws), closeSocket(extinguisher.ws), closeSocket(backup.ws)]);
   });
 
+  await t.test("refuses second joiner with different marker config", async () => {
+    const roomId = `marker-room-${Date.now()}`;
+    const ws1 = new WebSocket(`ws://localhost:${port}`);
+    const ws2 = new WebSocket(`ws://localhost:${port}`);
+    await new Promise((resolve) => ws1.on("open", resolve));
+    await new Promise((resolve) => ws2.on("open", resolve));
+
+    // first joiner sets marker
+    ws1.send(JSON.stringify({ type: "join", roomId, role: "alarm", markerId: "hiro", markerSizeCm: 16 }));
+    const joined = await nextMessage(ws1, "joined");
+    assert.strictEqual(joined.type, "joined");
+
+    // second joiner with different marker gets refused
+    ws2.send(JSON.stringify({ type: "join", roomId, role: "extinguisher_operator", markerId: "kanji", markerSizeCm: 16 }));
+    const err = await nextMessage(ws2, "error");
+    assert.strictEqual(err.message, "different marker");
+
+    // same marker passes
+    const ws3 = new WebSocket(`ws://localhost:${port}`);
+    await new Promise((resolve) => ws3.on("open", resolve));
+    ws3.send(JSON.stringify({ type: "join", roomId, role: "extinguisher_operator", markerId: "hiro", markerSizeCm: 16 }));
+    const joined3 = await nextMessage(ws3, "joined");
+    assert.strictEqual(joined3.type, "joined");
+
+    await Promise.all([closeSocket(ws1), closeSocket(ws2), closeSocket(ws3)]);
+  });
+
   await t.test("teardown", () => {
     return new Promise((resolve) => {
       wss.close();

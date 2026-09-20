@@ -17,7 +17,7 @@ const peerJoinLeaveListeners = [];
 const sessionErrorListeners = [];
 
 // prompt user to join a room
-export function promptJoinTeamSession(container) {
+export function promptJoinTeamSession(container, joinOptions = {}) {
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
     overlay.id = "team-session-join";
@@ -25,6 +25,7 @@ export function promptJoinTeamSession(container) {
 
     overlay.innerHTML = `
       <h2 style="margin-bottom:1rem;color:#f87171;">${t("modules.fire_response.team_join_title", {}, "Join Fire Response Team")}</h2>
+      <div style="margin-bottom:0.5rem;padding:0.4rem 0.6rem;background:rgba(245,158,11,0.15);border-left:3px solid #f59e0b;border-radius:4px;font-size:0.8rem;color:#fcd34d;max-width:300px;">${t("fire.team_same_marker", "All devices must scan the SAME printed marker at the SAME size.")}</div>
       <div style="margin-bottom:1.5rem;width:100%;max-width:300px;">
         <label style="display:block;margin-bottom:0.5rem;">${t("modules.fire_response.room_code", {}, "Room Code")}</label>
         <input type="text" id="ts-room-id" style="width:100%;padding:0.8rem;border-radius:4px;border:none;font-size:1.1rem;text-transform:uppercase;text-align:center;" placeholder="e.g. MINE-123" />
@@ -58,7 +59,7 @@ export function promptJoinTeamSession(container) {
       errorEl.textContent = t("fire.team_connecting", "Connecting...");
       joinBtn.disabled = true;
 
-      _connectWebSocket(roomId, role)
+      _connectWebSocket(roomId, role, joinOptions)
         .then(() => {
           overlay.remove();
           resolve(role);
@@ -71,7 +72,7 @@ export function promptJoinTeamSession(container) {
   });
 }
 
-function _connectWebSocket(roomId, role) {
+function _connectWebSocket(roomId, role, joinOptions = {}) {
   return new Promise((resolve, reject) => {
     const wsUrl = resolveWebSocketUrl();
     if (!wsUrl) {
@@ -89,7 +90,10 @@ function _connectWebSocket(roomId, role) {
     }
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "join", roomId, role }));
+      const joinMsg = { type: "join", roomId, role };
+      if (joinOptions.markerId) joinMsg.markerId = joinOptions.markerId;
+      if (joinOptions.markerSizeCm) joinMsg.markerSizeCm = joinOptions.markerSizeCm;
+      ws.send(JSON.stringify(joinMsg));
     };
 
     ws.onmessage = (event) => {
@@ -152,6 +156,13 @@ function _connectWebSocket(roomId, role) {
 export function sendPositionUpdate(position) {
   if (currentRoomId && ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "update_position", position }));
+  }
+}
+
+// heartbeat tells server phone is alive, markerVisible distinguishes tracking
+export function sendHeartbeat(markerVisible) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "heartbeat", markerVisible: Boolean(markerVisible) }));
   }
 }
 
