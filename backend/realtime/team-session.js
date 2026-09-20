@@ -1,5 +1,6 @@
 const { WebSocketServer } = require("ws");
 const { createChildLogger } = require("../logger");
+const { scoreTeamDrill } = require("../services/team-drill/scoring");
 
 // simple memory store for rooms and connections
 const rooms = new Map(); // roomId -> { users, state, marker, userMeta }
@@ -393,10 +394,14 @@ function initRealtimeServer(server, config, logger, clockOverride) {
                 room.state = result.state;
                 broadcastToRoom(currentRoomId, { type: "state_changed", state: room.state }, ws);
                 broadcastToRoom(currentRoomId, { type: "phase", phase: "complete" });
+                const rolesInRoom = Array.from(room.users.values());
+                const scored = scoreTeamDrill(room.timeline.unguided, rolesInRoom);
                 const resultPayload = {
                   type: "drill_result",
-                  teamScore: 100,
-                  passed: true,
+                  teamScore: scored.teamScore,
+                  passed: scored.passed,
+                  perRole: scored.perRole,
+                  breakdown: scored.breakdown,
                   timeline: room.timeline.unguided
                 };
                 broadcastToRoom(currentRoomId, resultPayload);
