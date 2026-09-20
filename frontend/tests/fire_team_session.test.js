@@ -866,5 +866,65 @@ describe("Phase 3 Fire Team Session", () => {
       assert.ok(readyMsg.length >= 1, "replay sent ready message");
       assert.strictEqual(document.getElementById("team-debrief-card"), null, "card dismissed on replay");
     });
+
+    // drill result pass records stage 3 result and queues certificate request
+    it("drill_result pass records stage 3 and queues certificate request", async () => {
+      await setupTeamScenario("alarm", { phase: "unguided" });
+
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      assert.ok(ws, "active websocket exists");
+
+      ws.receive({
+        type: "drill_result",
+        teamScore: 88,
+        passed: true,
+        perRole: { alarm: 90, extinguisher_operator: 85, backup_coordinator: 89 },
+        attempts: {
+          alarm: "attempt-alarm-pass-1",
+          extinguisher_operator: "attempt-ext-pass-2",
+          backup_coordinator: "attempt-evac-pass-3"
+        }
+      });
+
+      // verify stage 3 progress written
+      const progressRaw = globalThis.localStorage.getItem("safear_prerequisite_progress");
+      assert.ok(progressRaw, "progress stored");
+      const progress = JSON.parse(progressRaw);
+      assert.ok(progress["WRK-0001"] && progress["WRK-0001"].stages, "stages exist");
+      const stage3 = progress["WRK-0001"].stages["fire-response"]["3"];
+      assert.ok(stage3, "stage 3 recorded");
+      assert.strictEqual(stage3.passed, true);
+      assert.strictEqual(stage3.score, 0.88);
+
+      // verify pending cert queued for worker
+      const pendingRaw = globalThis.localStorage.getItem("safear_pending_certificates");
+      assert.ok(pendingRaw, "pending certs stored");
+      const pending = JSON.parse(pendingRaw);
+      const entry = pending.find((p) => p.attemptId === "attempt-alarm-pass-1");
+      assert.ok(entry, "attempt queued in pending certificates");
+      assert.strictEqual(entry.moduleId, "fire-response-team");
+      assert.strictEqual(entry.workerId, "WRK-0001");
+    });
+
+    // drill result fail does not queue certificate
+    it("drill_result fail does not queue certificate", async () => {
+      delete _progressStore["safear_pending_certificates"];
+      await setupTeamScenario("alarm", { phase: "unguided" });
+
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      assert.ok(ws, "active websocket exists");
+
+      ws.receive({
+        type: "drill_result",
+        teamScore: 65,
+        passed: false,
+        perRole: { alarm: 70, extinguisher_operator: 60, backup_coordinator: 65 },
+        attempts: {}
+      });
+
+      const pendingRaw = globalThis.localStorage.getItem("safear_pending_certificates");
+      const pending = pendingRaw ? JSON.parse(pendingRaw) : [];
+      assert.strictEqual(pending.length, 0, "no certificate queued on fail");
+    });
   });
 });

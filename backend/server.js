@@ -34,7 +34,7 @@ function startServer(options = {}) {
     );
   });
 
-  const wss = initRealtimeServer(server, config, log);
+  const wss = initRealtimeServer(server, config, log, { db, keys });
 
   // let sqlite finish and close cleanly instead of dying mid write
   function close() {

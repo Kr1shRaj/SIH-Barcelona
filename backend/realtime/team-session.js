@@ -1,6 +1,9 @@
+const crypto = require("crypto");
 const { WebSocketServer } = require("ws");
 const { createChildLogger } = require("../logger");
 const { scoreTeamDrill } = require("../services/team-drill/scoring");
+const { ingestAttempt } = require("../services/attempts");
+const { getModule, getCheckpointDefinitions } = require("../services/modules");
 
 // simple memory store for rooms and connections
 const rooms = new Map(); // roomId -> { users, state, marker, userMeta }
@@ -116,10 +119,22 @@ const DEFAULT_CLOCK = {
   clearInterval: (id) => global.clearInterval(id)
 };
 
-function initRealtimeServer(server, config, logger, clockOverride) {
+// setup realtime ws server with clock and database
+function initRealtimeServer(server, config, logger, optionsOrClock) {
   const wss = new WebSocketServer({ server });
   const log = logger ? logger.child({ component: "team-session" }) : createChildLogger({ component: "team-session" });
-  const clock = clockOverride || DEFAULT_CLOCK;
+
+  let clock = DEFAULT_CLOCK;
+  let db = (config && config.db) || null;
+
+  if (optionsOrClock) {
+    if (typeof optionsOrClock.now === "function") {
+      clock = optionsOrClock;
+    } else if (typeof optionsOrClock === "object") {
+      if (optionsOrClock.clock) clock = optionsOrClock.clock;
+      if (optionsOrClock.db) db = optionsOrClock.db;
+    }
+  }
 
   // presence check loop: mark stale at 5s, remove at 20s
   const presenceInterval = clock.setInterval(() => {
@@ -172,10 +187,23 @@ function initRealtimeServer(server, config, logger, clockOverride) {
         touchPresence();
         
         if (data.type === "join") {
-          const { roomId, role } = data;
+          const { roomId, role, workerId } = data;
           if (!ALLOWED_ROLES.includes(role)) {
             ws.send(JSON.stringify({ type: "error", message: "invalid role" }));
             return;
+          }
+
+          // validate worker against database if db is available
+          if (db) {
+            if (!workerId) {
+              sendError(ws, "workerId required");
+              return;
+            }
+            const workerRow = db.prepare("SELECT worker_id FROM worker WHERE worker_id = ?").get(workerId);
+            if (!workerRow) {
+              sendError(ws, "unknown worker");
+              return;
+            }
           }
 
           if (!rooms.has(roomId)) {
@@ -183,6 +211,24 @@ function initRealtimeServer(server, config, logger, clockOverride) {
           }
           const room = rooms.get(roomId);
           if (!room.userMeta) room.userMeta = new Map();
+
+          // one worker per room
+          if (workerId) {
+            for (const [existingWs, existingRole] of Array.from(room.users.entries())) {
+              const meta = room.userMeta.get(existingWs);
+              if (meta && meta.workerId === workerId) {
+                const isStaleOrDead = meta.stale || (clock.now() - meta.lastSeen >= STALE_MS);
+                const isClosed = existingWs.readyState !== 1;
+                if (isStaleOrDead || isClosed) {
+                  removeUser(existingWs, roomId, existingRole, rooms, broadcastToRoom, log);
+                  if (existingWs.readyState === 1) existingWs.close();
+                  break;
+                }
+                sendError(ws, "worker already in room");
+                return;
+              }
+            }
+          }
 
           // marker calibration: first joiner sets room marker, others must match
           const joinMarker = data.markerId && data.markerSizeCm
@@ -216,7 +262,14 @@ function initRealtimeServer(server, config, logger, clockOverride) {
 
           // join successful
           room.users.set(ws, role);
-          room.userMeta.set(ws, { role, lastSeen: clock.now(), stale: false });
+          room.userMeta.set(ws, {
+            role,
+            workerId: workerId || null,
+            deviceId: data.deviceId || null,
+            locale: data.locale || "en",
+            lastSeen: clock.now(),
+            stale: false
+          });
           currentRoomId = roomId;
           currentRole = role;
 
@@ -396,13 +449,96 @@ function initRealtimeServer(server, config, logger, clockOverride) {
                 broadcastToRoom(currentRoomId, { type: "phase", phase: "complete" });
                 const rolesInRoom = Array.from(room.users.values());
                 const scored = scoreTeamDrill(room.timeline.unguided, rolesInRoom);
+
+                const attempts = {};
+                if (scored.passed && db) {
+                  const nowIso = new Date(clock.now()).toISOString();
+                  const startedAtMs = room.phaseStartedAtMs || clock.now();
+                  const startedAtIso = new Date(startedAtMs).toISOString();
+                  const durationMs = Math.max(0, clock.now() - startedAtMs);
+
+                  const alarmEv = room.timeline.unguided.find((e) => e.action === "alarm_pulled" && e.accepted);
+                  const fireEv = room.timeline.unguided.find((e) => e.action === "fire_extinguished" && e.accepted);
+                  const evacEv = room.timeline.unguided.find((e) => e.action === "evac_checked" && e.accepted);
+
+                  const moduleRow = getModule(db, "fire-response-team");
+                  const definitions = getCheckpointDefinitions(db, "fire-response-team");
+
+                  for (const [userWs, userRole] of room.users.entries()) {
+                    const meta = room.userMeta.get(userWs);
+                    const workerId = meta && meta.workerId;
+                    if (!workerId) continue;
+
+                    const attemptId = crypto.randomUUID();
+                    const attempt = {
+                      contractVersion: "2.0",
+                      attemptId,
+                      workerId,
+                      moduleId: "fire-response-team",
+                      moduleVersion: 1,
+                      engineVersion: "team-drill-1.0",
+                      deviceId: (meta && meta.deviceId) || `device-${workerId.toLowerCase()}`,
+                      arTier: 2,
+                      locale: (meta && meta.locale) || "en",
+                      startedAt: startedAtIso,
+                      completedAt: nowIso,
+                      durationMs,
+                      status: "completed",
+                      checkpoints: [
+                        {
+                          checkpointId: "team_alarm_pull",
+                          observedAt: alarmEv ? new Date(startedAtMs + alarmEv.tMs).toISOString() : nowIso,
+                          observation: {
+                            kind: "selection_single",
+                            selected: alarmEv ? "alarm_pulled" : "skipped"
+                          }
+                        },
+                        {
+                          checkpointId: "team_fire_extinguish",
+                          observedAt: fireEv ? new Date(startedAtMs + fireEv.tMs).toISOString() : nowIso,
+                          observation: {
+                            kind: "selection_single",
+                            selected: fireEv ? "fire_extinguished" : "skipped"
+                          }
+                        },
+                        {
+                          checkpointId: "team_evac_coordinate",
+                          observedAt: evacEv ? new Date(startedAtMs + evacEv.tMs).toISOString() : nowIso,
+                          observation: {
+                            kind: "selection_single",
+                            selected: evacEv ? "evac_checked" : "skipped"
+                          }
+                        }
+                      ],
+                      clientClaimedPercentage: 100,
+                      clientClaimedPassed: true
+                    };
+
+                    if (moduleRow && definitions && definitions.length > 0) {
+                      try {
+                        ingestAttempt(db, {
+                          attempt,
+                          definitions,
+                          moduleRow,
+                          batchId: null,
+                          receivedAt: nowIso
+                        });
+                        attempts[userRole] = attemptId;
+                      } catch (err) {
+                        log.error({ err, workerId }, "Failed to ingest team attempt");
+                      }
+                    }
+                  }
+                }
+
                 const resultPayload = {
                   type: "drill_result",
                   teamScore: scored.teamScore,
                   passed: scored.passed,
                   perRole: scored.perRole,
                   breakdown: scored.breakdown,
-                  timeline: room.timeline.unguided
+                  timeline: room.timeline.unguided,
+                  attempts
                 };
                 broadcastToRoom(currentRoomId, resultPayload);
               }

@@ -2443,8 +2443,9 @@ async function startTeamScenario(container, tierInfo) {
     getCurrentPhase
   } = _teamSessionMod;
 
-  const role = await promptJoinTeamSession(container);
-  logger.info({ role }, "Team session joined");
+  const workerId = getEffectiveWorkerId();
+  const role = await promptJoinTeamSession(container, { workerId });
+  logger.info({ role, workerId }, "Team session joined");
   _teamState = getRoomState();
   _teamPhase = (typeof getCurrentPhase === "function" ? getCurrentPhase() : "lobby") || "lobby";
 
@@ -2577,7 +2578,26 @@ async function startTeamScenario(container, tierInfo) {
 
   onDrillResult((msg) => {
     _teamPhase = "complete";
-    _showDrillDebriefCard(container, role, msg.result || msg);
+    const res = msg.result || msg;
+    const teamScore = typeof res.teamScore === "number" ? res.teamScore : (res.score || 0);
+    const passed = res.passed !== undefined ? res.passed : teamScore >= 80;
+    const currentWorkerId = getEffectiveWorkerId();
+
+    if (passed) {
+      recordStageResult(currentWorkerId, "fire-response", 3, teamScore / 100);
+      const myAttemptId = (res.attempts && res.attempts[role]) || res.attemptId;
+      if (myAttemptId) {
+        requestCertificateForAttempt({
+          attemptId: myAttemptId,
+          moduleId: "fire-response-team",
+          workerId: currentWorkerId,
+          passed: true
+        });
+        flushPendingCertificates().catch(() => {});
+      }
+    }
+
+    _showDrillDebriefCard(container, role, res);
   });
 
   // listen for AR interactions to update shared state

@@ -24,8 +24,9 @@ const CONTRACTORS = [
 
 // module ids match the frontend module folder names, do not rename one without the other
 const MODULES = [
-  { moduleId: "fire-response", title: "Fire & Explosion Response" },
-  { moduleId: "gas-leak", title: "Gas Leak & Confined Space Protocol" }
+  { moduleId: "fire-response", title: "Fire & Explosion Response", passThreshold: PLACEHOLDER_PASS_THRESHOLD },
+  { moduleId: "gas-leak", title: "Gas Leak & Confined Space Protocol", passThreshold: PLACEHOLDER_PASS_THRESHOLD },
+  { moduleId: "fire-response-team", title: "Fire Response Team Drill", passThreshold: 0.8 }
 ];
 
 // every checkpoint weighs the same for now, real weighting is a content call
@@ -171,6 +172,37 @@ const CHECKPOINT_DEFINITIONS = [
       "enter_without_communication"
     ]),
     gradeable: 1
+  },
+  // team drill checkpoints scored from server timeline
+  {
+    moduleId: "fire-response-team",
+    checkpointId: "team_alarm_pull",
+    type: "select",
+    observationKind: "selection_single",
+    expectedValue: JSON.stringify("alarm_pulled"),
+    allowedValues: JSON.stringify(["alarm_pulled", "skipped"]),
+    gradeable: 1,
+    required: 1
+  },
+  {
+    moduleId: "fire-response-team",
+    checkpointId: "team_fire_extinguish",
+    type: "select",
+    observationKind: "selection_single",
+    expectedValue: JSON.stringify("fire_extinguished"),
+    allowedValues: JSON.stringify(["fire_extinguished", "skipped"]),
+    gradeable: 1,
+    required: 1
+  },
+  {
+    moduleId: "fire-response-team",
+    checkpointId: "team_evac_coordinate",
+    type: "select",
+    observationKind: "selection_single",
+    expectedValue: JSON.stringify("evac_checked"),
+    allowedValues: JSON.stringify(["evac_checked", "skipped"]),
+    gradeable: 1,
+    required: 1
   }
 ];
 
@@ -256,7 +288,7 @@ function seedDatabase(db) {
       insertModule.run(
         m.moduleId,
         m.title,
-        PLACEHOLDER_PASS_THRESHOLD,
+        m.passThreshold !== undefined ? m.passThreshold : PLACEHOLDER_PASS_THRESHOLD,
         1,
         RECERT_MONTHS_PENDING,
         SEED_TIMESTAMP

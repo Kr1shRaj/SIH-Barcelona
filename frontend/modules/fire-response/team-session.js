@@ -97,6 +97,9 @@ function _connectWebSocket(roomId, role, joinOptions = {}) {
 
     ws.onopen = () => {
       const joinMsg = { type: "join", roomId, role };
+      if (joinOptions.workerId) joinMsg.workerId = joinOptions.workerId;
+      if (joinOptions.deviceId) joinMsg.deviceId = joinOptions.deviceId;
+      if (joinOptions.locale) joinMsg.locale = joinOptions.locale;
       if (joinOptions.markerId) joinMsg.markerId = joinOptions.markerId;
       if (joinOptions.markerSizeCm) joinMsg.markerSizeCm = joinOptions.markerSizeCm;
       ws.send(JSON.stringify(joinMsg));
