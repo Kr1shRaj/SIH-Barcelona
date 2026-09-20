@@ -51,8 +51,76 @@ let _currentTierInfo = null;
 let _threeHazardMesh = null;
 let _threePpeMesh = null;
 
+// placement tracking for webxr tier 1
+let _placedTransform = null;
+let _placementConfirmedHandler = null;
+
+// inactivity hint timer duration (15s default, adjustable constant)
+const HINT_TIMEOUT_MS = 15000;
+let _hintTimer = null;
+let _hintShown = false;
+
+// start inactivity timer to show hint on stall
+function _startHintTimer(overlay, hintText) {
+  _clearHintTimer();
+  _hintShown = false;
+  _hintTimer = setTimeout(() => {
+    _hintShown = true;
+    if (overlay) {
+      let hintEl = overlay.querySelector ? overlay.querySelector("#gas-step-hint") : null;
+      if (!hintEl) {
+        hintEl = document.createElement("div");
+        hintEl.id = "gas-step-hint";
+        hintEl.style.cssText = "margin-top:0.6rem;padding:0.6rem 0.8rem;background:rgba(245,158,11,0.15);border-left:3px solid #f59e0b;border-radius:4px;font-size:0.85rem;color:#fcd34d;line-height:1.4;";
+        overlay.appendChild(hintEl);
+      }
+      hintEl.textContent = hintText;
+    }
+  }, HINT_TIMEOUT_MS);
+}
+
+// clear running hint timer
+function _clearHintTimer() {
+  if (_hintTimer) {
+    clearTimeout(_hintTimer);
+    _hintTimer = null;
+  }
+}
+
 // get active step index
 function getCurrentStep() { return _currentStep; }
+
+// position hazard three mesh at placed transform
+function _positionHazardZoneThreeMesh() {
+  if (!_currentTierInfo || _currentTierInfo.tier !== 1 || !_currentTierInfo.controller) return;
+  if (_threeHazardMesh) {
+    _currentTierInfo.controller.removeFromScene(_threeHazardMesh);
+    _threeHazardMesh = null;
+  }
+  _threeHazardMesh = createHazardZoneThreeMesh();
+  if (_threeHazardMesh) {
+    const pos = (_placedTransform && _placedTransform.position) || { x: 0, y: -0.2, z: -1.0 };
+    _threeHazardMesh.position.set(pos.x, pos.y, pos.z);
+    _currentTierInfo.controller.addToScene(_threeHazardMesh);
+  }
+}
+
+// position ppe three mesh offset from placed transform
+function _positionPpeThreeMesh() {
+  if (!_currentTierInfo || _currentTierInfo.tier !== 1 || !_currentTierInfo.controller) return;
+  if (_threePpeMesh) {
+    _currentTierInfo.controller.removeFromScene(_threePpeMesh);
+    _threePpeMesh = null;
+  }
+  _threePpeMesh = createPpeThreeMesh();
+  if (_threePpeMesh) {
+    const pos = (_placedTransform && _placedTransform.position)
+      ? { x: _placedTransform.position.x + 0.5, y: _placedTransform.position.y, z: _placedTransform.position.z }
+      : { x: 0.5, y: -0.2, z: -0.9 };
+    _threePpeMesh.position.set(pos.x, pos.y, pos.z);
+    _currentTierInfo.controller.addToScene(_threePpeMesh);
+  }
+}
 
 // check if worker picked all mandatory ppe without forbidden distractors
 function evaluatePpeSelection(selectedList = []) {
@@ -102,13 +170,31 @@ function _createOverlay(container, html) {
 // render 3d hazard zone in a-marker, webxr three scene, or fallback container
 function _renderHazardZoneGraphic(container) {
   if (_currentTierInfo && _currentTierInfo.tier === 1 && _currentTierInfo.controller) {
-    if (_threeHazardMesh) {
-      _currentTierInfo.controller.removeFromScene(_threeHazardMesh);
+    if (!_placedTransform && typeof _currentTierInfo.controller.getPlacedTransform === "function") {
+      _placedTransform = _currentTierInfo.controller.getPlacedTransform();
     }
-    _threeHazardMesh = createHazardZoneThreeMesh();
-    if (_threeHazardMesh) {
-      _threeHazardMesh.position.set(0, -0.2, -1.0);
-      _currentTierInfo.controller.addToScene(_threeHazardMesh);
+    if (_placedTransform) {
+      _positionHazardZoneThreeMesh();
+    } else if (typeof _currentTierInfo.controller.getPlacedTransform !== "function") {
+      _placedTransform = { position: { x: 0, y: -0.2, z: -1.0 } };
+      _positionHazardZoneThreeMesh();
+    }
+
+    if (!_placementConfirmedHandler && typeof window !== "undefined") {
+      _placementConfirmedHandler = (e) => {
+        const detail = (e && e.detail) || {};
+        _placedTransform = {
+          position: detail.position || { x: 0, y: -0.2, z: -1.0 },
+          quaternion: detail.quaternion,
+          viewerQuaternion: detail.viewerQuaternion
+        };
+        if (_currentStep === 0 || _currentStep === 1) {
+          _positionHazardZoneThreeMesh();
+        } else if (_currentStep === 2) {
+          _positionPpeThreeMesh();
+        }
+      };
+      window.addEventListener("safear:placement_confirmed", _placementConfirmedHandler);
     }
   }
 
@@ -140,13 +226,31 @@ function _renderHazardZoneGraphic(container) {
 // render 3d ppe visual in a-marker, webxr three scene, or fallback container
 function _renderPpeGraphic(container) {
   if (_currentTierInfo && _currentTierInfo.tier === 1 && _currentTierInfo.controller) {
-    if (_threePpeMesh) {
-      _currentTierInfo.controller.removeFromScene(_threePpeMesh);
+    if (!_placedTransform && typeof _currentTierInfo.controller.getPlacedTransform === "function") {
+      _placedTransform = _currentTierInfo.controller.getPlacedTransform();
     }
-    _threePpeMesh = createPpeThreeMesh();
-    if (_threePpeMesh) {
-      _threePpeMesh.position.set(0, -0.2, -0.9);
-      _currentTierInfo.controller.addToScene(_threePpeMesh);
+    if (_placedTransform) {
+      _positionPpeThreeMesh();
+    } else if (typeof _currentTierInfo.controller.getPlacedTransform !== "function") {
+      _placedTransform = { position: { x: 0, y: -0.2, z: -1.0 } };
+      _positionPpeThreeMesh();
+    }
+
+    if (!_placementConfirmedHandler && typeof window !== "undefined") {
+      _placementConfirmedHandler = (e) => {
+        const detail = (e && e.detail) || {};
+        _placedTransform = {
+          position: detail.position || { x: 0, y: -0.2, z: -1.0 },
+          quaternion: detail.quaternion,
+          viewerQuaternion: detail.viewerQuaternion
+        };
+        if (_currentStep === 0 || _currentStep === 1) {
+          _positionHazardZoneThreeMesh();
+        } else if (_currentStep === 2) {
+          _positionPpeThreeMesh();
+        }
+      };
+      window.addEventListener("safear:placement_confirmed", _placementConfirmedHandler);
     }
   }
 
@@ -310,6 +414,9 @@ function _startTeachPhase(container, tierInfo) {
   logger.info({ event: "gas_teach_phase_start", tier: tierInfo && tierInfo.tier }, "Gas leak module teach phase start");
 
   const overlay = document.getElementById("gas-module-overlay");
+
+  // step 1: render hazard zone immediately with narration and rationale
+  _renderHazardZoneGraphic(container);
   playNarration({ moduleId: "gas-leak", stepKey: "step_1_hazard" });
 
   const screens = [
@@ -324,7 +431,10 @@ function _startTeachPhase(container, tierInfo) {
       title: t("gas.step1_title_2", {}, "Atmospheric Testing & Entry Permits"),
       desc: t("gas.step1_desc_2", {}, "Never enter without a signed Confined Space Entry Permit. Calibrated gas detectors must sample the atmosphere at top (light gases), middle, and bottom (heavy gases) levels before entry."),
       buttonText: t("gas.step1_next_2", {}, "Next: Protective Equipment ➜"),
-      onAfter: () => playNarration({ moduleId: "gas-leak", stepKey: "step_2_ppe" })
+      onAfter: () => {
+        _renderPpeGraphic(container);
+        playNarration({ moduleId: "gas-leak", stepKey: "step_2_ppe" });
+      }
     },
     {
       badge: t("gas.step2_badge_1", {}, "☣ STEP 2 / 3 — PPE SELECTION (1/3)"),
@@ -400,6 +510,7 @@ function _startTestPhase(container, tierInfo) {
 // action 1: hazard zone confirm in test phase
 function _setupTestAction1(container, tierInfo) {
   _currentStep = 1;
+  _clearHintTimer();
   logger.info({ event: "gas_step_start", step: 1, tier: tierInfo && tierInfo.tier }, "Hazard zone recognition");
 
   if (typeof document !== "undefined") {
@@ -433,12 +544,20 @@ function _setupTestAction1(container, tierInfo) {
     btn.style.cssText = "margin-top:0.4rem;padding:0.8rem 1.5rem;background:#2f9e63;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
     btn.textContent = t("modules.gas_leak.btn_hazard", {}, "✔ Hazard Zone Acknowledged");
     btn.addEventListener("click", () => {
+      _clearHintTimer();
       const sampled = _hazardSampler ? _hazardSampler.stop() : { angularErrorRad: null, dwellMs: 0, frameCount: 0 };
       _hazardSampler = null;
+      const context = {
+        method: "button_confirm",
+        measured: sampled.angularErrorRad !== null
+      };
+      if (_hintShown) {
+        context.hintShown = true;
+      }
       fireCheckpointResult(
         CP_HAZARD_ZONE_ID,
         true,
-        { method: "button_confirm", measured: sampled.angularErrorRad !== null },
+        context,
         spatialAlignment({
           anchorId: HAZARD_ANCHOR_ID,
           angularErrorRad: sampled.angularErrorRad,
@@ -450,12 +569,18 @@ function _setupTestAction1(container, tierInfo) {
       _setupTestAction2(container, tierInfo);
     });
     overlay.appendChild(btn);
+
+    _startHintTimer(
+      overlay,
+      t("gas.step1_hint", {}, "Hint: Low oxygen (<19.5%) and toxic gases (H₂S, methane) trap in confined pits. Verify hazard boundary before entry.")
+    );
   }
 }
 
 // action 2: ppe selection in test phase
 function _setupTestAction2(container, tierInfo) {
   _currentStep = 2;
+  _clearHintTimer();
   logger.info({ event: "gas_step_start", step: 2, tier: tierInfo && tierInfo.tier }, "PPE selection");
 
   if (typeof document !== "undefined") {
@@ -481,21 +606,37 @@ function _setupTestAction2(container, tierInfo) {
     `;
 
     _renderPpeOptions(overlay, (selectedList) => {
+      _clearHintTimer();
       const result = evaluatePpeSelection(selectedList);
+      const context = {
+        selected: selectedList,
+        score: result.score,
+        missing: result.missing,
+        forbidden: result.forbidden
+      };
+      if (_hintShown) {
+        context.hintShown = true;
+      }
       fireCheckpointResult(
         CP_PPE_SELECTION_ID,
         result.passed,
-        { selected: selectedList, score: result.score, missing: result.missing, forbidden: result.forbidden },
+        context,
         selectionMulti(selectedList)
       );
       _setupTestAction3(container);
     });
+
+    _startHintTimer(
+      overlay,
+      t("gas.step2_hint", {}, "Hint: Only SCBA provides clean breathable air in toxic or low-oxygen atmospheres. Cloth or dust masks offer zero protection.")
+    );
   }
 }
 
 // action 3: buddy procedure in test phase
 function _setupTestAction3(_container) {
   _currentStep = 3;
+  _clearHintTimer();
   logger.info({ event: "gas_step_start", step: 3 }, "Buddy procedure");
 
   if (typeof document !== "undefined") {
@@ -519,20 +660,35 @@ function _setupTestAction3(_container) {
     `;
 
     _renderBuddyOptions(overlay, (selectedOption, passed) => {
+      _clearHintTimer();
+      const context = {
+        selected: selectedOption,
+        correct: CORRECT_BUDDY_PROCEDURE
+      };
+      if (_hintShown) {
+        context.hintShown = true;
+      }
       fireCheckpointResult(
         CP_BUDDY_PROCEDURE_ID,
         passed,
-        { selected: selectedOption, correct: CORRECT_BUDDY_PROCEDURE },
+        context,
         selectionSingle(selectedOption)
       );
       _showComplete(passed);
     });
+
+    _startHintTimer(
+      overlay,
+      t("gas.step3_hint", {}, "Hint: The standby buddy must remain outside with a continuous lifeline. Never enter to attempt unequipped rescue.")
+    );
   }
 }
 
 // clean up all gas module visuals and overlay from DOM and a-marker
 function cleanupGasLeakModule(options = {}) {
   _currentStep = 0;
+  _clearHintTimer();
+  _hintShown = false;
   stopNarration();
   // a sampler left running holds a requestAnimationFrame loop against a scene
   // that is about to be torn down
@@ -543,6 +699,12 @@ function cleanupGasLeakModule(options = {}) {
   if (!options.preserveSession && getActiveSession()) {
     abortAssessmentSession();
   }
+
+  if (_placementConfirmedHandler && typeof window !== "undefined") {
+    window.removeEventListener("safear:placement_confirmed", _placementConfirmedHandler);
+    _placementConfirmedHandler = null;
+  }
+  _placedTransform = null;
 
   if (_currentTierInfo && _currentTierInfo.controller) {
     if (_threeHazardMesh) {
@@ -555,7 +717,7 @@ function cleanupGasLeakModule(options = {}) {
     }
   }
 
-  ["gas-module-overlay", "gas-hazard-graphic", "gas-ppe-graphic", "gas-ppe-options", "gas-buddy-options"].forEach((id) => {
+  ["gas-module-overlay", "gas-hazard-graphic", "gas-ppe-graphic", "gas-ppe-options", "gas-buddy-options", "gas-step-hint"].forEach((id) => {
     if (typeof document !== "undefined") {
       document.getElementById(id)?.remove();
     }
@@ -663,5 +825,6 @@ export {
   CP_BUDDY_PROCEDURE_ID,
   MANDATORY_PPE,
   FORBIDDEN_PPE,
-  CORRECT_BUDDY_PROCEDURE
+  CORRECT_BUDDY_PROCEDURE,
+  HINT_TIMEOUT_MS
 };

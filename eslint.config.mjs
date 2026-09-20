@@ -19,6 +19,7 @@ export default [
         fetch: "readonly",
         URL: "readonly",
         setTimeout: "readonly",
+        clearTimeout: "readonly",
         setInterval: "readonly",
         clearInterval: "readonly",
         Date: "readonly",
@@ -50,7 +51,10 @@ export default [
         URL: "readonly",
         URLSearchParams: "readonly",
         setTimeout: "readonly",
-        clearTimeout: "readonly"
+        clearTimeout: "readonly",
+        setInterval: "readonly",
+        clearInterval: "readonly",
+        localStorage: "readonly"
       }
     },
     rules: {

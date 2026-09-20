@@ -24,8 +24,9 @@ const CONTRACTORS = [
 
 // module ids match the frontend module folder names, do not rename one without the other
 const MODULES = [
-  { moduleId: "fire-response", title: "Fire & Explosion Response" },
-  { moduleId: "gas-leak", title: "Gas Leak & Confined Space Protocol" }
+  { moduleId: "fire-response", title: "Fire & Explosion Response", passThreshold: PLACEHOLDER_PASS_THRESHOLD },
+  { moduleId: "gas-leak", title: "Gas Leak & Confined Space Protocol", passThreshold: PLACEHOLDER_PASS_THRESHOLD },
+  { moduleId: "fire-response-team", title: "Fire Response Team Drill", passThreshold: 0.8 }
 ];
 
 // every checkpoint weighs the same for now, real weighting is a content call
@@ -90,6 +91,16 @@ const CHECKPOINT_DEFINITIONS = [
     minFrameCount: FRAME_COUNT_UNMEASURED,
     allowedTrackingSources: CERTIFYING_TRACKING_SOURCES,
     gradeable: 1
+  },
+  {
+    moduleId: "fire-response",
+    checkpointId: "fire_alarm_pull",
+    type: "select",
+    observationKind: "selection_single",
+    expectedValue: JSON.stringify("alarm_pull"),
+    allowedValues: JSON.stringify(["alarm_pull"]),
+    gradeable: 1,
+    required: 0
   },
   {
     moduleId: "fire-response",
@@ -161,6 +172,61 @@ const CHECKPOINT_DEFINITIONS = [
       "enter_without_communication"
     ]),
     gradeable: 1
+  },
+  // team drill checkpoints scored from server timeline
+  {
+    moduleId: "fire-response-team",
+    checkpointId: "team_alarm_pull",
+    type: "select",
+    observationKind: "selection_single",
+    expectedValue: JSON.stringify("alarm_pulled"),
+    allowedValues: JSON.stringify(["alarm_pulled", "skipped"]),
+    gradeable: 1,
+    required: 1
+  },
+  {
+    moduleId: "fire-response-team",
+    checkpointId: "team_extinguisher_select",
+    type: "select",
+    observationKind: "selection_single",
+    expectedValue: JSON.stringify("correct_selection"),
+    allowedValues: JSON.stringify(["correct_selection", "wrong_selection", "skipped"]),
+    gradeable: 1,
+    required: 1
+    // no critical flag — defaults to CRITICAL_PENDING (0) per existing convention
+  },
+  {
+    moduleId: "fire-response-team",
+    checkpointId: "team_fire_extinguish",
+    type: "select",
+    observationKind: "selection_single",
+    expectedValue: JSON.stringify("fire_extinguished"),
+    allowedValues: JSON.stringify(["fire_extinguished", "skipped"]),
+    gradeable: 1,
+    required: 1
+  },
+  {
+    moduleId: "fire-response-team",
+    checkpointId: "team_evac_coordinate",
+    type: "select",
+    observationKind: "selection_single",
+    expectedValue: JSON.stringify("evac_checked"),
+    allowedValues: JSON.stringify(["evac_checked", "skipped"]),
+    gradeable: 1,
+    required: 1
+  },
+  {
+    moduleId: "fire-response-team",
+    checkpointId: "team_drill_outcome",
+    type: "select",
+    observationKind: "selection_single",
+    expectedValue: JSON.stringify("drill_passed"),
+    allowedValues: JSON.stringify(["drill_passed", "drill_failed"]),
+    gradeable: 1,
+    required: 1,
+    // failed drill fails every participant attempt, the result screen already
+    // shows FAILED to the whole team
+    critical: 1
   }
 ];
 
@@ -246,7 +312,7 @@ function seedDatabase(db) {
       insertModule.run(
         m.moduleId,
         m.title,
-        PLACEHOLDER_PASS_THRESHOLD,
+        m.passThreshold !== undefined ? m.passThreshold : PLACEHOLDER_PASS_THRESHOLD,
         1,
         RECERT_MONTHS_PENDING,
         SEED_TIMESTAMP
@@ -276,8 +342,8 @@ function seedDatabase(db) {
         min_frame_count: c.minFrameCount === undefined ? null : c.minFrameCount,
         gradeable: c.gradeable,
         weight: DEFAULT_CHECKPOINT_WEIGHT,
-        required: 1,
-        critical: CRITICAL_PENDING,
+        required: c.required === undefined ? 1 : c.required,
+        critical: c.critical === undefined ? CRITICAL_PENDING : c.critical,
         created_at: SEED_TIMESTAMP
       })
     );

@@ -2,13 +2,18 @@
 // Enables full AR training and audio playback in connectivity-deprived underground mines
 
 // bump this whenever STATIC_ASSETS changes, or installed phones keep the old list
-const CACHE_NAME = "safear-offline-v16";
+const CACHE_NAME = "safear-offline-v30";
 
 const STATIC_ASSETS = [
   "./",
   "./index.html",
   "./css/style.css",
   "./css/prerequisite.css",
+  // 3D GLTF models for offline AR scenario rendering
+  "./assets/models/animated_fire.glb",
+  "./assets/models/fire_extinguisher.glb",
+  "./assets/models/low_poly_green_running_man_exit_sign.glb",
+  "./assets/models/notifier_rsg_t-bar_fire_alarm_pull_station.glb",
   // the whole ar runtime, vendored so a mine with no signal still renders scenes
   "./vendor/aframe.min.js",
   "./vendor/aframe-ar.js",
@@ -28,6 +33,7 @@ const STATIC_ASSETS = [
   "./ar/webxr.js",
   "./ar/webxr_render.js",
   "./ar/marker.js",
+  "./ar/marker-pose.js",
   "./ar/interactions.js",
   "./ar/alignment.js",
   "./assessment/engine.js",
@@ -79,14 +85,23 @@ const STATIC_ASSETS = [
   "./locales/hi.json",
   "./locales/sat.json",
   "./modules/fire-response/fire-response.js",
+  "./modules/fire-response/decision.js",
   "./modules/fire-response/graphics.js",
+  "./modules/fire-response/team-session.js",
+  "./modules/fire-response/distance.js",
   "./modules/fire-response/webxr_fire_module.js",
   "./modules/fire-response/index.html",
   "./modules/gas-leak/gas-leak.js",
   "./modules/gas-leak/graphics.js",
   "./modules/gas-leak/index.html",
   // 3D models for gas leak and confined space module
+  "./assets/models/gas-leak/caution_tapes.glb",
+  "./assets/models/gas-leak/fog_indicator.glb",
+  "./assets/models/gas-leak/h2s_detector.glb",
   "./assets/models/gas-leak/hazard_zone.glb",
+  "./assets/models/gas-leak/safety_harness.glb",
+  "./assets/models/gas-leak/scba_respirator.glb",
+  "./assets/models/gas-leak/warning_sign.glb",
   // English narration audio clips
   "./audio/en/fire_response_step_1_exit.mp3",
   "./audio/en/fire_response_step_2_extinguisher.mp3",

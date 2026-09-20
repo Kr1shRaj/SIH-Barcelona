@@ -4,7 +4,7 @@ import { setTierLoaders, loadModule, unloadModule, getActiveModule } from "../js
 import { registerCheckpoint, getRegisteredCheckpoints, clearCheckpoints } from "../ar/interactions.js";
 import { getEffectiveWorkerId } from "../assessment/engine.js";
 import { REQUIRED_EQUIPMENT_IDS } from "../prerequisite/equipment-data.js";
-import { markEquipmentViewed } from "../prerequisite/progress.js";
+import { markEquipmentViewed, recordStageResult } from "../prerequisite/progress.js";
 
 // stub window for logger + interactions event dispatch
 const _dispatchedEvents = [];
@@ -55,6 +55,18 @@ describe("Module lifecycle (module-loader.js)", () => {
 
     completePrerequisite();
     await loadModule("fire-response");
+    assert.strictEqual(getActiveModule(), "fire-response");
+  });
+
+  it("loadModule refuses team drill until solo fire score reaches 80 percent", async () => {
+    setTierLoaders(2, async () => {});
+    await assert.rejects(
+      () => loadModule("fire-response", { team: true }),
+      /solo fire drill must pass at 80 percent/
+    );
+
+    recordStageResult(getEffectiveWorkerId(), "fire-response", 2, 0.8);
+    await loadModule("fire-response", { team: true });
     assert.strictEqual(getActiveModule(), "fire-response");
   });
 

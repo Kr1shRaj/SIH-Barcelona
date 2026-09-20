@@ -66,6 +66,14 @@ const SAMPLE_METRICS = {
   },
   modules: [
     {
+      moduleId: "fire-response-team",
+      title: "Fire Response Team Drill",
+      totalAttempts: 1,
+      uniqueWorkersPassed: 1,
+      completionRate: 100,
+      averageScore: 88.0
+    },
+    {
       moduleId: "fire-response",
       title: "Fire & Explosion Response",
       totalAttempts: 3,
@@ -174,6 +182,7 @@ describe("Admin Compliance Dashboard Client", () => {
     assert.ok(html.includes("Budhan Murmu"));
     assert.ok(html.includes("WRK-0001"));
     assert.ok(html.includes("Compliant"));
+    assert.ok(html.includes("Fire Response Team Drill"));
 
     // the attention list names the worker it is about, and says what the backend
     // said about them — it is the API's own wording, not a label invented here
@@ -185,6 +194,32 @@ describe("Admin Compliance Dashboard Client", () => {
       assert.ok(html.includes(`data-section="${section.toLowerCase()}"`), `${section} must be reachable`);
     });
     assert.ok(html.includes("Latest Assessment Activity"));
+  });
+
+  it("renderDashboard includes Team Fire Drill roster column and module pill", () => {
+    const container = createMockContainer();
+    const metricsWithTeam = {
+      ...SAMPLE_METRICS,
+      roster: [
+        {
+          workerId: "WRK-0001",
+          name: "Budhan Murmu",
+          mineName: "Jharia Coal Block A",
+          contractorName: "Jharkhand Mining Contractors Pvt Ltd",
+          overallStatus: "compliant",
+          modules: {
+            "fire-response": { passed: true, bestScore: 95.0, attemptsCount: 1 },
+            "gas-leak": { passed: true, bestScore: 90.0, attemptsCount: 1 },
+            "fire-response-team": { passed: true, bestScore: 88.0, attemptsCount: 1 }
+          }
+        }
+      ]
+    };
+    renderDashboard(container, metricsWithTeam);
+    const html = container.innerHTML;
+    assert.ok(html.includes("<th>Fire Response Team Drill</th>"));
+    assert.ok(html.includes('data-label="Fire Response Team Drill"'));
+    assert.ok(html.includes("88%"));
   });
 
   it("fetchComplianceMetrics retrieves data or throws on failure", async () => {

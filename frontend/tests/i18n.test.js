@@ -79,4 +79,50 @@ describe("i18n Localization Foundation", () => {
     assert.strictEqual(t(null), "");
     assert.strictEqual(t(""), "");
   });
+
+  it("ensures team drill keys exist across en, hi, and sat locales", async () => {
+    const fs = await import("fs");
+    const en = JSON.parse(fs.readFileSync(new URL("../locales/en.json", import.meta.url), "utf8"));
+    const hi = JSON.parse(fs.readFileSync(new URL("../locales/hi.json", import.meta.url), "utf8"));
+    const sat = JSON.parse(fs.readFileSync(new URL("../locales/sat.json", import.meta.url), "utf8"));
+
+    const fireKeys = [
+      "team_locked_title", "team_locked_desc", "team_room_required",
+      "team_connecting", "team_join_failed", "team_backend_unconfigured",
+      "team_state_rejected", "team_connection_error", "team_connection_lost",
+      "team_peer_weak", "team_drill_aborted", "team_same_marker",
+      "action_alarm", "action_ext", "action_evac", "peer_action_started",
+      "peer_action_completed", "dist_away", "hud_dist_fire", "team_debrief_title",
+      "team_passed", "team_failed", "team_your_role_score", "bd_completion",
+      "bd_speed", "bd_errors", "team_btn_replay", "team_btn_exit",
+      "team_marker_calibrated", "team_calibrate_notice", "team_self",
+      "team_status_present", "team_status_waiting", "team_lobby_header",
+      "team_ready_waiting", "team_ready", "team_tier1_error", "team_tier1_desc",
+      "team_wifi_notice", "team_role", "team_wait", "team_unguided_prompt",
+      "team_alarm_hint", "team_ext_hint", "team_evac_hint", "team_complete",
+      "team_alarm_instr", "team_wait_alarm", "team_ext_instr", "team_wait_ext",
+      "team_backup_instr", "team_wait_evac", "team_done"
+    ];
+
+    const modKeys = [
+      "team_join_title", "room_code", "select_role", "role_alarm",
+      "role_extinguisher", "role_backup", "role_extinguisher_operator",
+      "role_backup_coordinator", "join_btn"
+    ];
+
+    for (const [code, dict] of [["en", en], ["hi", hi], ["sat", sat]]) {
+      assert.ok(dict.fire, `missing fire in ${code}`);
+      assert.ok(dict.modules?.fire_response, `missing modules.fire_response in ${code}`);
+
+      for (const k of fireKeys) {
+        assert.ok(dict.fire[k], `missing fire.${k} in ${code}`);
+        assert.ok(dict.fire[k].length > 0, `empty fire.${k} in ${code}`);
+      }
+
+      for (const k of modKeys) {
+        assert.ok(dict.modules.fire_response[k], `missing modules.fire_response.${k} in ${code}`);
+        assert.ok(dict.modules.fire_response[k].length > 0, `empty modules.fire_response.${k} in ${code}`);
+      }
+    }
+  });
 });

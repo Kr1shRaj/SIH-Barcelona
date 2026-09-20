@@ -157,6 +157,25 @@ function _storedToken() {
   }
 }
 
+// turn the resolved REST origin into the matching WebSocket origin
+function resolveWebSocketUrl() {
+  const apiBase = resolveApiBase();
+  if (apiBase) {
+    return apiBase.replace(/^https:/i, "wss:").replace(/^http:/i, "ws:");
+  }
+
+  const win = _window();
+  const location = win && win.location;
+  if (!location || location.protocol === "capacitor:" || location.protocol === "file:") return null;
+  if (location.protocol !== "http:" && location.protocol !== "https:") return null;
+
+  const host = typeof location.host === "string" && location.host
+    ? location.host
+    : `${location.hostname || ""}${location.port ? `:${location.port}` : ""}`;
+  if (!host) return null;
+  return `${location.protocol === "https:" ? "wss:" : "ws:"}//${host}`;
+}
+
 // browser globals resolve at call time, never at module load, so a test can swap
 // them in after import. same convention the assessment engine already uses.
 function _fetchHandle() {
@@ -282,6 +301,7 @@ export {
   apiGet,
   apiPost,
   resolveApiBase,
+  resolveWebSocketUrl,
   DEFAULT_TIMEOUT_MS,
   API_BASE_STORAGE_KEY
 };

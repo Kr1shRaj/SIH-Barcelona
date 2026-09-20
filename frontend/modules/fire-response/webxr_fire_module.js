@@ -5,6 +5,8 @@ import { t } from "../../js/i18n.js";
 import {
   createFireMesh, animateFireMesh,
   createExtinguisherMesh, animateExtinguisherMesh,
+  createExitSignMesh, animateExitSignMesh,
+  createAlarmStationMesh, animateAlarmStationMesh,
   calcFireOffsetPosition
 } from "../../ar/webxr_render.js";
 import {
@@ -16,6 +18,18 @@ import {
   CP_EXIT_ID, CP_EXTINGUISHER_ID, CP_EVACUATION_WEBXR_ID, EXIT_ANCHOR_ID
 } from "./fire-response.js";
 import { selectionSingle, aimDwell, spatialAlignment } from "../../assessment/observations.js";
+import {
+  renderAlertFlash,
+  renderGasGaugeSvg,
+  generateMethaneReading,
+  isCorrectDecision,
+  getDecisionExplanation,
+  renderDecisionWheel,
+  CP_DECISION_ID,
+  DECISION_CHOICES,
+  METHANE_EXPLOSIVE_THRESHOLD,
+  initOrientationNudge
+} from "./decision.js";
 
 const logger = createLogger("FireModuleWebXR");
 
@@ -24,12 +38,360 @@ let _currentStep = 0;
 let _controller = null;
 let _fireMesh = null;
 let _extMesh = null;
+let _exitMesh = null;
+let _alarmMesh = null;
+let _alarmPulled = false;
 let _frameHandler = null;
+let _scanFrameHandler = null;
 let _aimFrameHandler = null;
 let _sweepFrameHandler = null;
 let _placementScreenTap = null;
 let _placementConfirmedHandler = null;
+let _alarmPlacementFrameHandler = null;
+let _exitPlacementFrameHandler = null;
+let _alarmPointerTapHandler = null;
+let _exitPointerTapHandler = null;
+let _step3ExitTapHandler = null;
 let _interactionState = null;
+
+// show center screen crosshair for aiming and raycasting
+function _showAimCrosshair(container) {
+  if (typeof document === "undefined") return;
+  let crosshair = document.getElementById("webxr-aim-crosshair");
+  if (!crosshair) {
+    crosshair = document.createElement("div");
+    crosshair.id = "webxr-aim-crosshair";
+    crosshair.innerHTML = `
+      <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="16" cy="16" r="10" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-dasharray="3 3"/>
+        <circle cx="16" cy="16" r="2.2" fill="#2f9e63"/>
+        <line x1="16" y1="2" x2="16" y2="7" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="16" y1="25" x2="16" y2="30" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="2" y1="16" x2="7" y2="16" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="25" y1="16" x2="30" y2="16" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
+      </svg>
+    `;
+    const targetParent = container || document.getElementById("fire-module-overlay") || document.body;
+    if (targetParent && typeof targetParent.appendChild === "function") {
+      targetParent.appendChild(crosshair);
+    }
+  }
+  crosshair.style.display = "flex";
+}
+
+// remove center screen crosshair
+function _hideAimCrosshair() {
+  if (typeof document === "undefined") return;
+  const crosshair = document.getElementById("webxr-aim-crosshair");
+  if (crosshair && typeof crosshair.remove === "function") {
+    crosshair.remove();
+  }
+}
+
+// shoot ray from screen tap at mesh
+function _raycastMesh(event, targetMesh) {
+  if (!targetMesh || !_controller) return false;
+  const THREE = typeof window !== "undefined" && window.THREE;
+  if (!THREE || typeof THREE.Raycaster !== "function") return false;
+  const camera = _controller.getCamera ? _controller.getCamera() : null;
+  if (!camera) return false;
+
+  const raycaster = new THREE.Raycaster();
+  const pointer = new THREE.Vector2();
+  if (event && event.clientX !== undefined && typeof window !== "undefined" && window.innerWidth) {
+    pointer.x = (event.clientX / window.innerWidth) * 2 - 1;
+    pointer.y = -(event.clientY / window.innerHeight) * 2 + 1;
+  } else {
+    pointer.x = 0;
+    pointer.y = 0;
+  }
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObject(targetMesh, true);
+  return Array.isArray(hits) && hits.length > 0;
+}
+
+// find wall or floor spot from xr hit test or look straight ahead
+function _computePlacementPose(frame, referenceSpace, defaultDist, elevateIfFloor, floorElevateY, camYOffset = 0) {
+  const THREE = typeof window !== "undefined" && window.THREE;
+  let hitPos = null;
+  let isVertical = false;
+
+  if (frame && _controller && _controller.hitTestSource && referenceSpace) {
+    try {
+      const hitResults = frame.getHitTestResults(_controller.hitTestSource);
+      if (hitResults && hitResults.length > 0) {
+        const hitPose = hitResults[0].getPose(referenceSpace);
+        if (hitPose && hitPose.transform) {
+          const hp = hitPose.transform.position;
+          const hq = hitPose.transform.orientation;
+
+          let normalY = 1.0;
+          if (hq) {
+            const hx = Number(hq.x) || 0;
+            const hz = Number(hq.z) || 0;
+            normalY = 1 - 2 * (hx * hx + hz * hz);
+          }
+
+          // vertical wall or door if normal Y near zero
+          if (Math.abs(normalY) < 0.5) {
+            isVertical = true;
+            hitPos = { x: hp.x, y: hp.y, z: hp.z };
+          } else if (elevateIfFloor) {
+            hitPos = { x: hp.x, y: hp.y + floorElevateY, z: hp.z };
+          } else {
+            hitPos = { x: hp.x, y: hp.y, z: hp.z };
+          }
+        }
+      }
+    } catch {
+      hitPos = null;
+    }
+  }
+
+  if (!hitPos) {
+    const camera = _controller && _controller.getCamera ? _controller.getCamera() : null;
+    if (camera && THREE && THREE.Vector3) {
+      const fwd = new THREE.Vector3(0, 0, -1);
+      if (camera.quaternion && fwd.applyQuaternion) {
+        fwd.applyQuaternion(camera.quaternion);
+      }
+      fwd.y = 0;
+      fwd.normalize();
+      const dist = defaultDist || 1.2;
+      const camY = camera.position ? camera.position.y : 1.5;
+      hitPos = {
+        x: (camera.position ? camera.position.x : 0) + fwd.x * dist,
+        y: camY + camYOffset,
+        z: (camera.position ? camera.position.z : 0) + fwd.z * dist
+      };
+    } else {
+      hitPos = { x: 0, y: floorElevateY || 0, z: -(defaultDist || 1.2) };
+    }
+  }
+
+  return { pos: hitPos, isVertical };
+}
+
+// keep frame loop ticking all active 3d models
+function _ensureFrameHandler() {
+  if (_frameHandler || !_controller || typeof _controller.onFrame !== "function") return;
+  _frameHandler = ({ deltaMs }) => {
+    if (_fireMesh) animateFireMesh(_fireMesh, deltaMs);
+    if (_extMesh) {
+      let targetPos = _extMesh.userData ? _extMesh.userData.targetWorldPos : null;
+      if (!targetPos && _fireMesh && _fireMesh.position) {
+        targetPos = {
+          x: _fireMesh.position.x,
+          y: (_fireMesh.position.y || 0) + 0.12,
+          z: _fireMesh.position.z
+        };
+      }
+      animateExtinguisherMesh(_extMesh, deltaMs, false, targetPos);
+    }
+    if (_exitMesh) animateExitSignMesh(_exitMesh, deltaMs);
+    if (_alarmMesh) animateAlarmStationMesh(_alarmMesh, deltaMs);
+  };
+  _controller.onFrame(_frameHandler);
+}
+
+// hazard decision state
+let _methaneReading = null;
+let _decisionMade = null;
+let _currentBranch = null;
+let _alertStrobe = null;
+let _orientationNudge = null;
+
+// temporary diagnostic hud state for tablet verification
+let _diagHudEl = null;
+let _diagLastError = null;
+let _diagErrorListener = null;
+let _diagRejectionListener = null;
+let _diagDismissed = false;
+
+// dismiss temporary diagnostic hud element
+function dismissWebXRDiag() {
+  _diagDismissed = true;
+  if (_diagHudEl && _diagHudEl.parentNode) {
+    _diagHudEl.parentNode.removeChild(_diagHudEl);
+    _diagHudEl = null;
+  }
+}
+
+// check if diagnostic hud is mounted
+function isDiagHudVisibleWebXR() {
+  return Boolean(_diagHudEl && _diagHudEl.parentNode);
+}
+
+// update temporary on-screen diagnostic hud for tablet verification
+function _updateWebXRDiag(stateText, err = null) {
+  if (err) {
+    _diagLastError = (err && (err.stack || err.message)) ? `${err.name || "Error"}: ${err.message}` : String(err);
+    logger.error({ event: "webxr_diag_error", err: _diagLastError }, "Diagnostic caught error");
+  }
+  if (typeof document === "undefined") return;
+
+  // if dismissed and no error, do not recreate HUD
+  if (_diagDismissed && !err) {
+    logger.info({ event: "webxr_diag_state", state: stateText }, stateText);
+    return;
+  }
+
+  if (!_diagHudEl) {
+    _diagHudEl = document.createElement("div");
+    _diagHudEl.id = "webxr-diag-hud";
+    _diagHudEl.style.cssText = [
+      "position:fixed", "top:64px", "left:8px", "right:8px",
+      "background:rgba(15,23,42,0.92)", "color:#f8fafc",
+      "border:1.5px solid #febc04", "border-radius:6px",
+      "padding:6px 10px", "font-family:monospace", "font-size:0.75rem",
+      "z-index:100000", "pointer-events:auto", "line-height:1.35",
+      "box-shadow:0 4px 14px rgba(0,0,0,0.8)", "word-break:break-word"
+    ].join(";");
+    const parent = document.body || document.documentElement;
+    if (parent && parent.appendChild) {
+      parent.appendChild(_diagHudEl);
+    }
+  }
+
+  const decPanelInDom = typeof document !== "undefined" && Boolean(document.getElementById("fire-decision-panel"));
+  const vpInDom = typeof document !== "undefined" && Boolean(document.getElementById("ar-viewport"));
+
+  const errSection = _diagLastError
+    ? `<div style="color:#f87171;font-weight:bold;margin-top:4px;">❌ THROWN ERROR:<br>${_diagLastError}</div>`
+    : '<div style="color:#4ade80;margin-top:2px;">✔ Errors: none</div>';
+
+  _diagHudEl.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding-right:24px;">
+      <span style="color:#febc04;font-weight:bold;">[TEMPORARY DIAGNOSTIC — WEBXR FIRE RUNTIME]</span>
+    </div>
+    <div><strong>State:</strong> ${stateText}</div>
+    <div style="color:#94a3b8;"><strong>DOM:</strong> vp=${vpInDom ? "yes" : "NO"} | decision-panel=${decPanelInDom ? "yes" : "no"} | step=${_currentStep}</div>
+    ${errSection}
+  `;
+
+  let btnClose = document.getElementById("btn-close-webxr-diag");
+  if (!btnClose) {
+    btnClose = document.createElement("button");
+    btnClose.id = "btn-close-webxr-diag";
+    btnClose.type = "button";
+    btnClose.style.cssText = "position:absolute;top:4px;right:6px;background:none;border:none;color:#94a3b8;font-size:1rem;font-weight:bold;cursor:pointer;padding:0 6px;line-height:1;";
+    btnClose.title = "Dismiss diagnostic HUD";
+    btnClose.textContent = "✕";
+    btnClose.addEventListener("click", (ev) => {
+      if (ev && typeof ev.stopPropagation === "function") ev.stopPropagation();
+      dismissWebXRDiag();
+    });
+  }
+  if (_diagHudEl.appendChild) {
+    _diagHudEl.appendChild(btnClose);
+  }
+}
+
+// setup window level error trap for tablet diagnostics
+function _initDiagErrorTraps() {
+  if (typeof window === "undefined") return;
+  if (!_diagErrorListener) {
+    _diagErrorListener = (ev) => {
+      const err = ev.error || new Error(ev.message || "Unknown window error");
+      _updateWebXRDiag("Window Error Trapped", err);
+    };
+    window.addEventListener("error", _diagErrorListener);
+  }
+  if (!_diagRejectionListener) {
+    _diagRejectionListener = (ev) => {
+      const reason = ev.reason || new Error("Unhandled promise rejection");
+      _updateWebXRDiag("Promise Rejection Trapped", reason);
+    };
+    window.addEventListener("unhandledrejection", _diagRejectionListener);
+  }
+}
+
+// zoom state
+let _zoomScale = 1.0;
+const BASE_EXT_SCALE = 0.35;
+const BASE_FIRE_SCALE = 0.35;
+let _zoomControlsEl = null;
+let _pinchStartDist = null;
+let _pinchStartScale = 1.0;
+let _touchZoomHandler = null;
+
+// apply zoom scale to extinguisher and fire
+function setZoomScaleWebXR(targetScale) {
+  _zoomScale = Math.max(0.6, Math.min(2.5, targetScale));
+  if (_extMesh) {
+    const s = BASE_EXT_SCALE * _zoomScale;
+    _extMesh.scale.set(s, s, s);
+  }
+  if (_fireMesh) {
+    const s = BASE_FIRE_SCALE * _zoomScale;
+    _fireMesh.scale.set(s, s, s);
+  }
+  return _zoomScale;
+}
+
+// read zoom scale
+function getZoomScaleWebXR() {
+  return _zoomScale;
+}
+
+// create floating zoom in/out controls
+function _setupZoomControls() {
+  if (_zoomControlsEl || typeof document === "undefined") return;
+  const zoomDiv = document.createElement("div");
+  zoomDiv.id = "safear-zoom-controls";
+  zoomDiv.style.cssText = "position:fixed;top:64px;right:16px;z-index:150;display:flex;flex-direction:column;gap:6px;pointer-events:auto;";
+
+  const btnIn = document.createElement("button");
+  btnIn.id = "btn-zoom-in";
+  btnIn.title = "Zoom In";
+  btnIn.style.cssText = "background:transparent !important;border:none !important;outline:none !important;box-shadow:none !important;color:#fff;font-size:1.5rem;font-weight:bold;cursor:pointer;padding:6px;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);line-height:1;";
+  btnIn.textContent = "🔍 +";
+  btnIn.addEventListener("click", () => setZoomScaleWebXR(_zoomScale + 0.2));
+
+  const btnOut = document.createElement("button");
+  btnOut.id = "btn-zoom-out";
+  btnOut.title = "Zoom Out";
+  btnOut.style.cssText = "background:transparent !important;border:none !important;outline:none !important;box-shadow:none !important;color:#fff;font-size:1.5rem;font-weight:bold;cursor:pointer;padding:6px;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);line-height:1;";
+  btnOut.textContent = "🔍 −";
+  btnOut.addEventListener("click", () => setZoomScaleWebXR(_zoomScale - 0.2));
+
+  zoomDiv.appendChild(btnIn);
+  zoomDiv.appendChild(btnOut);
+  document.body.appendChild(zoomDiv);
+  _zoomControlsEl = zoomDiv;
+
+  if (typeof window !== "undefined") {
+    _touchZoomHandler = {
+      start: (e) => {
+        if (e.touches && e.touches.length === 2) {
+          const t0 = e.touches[0];
+          const t1 = e.touches[1];
+          _pinchStartDist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+          _pinchStartScale = _zoomScale;
+        }
+      },
+      move: (e) => {
+        if (e.touches && e.touches.length === 2 && _pinchStartDist) {
+          const t0 = e.touches[0];
+          const t1 = e.touches[1];
+          const currentDist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
+          if (_pinchStartDist > 10) {
+            const factor = currentDist / _pinchStartDist;
+            setZoomScaleWebXR(_pinchStartScale * factor);
+          }
+        }
+      },
+      end: (e) => {
+        if (!e.touches || e.touches.length < 2) {
+          _pinchStartDist = null;
+        }
+      }
+    };
+    window.addEventListener("touchstart", _touchZoomHandler.start, { passive: true });
+    window.addEventListener("touchmove", _touchZoomHandler.move, { passive: true });
+    window.addEventListener("touchend", _touchZoomHandler.end, { passive: true });
+  }
+}
 
 // read active step number
 function getCurrentStepWebXR() {
@@ -42,6 +404,10 @@ function cleanupWebXRFireModule() {
     _controller.offFrame(_frameHandler);
     _frameHandler = null;
   }
+  if (_scanFrameHandler && _controller) {
+    _controller.offFrame(_scanFrameHandler);
+    _scanFrameHandler = null;
+  }
   if (_aimFrameHandler && _controller) {
     _controller.offFrame(_aimFrameHandler);
     _aimFrameHandler = null;
@@ -52,27 +418,110 @@ function cleanupWebXRFireModule() {
   }
   if (_placementScreenTap && typeof window !== "undefined") {
     window.removeEventListener("click", _placementScreenTap);
+    window.removeEventListener("pointerdown", _placementScreenTap);
     _placementScreenTap = null;
   }
   if (_placementConfirmedHandler && typeof window !== "undefined") {
     window.removeEventListener("safear:placement_confirmed", _placementConfirmedHandler);
     _placementConfirmedHandler = null;
   }
-  if (_fireMesh && _controller) {
+  if (_alarmPlacementFrameHandler && _controller && typeof _controller.offFrame === "function") {
+    _controller.offFrame(_alarmPlacementFrameHandler);
+    _alarmPlacementFrameHandler = null;
+  }
+  if (_exitPlacementFrameHandler && _controller && typeof _controller.offFrame === "function") {
+    _controller.offFrame(_exitPlacementFrameHandler);
+    _exitPlacementFrameHandler = null;
+  }
+  if (_alarmPointerTapHandler && typeof window !== "undefined") {
+    window.removeEventListener("pointerdown", _alarmPointerTapHandler);
+    window.removeEventListener("click", _alarmPointerTapHandler);
+    _alarmPointerTapHandler = null;
+  }
+  if (_exitPointerTapHandler && typeof window !== "undefined") {
+    window.removeEventListener("pointerdown", _exitPointerTapHandler);
+    window.removeEventListener("click", _exitPointerTapHandler);
+    _exitPointerTapHandler = null;
+  }
+  if (_step3ExitTapHandler && typeof window !== "undefined") {
+    window.removeEventListener("pointerdown", _step3ExitTapHandler);
+    window.removeEventListener("click", _step3ExitTapHandler);
+    _step3ExitTapHandler = null;
+  }
+  if (_zoomControlsEl && _zoomControlsEl.parentNode) {
+    _zoomControlsEl.parentNode.removeChild(_zoomControlsEl);
+    _zoomControlsEl = null;
+  }
+  if (_touchZoomHandler && typeof window !== "undefined") {
+    window.removeEventListener("touchstart", _touchZoomHandler.start);
+    window.removeEventListener("touchmove", _touchZoomHandler.move);
+    window.removeEventListener("touchend", _touchZoomHandler.end);
+    _touchZoomHandler = null;
+  }
+  _zoomScale = 1.0;
+  if (_fireMesh && _controller && typeof _controller.removeFromScene === "function") {
     _controller.removeFromScene(_fireMesh);
     _fireMesh = null;
   }
-  if (_extMesh && _controller) {
+  if (_extMesh && _controller && typeof _controller.removeFromScene === "function") {
     _controller.removeFromScene(_extMesh);
     _extMesh = null;
   }
+  if (_exitMesh && _controller && typeof _controller.removeFromScene === "function") {
+    _controller.removeFromScene(_exitMesh);
+    _exitMesh = null;
+  }
+  if (_alarmMesh && _controller && typeof _controller.removeFromScene === "function") {
+    _controller.removeFromScene(_alarmMesh);
+    _alarmMesh = null;
+  }
+  _alarmPulled = false;
   _interactionState = null;
   _currentStep = 0;
+  _hideAimCrosshair();
+
+  if (_alertStrobe && typeof _alertStrobe.dismiss === "function") {
+    _alertStrobe.dismiss();
+    _alertStrobe = null;
+  }
+  _methaneReading = null;
+  _decisionMade = null;
+  _currentBranch = null;
+
+  if (_orientationNudge && typeof _orientationNudge.destroy === "function") {
+    _orientationNudge.destroy();
+    _orientationNudge = null;
+  }
 
   if (typeof document !== "undefined") {
+    const nudgeEl = document.getElementById("safear-orientation-nudge");
+    if (nudgeEl && nudgeEl.parentNode) nudgeEl.parentNode.removeChild(nudgeEl);
+    const decPanel = document.getElementById("fire-decision-panel");
+    if (decPanel && decPanel.parentNode) decPanel.parentNode.removeChild(decPanel);
+    const alertEl = document.getElementById("fire-alert-overlay");
+    if (alertEl && alertEl.parentNode) alertEl.parentNode.removeChild(alertEl);
+    const debriefEl = document.getElementById("debrief-summary-card");
+    if (debriefEl && debriefEl.parentNode) debriefEl.parentNode.removeChild(debriefEl);
     const overlay = document.getElementById("fire-module-overlay");
     if (overlay && overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    if (_diagHudEl && _diagHudEl.parentNode) {
+      _diagHudEl.parentNode.removeChild(_diagHudEl);
+      _diagHudEl = null;
+    }
   }
+  _diagDismissed = false;
+
+  if (typeof window !== "undefined") {
+    if (_diagErrorListener) {
+      window.removeEventListener("error", _diagErrorListener);
+      _diagErrorListener = null;
+    }
+    if (_diagRejectionListener) {
+      window.removeEventListener("unhandledrejection", _diagRejectionListener);
+      _diagRejectionListener = null;
+    }
+  }
+  _diagLastError = null;
 }
 
 // inject dom overlay panel
@@ -102,9 +551,12 @@ function _renderSubscreen(overlay, { badge, title, desc, buttonText, onNext }) {
   `;
   const btnNext = document.createElement("button");
   btnNext.id = "btn-step-next";
-  btnNext.className = "hud-btn";
+  btnNext.style.cssText = "margin-top:0.6rem;padding:0.75rem 0;background:transparent !important;color:#febc04;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);";
   btnNext.textContent = buttonText || "Next ➜";
-  btnNext.addEventListener("click", onNext);
+  btnNext.addEventListener("click", (e) => {
+    if (e && typeof e.stopPropagation === "function") e.stopPropagation();
+    onNext();
+  });
   overlay.appendChild(btnNext);
 }
 
@@ -145,35 +597,71 @@ function _setupStep1WebXR(container) {
   ];
 
   function showPlacementScreen() {
+    dismissWebXRDiag();
     if (!overlay) return;
 
-    // spawn 3D extinguisher immediately so trainee sees it right away
+    // spawn extinguisher hidden until surface detected or placed
     if (!_extMesh && _controller) {
       _extMesh = createExtinguisherMesh();
       if (_extMesh) {
-        _extMesh.position.set(0, -0.42, -1.05);
-        _extMesh.scale.set(0.35, 0.35, 0.35);
+        _extMesh.visible = false;
+        const s = BASE_EXT_SCALE * _zoomScale;
+        _extMesh.scale.set(s, s, s);
         _controller.addToScene(_extMesh);
       }
+    }
+
+    // preview extinguisher sitting on detected surface while scanning
+    if (_controller && typeof _controller.onFrame === "function") {
+      _scanFrameHandler = () => {
+        if (placed) return;
+        if (_controller._lastHitPose && _controller.state === "surface_found") {
+          const hp = _controller._lastHitPose.transform.position;
+          if (_extMesh) {
+            _extMesh.visible = true;
+            _extMesh.position.set(hp.x, hp.y, hp.z);
+          }
+          const statusEl = document.getElementById("placement-status-text");
+          if (statusEl && !statusEl.dataset.surfaceFound) {
+            statusEl.dataset.surfaceFound = "true";
+            statusEl.style.color = "#2f9e63";
+            statusEl.textContent = t("fire.surface_found", "Surface detected! Tap button or floor to place extinguisher.");
+          }
+        } else if (_extMesh && !placed) {
+          _extMesh.visible = false;
+        }
+      };
+      _controller.onFrame(_scanFrameHandler);
     }
 
     overlay.innerHTML = `
       <div class="hud-eyebrow">${t("fire.place_badge", "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (4/4)")}</div>
       <div class="hud-title">${t("fire.place_title", "Place Extinguisher on Ground")}</div>
       <div id="placement-status-text" class="hud-instruction">${t("fire.place_desc", "Point your tablet at the floor or table. Tap the green button below (or tap anywhere on screen) to place the extinguisher.")}</div>
-      <button id="btn-place-extinguisher" class="hud-btn">${t("fire.place_btn", "🎯 TAP TO PLACE EXTINGUISHER ON FLOOR")}</button>
+      <button id="btn-place-extinguisher" style="display:block;width:100%;max-width:340px;padding:12px 0;border:none !important;outline:none !important;background:transparent !important;box-shadow:none !important;color:#2f9e63;font-size:1.05rem;font-weight:bold;cursor:pointer;margin:0.5rem 0;pointer-events:auto !important;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.place_btn", "🎯 TAP TO PLACE EXTINGUISHER ON FLOOR")}</button>
     `;
 
     let placed = false;
+    let sessionSelectHandler = null;
 
     // placement execution function
     const doPlace = (pos, viewerQuat) => {
       if (placed) return;
       placed = true;
 
+      if (_scanFrameHandler && _controller && typeof _controller.offFrame === "function") {
+        _controller.offFrame(_scanFrameHandler);
+        _scanFrameHandler = null;
+      }
+
       if (_placementScreenTap && typeof window !== "undefined") {
         window.removeEventListener("click", _placementScreenTap);
+        window.removeEventListener("pointerdown", _placementScreenTap);
         _placementScreenTap = null;
+      }
+      if (sessionSelectHandler && _controller && _controller.session && typeof _controller.session.removeEventListener === "function") {
+        _controller.session.removeEventListener("select", sessionSelectHandler);
+        sessionSelectHandler = null;
       }
       if (_placementConfirmedHandler && typeof window !== "undefined") {
         window.removeEventListener("safear:placement_confirmed", _placementConfirmedHandler);
@@ -182,15 +670,18 @@ function _setupStep1WebXR(container) {
 
       const finalPos = pos || { x: 0, y: -0.45, z: -1.20 };
       logger.info({ event: "extinguisher_placed", position: finalPos }, "Extinguisher placed on surface");
+      _updateWebXRDiag("Extinguisher Placed on Surface -> Ready for Step 2");
 
-      // position extinguisher at placed spot
+      // position extinguisher flush at placed spot
       if (!_extMesh && _controller) {
         _extMesh = createExtinguisherMesh();
         if (_extMesh) _controller.addToScene(_extMesh);
       }
       if (_extMesh) {
+        _extMesh.visible = true;
         _extMesh.position.set(finalPos.x, finalPos.y, finalPos.z);
-        _extMesh.scale.set(0.35, 0.35, 0.35);
+        const s = BASE_EXT_SCALE * _zoomScale;
+        _extMesh.scale.set(s, s, s);
       }
 
       // spawn fire 1.8m in front
@@ -208,38 +699,41 @@ function _setupStep1WebXR(container) {
       _fireMesh = createFireMesh();
       if (_fireMesh && _controller) {
         _fireMesh.position.set(firePos.x, firePos.y, firePos.z);
-        _fireMesh.scale.set(0.35, 0.35, 0.35);
+        const s = BASE_FIRE_SCALE * _zoomScale;
+        _fireMesh.scale.set(s, s, s);
         _controller.addToScene(_fireMesh);
+        if (_extMesh && _extMesh.userData) {
+          _extMesh.userData.targetWorldPos = { x: firePos.x, y: firePos.y + 0.12, z: firePos.z };
+        }
       }
 
-      // start animation frame handler
-      _frameHandler = ({ deltaMs }) => {
-        if (_fireMesh) animateFireMesh(_fireMesh, deltaMs);
-        if (_extMesh) animateExtinguisherMesh(_extMesh, deltaMs);
-      };
-      if (_controller) _controller.onFrame(_frameHandler);
+      // setup zoom controls now that objects are anchored in scene
+      _setupZoomControls();
 
-      // fire checkpoint and advance
-      // tier 1 has no anchored exit sign yet, so there is no angle to measure.
-      // report that honestly — the server refuses to certify an unmeasured checkpoint.
-      fireCheckpointResult(
-        CP_EXIT_ID,
-        true,
-        { method: "webxr_surface_placement", measured: false },
-        spatialAlignment({
-          anchorId: EXIT_ANCHOR_ID,
-          angularErrorRad: null,
-          dwellMs: 0,
-          frameCount: 0,
-          trackingSource: "webxr_pose"
-        })
-      );
+      // start animation frame handler for active 3d models
+      _ensureFrameHandler();
+
+      // fire checkpoint and advance if not already recorded from alarm pull
+      if (!_alarmPulled) {
+        fireCheckpointResult(
+          CP_EXIT_ID,
+          true,
+          { method: "webxr_surface_placement", measured: false },
+          spatialAlignment({
+            anchorId: EXIT_ANCHOR_ID,
+            angularErrorRad: null,
+            dwellMs: 0,
+            frameCount: 0,
+            trackingSource: "webxr_pose"
+          })
+        );
+      }
 
       if (overlay) {
         overlay.innerHTML = `
-          <div style="font-size:1.05rem;font-weight:bold;color:#2f9e63;">✔ Extinguisher Placed on Ground!</div>
-          <div style="margin:0.4rem 0 0.6rem 0;font-size:0.92rem;color:#d5d9de;">The 3D fire extinguisher is anchored to the surface. Tap below to begin PASS training.</div>
-          <button id="btn-proceed-step2" class="hud-btn hud-btn--done">✔ Begin PASS Training ➜</button>
+          <div style="font-size:1.05rem;font-weight:bold;color:#2f9e63;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">✔ Extinguisher Placed on Ground!</div>
+          <div style="margin:0.4rem 0 0.6rem 0;font-size:0.92rem;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">The 3D fire extinguisher is anchored to the surface. Tap below to begin PASS training.</div>
+          <button id="btn-proceed-step2" style="margin-top:0.6rem;padding:0.75rem 0;background:transparent !important;color:#2f9e63;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">✔ Begin PASS Training ➜</button>
         `;
         const btnProceed = overlay.querySelector("#btn-proceed-step2");
         if (btnProceed) {
@@ -250,33 +744,71 @@ function _setupStep1WebXR(container) {
       }
     };
 
-    // 1. Hook up action button
     const btnPlace = overlay.querySelector("#btn-place-extinguisher");
-    if (btnPlace) {
-      btnPlace.addEventListener("click", () => {
-        if (_controller && typeof _controller.confirmPlacement === "function") {
+
+    const triggerPlacement = (e) => {
+      if (e) {
+        if (typeof e.preventDefault === "function") e.preventDefault();
+        if (typeof e.stopPropagation === "function") e.stopPropagation();
+      }
+      if (placed) return;
+
+      if (btnPlace) {
+        btnPlace.style.opacity = "0.7";
+        btnPlace.disabled = true;
+      }
+
+      let currentPos = null;
+      let viewerQuat = null;
+
+      if (_controller) {
+        if (typeof _controller.confirmPlacement === "function") {
           _controller.confirmPlacement();
-        } else {
-          doPlace({ x: 0, y: -0.45, z: -1.20 });
         }
-      });
+        currentPos = _controller._placedTransform || (_controller._lastHitPose && {
+          x: _controller._lastHitPose.transform.position.x,
+          y: _controller._lastHitPose.transform.position.y,
+          z: _controller._lastHitPose.transform.position.z
+        });
+        viewerQuat = _controller._viewerQuaternionAtPlacement || (_controller._lastViewerPose && {
+          x: _controller._lastViewerPose.transform.orientation.x,
+          y: _controller._lastViewerPose.transform.orientation.y,
+          z: _controller._lastViewerPose.transform.orientation.z,
+          w: _controller._lastViewerPose.transform.orientation.w
+        });
+      }
+
+      doPlace(currentPos || { x: 0, y: -0.45, z: -1.20 }, viewerQuat);
+    };
+
+    // 1. Hook up action button with click, pointerdown, and touchstart
+    if (btnPlace) {
+      btnPlace.addEventListener("click", triggerPlacement);
+      btnPlace.addEventListener("pointerdown", triggerPlacement);
+      btnPlace.addEventListener("touchstart", triggerPlacement, { passive: false });
     }
 
-    // 2. Hook up screen tap fallback
-    _placementScreenTap = () => {
-      if (!placed) {
-        if (_controller && typeof _controller.confirmPlacement === "function") {
-          _controller.confirmPlacement();
-        } else {
-          doPlace({ x: 0, y: -0.45, z: -1.20 });
-        }
-      }
-    };
-    window.addEventListener("click", _placementScreenTap, { once: true });
+    // 2. Hook up screen tap fallback with delay to prevent previous button click bubbling
+    setTimeout(() => {
+      if (placed) return;
+      _placementScreenTap = (e) => {
+        triggerPlacement(e);
+      };
+      window.addEventListener("click", _placementScreenTap, { once: true });
+      window.addEventListener("pointerdown", _placementScreenTap, { once: true });
+    }, 150);
 
-    // 3. Listen for placement confirmation from controller
+    // 3. Listen for WebXR session select event directly
+    if (_controller && _controller.session && typeof _controller.session.addEventListener === "function") {
+      sessionSelectHandler = () => {
+        triggerPlacement();
+      };
+      _controller.session.addEventListener("select", sessionSelectHandler, { once: true });
+    }
+
+    // 4. Listen for placement confirmation from controller
     _placementConfirmedHandler = (e) => {
-      const { position, viewerQuaternion } = e.detail;
+      const { position, viewerQuaternion } = (e && e.detail) || {};
       doPlace(position, viewerQuaternion);
     };
     window.addEventListener("safear:placement_confirmed", _placementConfirmedHandler, { once: true });
@@ -285,6 +817,7 @@ function _setupStep1WebXR(container) {
   let subIndex = 0;
   function renderCurrentSubscreen() {
     if (subIndex < screens.length) {
+      _updateWebXRDiag(`Step 1 Exit Subscreen ${subIndex + 1}/${screens.length}`);
       _renderSubscreen(overlay, {
         ...screens[subIndex],
         onNext: () => {
@@ -293,16 +826,390 @@ function _setupStep1WebXR(container) {
         }
       });
     } else {
-      showPlacementScreen();
+      _triggerHazardDecisionPhase(container, overlay, () => {
+        showPlacementScreen();
+      });
     }
   }
 
   renderCurrentSubscreen();
 }
 
+// strobe emergency flash then show gas gauge wheel
+function _triggerHazardDecisionPhase(container, overlay, onExtinguishProceed) {
+  _updateWebXRDiag("Step 1: Triggering Emergency Alert Flash (1500ms)");
+  if (overlay) overlay.innerHTML = "";
+
+  const onAlertDone = () => {
+    _updateWebXRDiag("Step 1: Alert Dismissed -> Mount Decision Wheel");
+    _showDecisionWheelStep(container, overlay, onExtinguishProceed);
+  };
+
+  _alertStrobe = renderAlertFlash(container, {
+    durationMs: 1500,
+    onDone: onAlertDone
+  });
+
+  if (!_alertStrobe) {
+    onAlertDone();
+  }
+}
+
+// show svg gas gauge and decision buttons
+function _showDecisionWheelStep(container, overlay, onExtinguishProceed) {
+  try {
+    if (overlay) overlay.innerHTML = "";
+
+    if (_methaneReading === null || typeof _methaneReading !== "number") {
+      _methaneReading = generateMethaneReading();
+    }
+
+    // append to viewport container rather than overlay to avoid transform clipping
+    const targetContainer = container || (typeof document !== "undefined" && (document.getElementById("ar-viewport") || document.body));
+    _updateWebXRDiag(`Step 1: Decision Wheel Mounted to <${targetContainer ? (targetContainer.id || targetContainer.tagName) : "null"}> | CH4: ${_methaneReading}%`);
+
+    renderDecisionWheel(targetContainer, {
+      reading: _methaneReading,
+      onDecision: ({ choice, reading }) => {
+        _decisionMade = choice;
+        _currentBranch = choice === DECISION_CHOICES.EVACUATE ? "evacuate" : "suppress";
+        _updateWebXRDiag(`Decision Choice: ${choice} -> Branch: ${_currentBranch}`);
+
+        const feedbackSlot = document.getElementById("decision-feedback-slot");
+
+        if (choice === DECISION_CHOICES.EXTINGUISH) {
+          const btnProceed = document.createElement("button");
+          btnProceed.id = "btn-decision-proceed";
+          btnProceed.className = "btn-decision-proceed";
+          btnProceed.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.4rem;background:#10b981;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;box-shadow:0 0 12px rgba(16,185,129,0.4);";
+          btnProceed.textContent = "✔ Proceed to Alarm & Extinguisher ➜";
+          btnProceed.addEventListener("click", () => {
+            dismissWebXRDiag();
+            _updateWebXRDiag("Proceed to Alarm Station Pull");
+            const decPanel = document.getElementById("fire-decision-panel");
+            if (decPanel && decPanel.remove) decPanel.remove();
+            _showAlarmPullStationWebXR(container, overlay, onExtinguishProceed);
+          });
+          if (feedbackSlot && feedbackSlot.appendChild) feedbackSlot.appendChild(btnProceed);
+        } else if (choice === DECISION_CHOICES.EVACUATE) {
+          const btnProceed = document.createElement("button");
+          btnProceed.id = "btn-decision-proceed";
+          btnProceed.className = "btn-decision-proceed";
+          btnProceed.style.cssText = "margin-top:0.8rem;padding:0.8rem 1.4rem;background:#ef4444;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;box-shadow:0 0 12px rgba(239,68,68,0.4);";
+          btnProceed.textContent = "🚨 Confirm Evacuation Order ➜";
+          btnProceed.addEventListener("click", () => {
+            dismissWebXRDiag();
+            _updateWebXRDiag("Proceed to Evacuation Route Confirmation");
+            const decPanel = document.getElementById("fire-decision-panel");
+            if (decPanel && decPanel.remove) decPanel.remove();
+            _showEvacuateConfirmationWebXR(container, overlay, reading);
+          });
+          if (feedbackSlot && feedbackSlot.appendChild) feedbackSlot.appendChild(btnProceed);
+        }
+      }
+    });
+  } catch (err) {
+    _updateWebXRDiag("Decision Wheel Render Threw Error", err);
+    throw err;
+  }
+}
+
+// show pull station in 3d and wait for worker to yank alarm
+function _showAlarmPullStationWebXR(container, overlay, onDone) {
+  _currentStep = 1;
+  _currentBranch = "suppress";
+  _updateWebXRDiag("Branch B: 3D Alarm Pull Station Active");
+  logger.info({ event: "webxr_fire_alarm_start", branch: "suppress" }, "Alarm pull station active (WebXR)");
+  _showAimCrosshair(container);
+
+  let alarmPlaced = false;
+  let pulled = false;
+
+  if (!_alarmMesh && _controller && typeof _controller.addToScene === "function") {
+    _alarmMesh = createAlarmStationMesh({ position: { x: 0, y: 1.15, z: -1.2 } });
+    if (_alarmMesh) {
+      _controller.addToScene(_alarmMesh);
+      _ensureFrameHandler();
+    }
+  }
+
+  // live preview frame handler: hit test walls or project forward
+  if (_controller && typeof _controller.onFrame === "function") {
+    _alarmPlacementFrameHandler = ({ frame, referenceSpace }) => {
+      if (alarmPlaced || !_alarmMesh) return;
+      const { pos, isVertical } = _computePlacementPose(frame, referenceSpace, 1.2, true, 1.15, -0.35);
+      if (pos && _alarmMesh.position && _alarmMesh.position.set) {
+        _alarmMesh.position.set(pos.x, pos.y, pos.z);
+        const camera = _controller.getCamera ? _controller.getCamera() : null;
+        if (camera && camera.position && typeof _alarmMesh.lookAt === "function") {
+          _alarmMesh.lookAt(camera.position.x, _alarmMesh.position.y, camera.position.z);
+        }
+      }
+      const statusEl = document.getElementById("alarm-status-hint");
+      if (statusEl && isVertical && !statusEl.dataset.wallDetected) {
+        statusEl.dataset.wallDetected = "true";
+        statusEl.style.color = "#2f9e63";
+        statusEl.textContent = t("fire.alarm_wall_found", "Wall surface detected! Tap screen or alarm to lock.");
+      }
+    };
+    _controller.onFrame(_alarmPlacementFrameHandler);
+  }
+
+  const triggerPull = () => {
+    if (pulled) return;
+    pulled = true;
+    alarmPlaced = true;
+    _alarmPulled = true;
+    _hideAimCrosshair();
+    logger.info({ event: "webxr_fire_alarm_pulled", branch: "suppress" }, "Fire alarm station pulled (WebXR)");
+    _updateWebXRDiag("Alarm Station Pulled -> Sounded");
+
+    if (_alarmPlacementFrameHandler && _controller && typeof _controller.offFrame === "function") {
+      _controller.offFrame(_alarmPlacementFrameHandler);
+      _alarmPlacementFrameHandler = null;
+    }
+    if (_alarmPointerTapHandler && typeof window !== "undefined") {
+      window.removeEventListener("pointerdown", _alarmPointerTapHandler);
+      window.removeEventListener("click", _alarmPointerTapHandler);
+      _alarmPointerTapHandler = null;
+    }
+
+    const btn = document.getElementById("btn-pull-alarm");
+    if (btn) {
+      btn.disabled = true;
+      btn.style.background = "#10b981";
+      btn.style.boxShadow = "0 0 16px rgba(16,185,129,0.4)";
+      btn.textContent = "✔ ALARM ACTIVATED! PREPARING EXTINGUISHER...";
+    }
+
+    fireCheckpointResult(
+      CP_EXIT_ID,
+      true,
+      { method: "alarm_pull_activated", reading: _methaneReading },
+      spatialAlignment({
+        anchorId: EXIT_ANCHOR_ID,
+        angularErrorRad: 0,
+        dwellMs: 500,
+        frameCount: 10,
+        trackingSource: "webxr_pose"
+      })
+    );
+
+    if (_alarmMesh && _controller && typeof _controller.removeFromScene === "function") {
+      _controller.removeFromScene(_alarmMesh);
+      _alarmMesh = null;
+    }
+
+    setTimeout(() => {
+      if (typeof onDone === "function") onDone();
+    }, 350);
+  };
+
+  const handleAlarmTap = (e) => {
+    if (pulled) return;
+    if (e && e.target && e.target.closest && e.target.closest("button")) return;
+
+    const hitAlarm = _raycastMesh(e, _alarmMesh);
+    if (hitAlarm) {
+      triggerPull();
+      return;
+    }
+
+    if (!alarmPlaced) {
+      alarmPlaced = true;
+      if (_alarmPlacementFrameHandler && _controller && typeof _controller.offFrame === "function") {
+        _controller.offFrame(_alarmPlacementFrameHandler);
+        _alarmPlacementFrameHandler = null;
+      }
+      const statusEl = document.getElementById("alarm-status-hint");
+      if (statusEl) {
+        statusEl.style.color = "#2f9e63";
+        statusEl.textContent = t("fire.alarm_mounted", "✔ Alarm mounted on wall! Tap 3D alarm directly (or press button below) to pull.");
+      }
+      _updateWebXRDiag("Alarm Station Anchored to Wall -> Ready to Pull");
+    }
+  };
+
+  _alarmPointerTapHandler = handleAlarmTap;
+  if (typeof window !== "undefined") {
+    window.addEventListener("pointerdown", _alarmPointerTapHandler);
+    window.addEventListener("click", _alarmPointerTapHandler);
+  }
+
+  if (overlay) {
+    overlay.innerHTML = "";
+    const hudCard = document.createElement("div");
+    hudCard.id = "fire-hud-card";
+    hudCard.className = "fire-hud-card";
+    hudCard.innerHTML = `
+      <div class="hud-eyebrow">🔔 STEP 1 / 3 — SOUND ALARM (BRANCH B)</div>
+      <div class="hud-title">Pull Fire Alarm Station</div>
+      <div class="hud-instruction">Methane is below 5.0% LEL. Before attacking the fire with an extinguisher, sound the mine section alarm to alert all miners!</div>
+      <div id="alarm-status-hint" style="margin:0.4rem 0 0.5rem 0;font-size:0.92rem;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">
+        ${t("fire.alarm_wall_hint", "Aim at wall/door and tap screen to mount alarm, or tap 3D model directly to pull.")}
+      </div>
+    `;
+    overlay.appendChild(hudCard);
+
+    const btn = document.createElement("button");
+    btn.id = "btn-pull-alarm";
+    btn.style.cssText = "margin-top:0.5rem;padding:0.9rem 1.6rem;background:#ef4444;color:#fff;border:none;border-radius:10px;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;box-shadow:0 0 16px rgba(239,68,68,0.4);";
+    btn.textContent = "🚨 PULL FIRE ALARM STATION";
+    btn.addEventListener("click", triggerPull);
+    overlay.appendChild(btn);
+  }
+}
+
+// show exit sign in 3d and confirm run path
+function _showEvacuateConfirmationWebXR(container, overlay, reading) {
+  dismissWebXRDiag();
+  if (!overlay) return;
+  _currentBranch = "evacuate";
+  _updateWebXRDiag(`Branch A Evacuation Active | Reading: ${reading}%`);
+
+  registerCheckpoint({
+    id: CP_EVACUATION_WEBXR_ID,
+    type: "select",
+    onTrigger: (detail) => {
+      logger.info({ event: "checkpoint_cb", id: detail.checkpointId, passed: detail.passed }, "Evac CP (WebXR)");
+    }
+  });
+
+  let exitPlaced = false;
+  let confirmed = false;
+  _showAimCrosshair(container);
+
+  if (!_exitMesh && _controller && typeof _controller.addToScene === "function") {
+    _exitMesh = createExitSignMesh({ position: { x: 0, y: 1.8, z: -1.8 } });
+    if (_exitMesh) {
+      _controller.addToScene(_exitMesh);
+      _ensureFrameHandler();
+    }
+  }
+
+  // live preview frame handler: detect door/wall or project forward
+  if (_controller && typeof _controller.onFrame === "function") {
+    _exitPlacementFrameHandler = ({ frame, referenceSpace }) => {
+      if (exitPlaced || !_exitMesh) return;
+      const { pos, isVertical } = _computePlacementPose(frame, referenceSpace, 1.8, true, 1.80, 0.30);
+      if (pos && _exitMesh.position && _exitMesh.position.set) {
+        _exitMesh.position.set(pos.x, pos.y, pos.z);
+        const camera = _controller.getCamera ? _controller.getCamera() : null;
+        if (camera && camera.position && typeof _exitMesh.lookAt === "function") {
+          _exitMesh.lookAt(camera.position.x, _exitMesh.position.y, camera.position.z);
+        }
+      }
+      const statusEl = document.getElementById("exit-status-hint");
+      if (statusEl && isVertical && !statusEl.dataset.wallDetected) {
+        statusEl.dataset.wallDetected = "true";
+        statusEl.style.color = "#2f9e63";
+        statusEl.textContent = t("fire.exit_door_found", "Door/wall surface detected! Tap screen or exit sign to lock.");
+      }
+    };
+    _controller.onFrame(_exitPlacementFrameHandler);
+  }
+
+  const confirmEvac = () => {
+    if (confirmed) return;
+    confirmed = true;
+    exitPlaced = true;
+    _hideAimCrosshair();
+
+    if (_exitPlacementFrameHandler && _controller && typeof _controller.offFrame === "function") {
+      _controller.offFrame(_exitPlacementFrameHandler);
+      _exitPlacementFrameHandler = null;
+    }
+    if (_exitPointerTapHandler && typeof window !== "undefined") {
+      window.removeEventListener("pointerdown", _exitPointerTapHandler);
+      window.removeEventListener("click", _exitPointerTapHandler);
+      _exitPointerTapHandler = null;
+    }
+
+    if (_exitMesh && _controller && typeof _controller.removeFromScene === "function") {
+      _controller.removeFromScene(_exitMesh);
+      _exitMesh = null;
+    }
+
+    fireCheckpointResult(
+      CP_EXIT_ID,
+      true,
+      { method: "branch_a_evacuate", measured: false, reading },
+      spatialAlignment({
+        anchorId: EXIT_ANCHOR_ID,
+        angularErrorRad: null,
+        dwellMs: 0,
+        frameCount: 0,
+        trackingSource: "webxr_pose"
+      })
+    );
+    fireCheckpointResult(
+      CP_EVACUATION_WEBXR_ID,
+      true,
+      { selected: "wind_based_upwind", branch: "evacuate", reading },
+      typeof selectionSingle === "function" ? selectionSingle("wind_based_upwind") : null
+    );
+    _showCompletionWebXR(overlay, container, true);
+  };
+
+  const handleExitTap = (e) => {
+    if (confirmed) return;
+    if (e && e.target && e.target.closest && e.target.closest("button")) return;
+
+    const hitExit = _raycastMesh(e, _exitMesh);
+    if (hitExit) {
+      confirmEvac();
+      return;
+    }
+
+    if (!exitPlaced) {
+      exitPlaced = true;
+      if (_exitPlacementFrameHandler && _controller && typeof _controller.offFrame === "function") {
+        _controller.offFrame(_exitPlacementFrameHandler);
+        _exitPlacementFrameHandler = null;
+      }
+      const statusEl = document.getElementById("exit-status-hint");
+      if (statusEl) {
+        statusEl.style.color = "#2f9e63";
+        statusEl.textContent = t("fire.exit_mounted", "✔ Route marked above door! Tap 3D exit sign or button below to confirm.");
+      }
+      _updateWebXRDiag("Exit Sign Anchored to Door/Wall -> Ready to Confirm");
+    }
+  };
+
+  _exitPointerTapHandler = handleExitTap;
+  if (typeof window !== "undefined") {
+    window.addEventListener("pointerdown", _exitPointerTapHandler);
+    window.addEventListener("click", _exitPointerTapHandler);
+  }
+
+  const isHigh = reading >= METHANE_EXPLOSIVE_THRESHOLD;
+  overlay.innerHTML = "";
+  const hudCard = document.createElement("div");
+  hudCard.id = "fire-hud-card";
+  hudCard.className = "fire-hud-card";
+  hudCard.innerHTML = `
+    <div class="hud-eyebrow">🚨 BRANCH A — IMMEDIATE EVACUATION</div>
+    <div class="hud-title">${isHigh ? "CRITICAL METHANE LEVEL (>= 5.0%)" : "PRECAUTIONARY EVACUATION"}</div>
+    <div class="hud-instruction">${isHigh ? "Atmosphere is explosive. Fire suppression is strictly forbidden under mining regulations. Follow emergency route immediately." : "Evacuation selected. Move promptly along marked emergency path to the nearest safe surface exit."}</div>
+    <div id="exit-status-hint" style="margin:0.4rem 0 0.5rem 0;font-size:0.92rem;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">
+      ${t("fire.exit_door_hint", "Aim at exit door / frame and tap to lock route, or tap 3D sign directly to confirm.")}
+    </div>
+  `;
+  overlay.appendChild(hudCard);
+
+  const btn = document.createElement("button");
+  btn.id = "btn-exit-found";
+  btn.style.cssText = "margin-top:0.6rem;padding:0.8rem 1.5rem;background:#2f9e63;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;";
+  btn.textContent = "✔ Confirm Evacuation Route";
+  btn.addEventListener("click", confirmEvac);
+  overlay.appendChild(btn);
+}
+
 // step 2: PASS technique interactions against world-space entities
 function _setupStep2WebXR(container) {
+  dismissWebXRDiag();
   _currentStep = 2;
+  _updateWebXRDiag("Step 2 PASS technique active");
   logger.info({ event: "webxr_fire_step_start", step: 2 }, "PASS technique (WebXR)");
 
   registerCheckpoint({
@@ -331,7 +1238,7 @@ function _setupStep2WebXR(container) {
   _showPinPhase(overlay, container);
 }
 
-// pin pull phase: tap to select pin, drag to pull
+// pin pull phase: tap or swipe to pull pin
 function _showPinPhase(overlay, container) {
   if (!overlay) return;
   overlay.innerHTML = `
@@ -341,40 +1248,85 @@ function _showPinPhase(overlay, container) {
   `;
   const btn = document.createElement("button");
   btn.id = "btn-webxr-pin-pull";
-  btn.style.cssText = "padding:0.8rem 1.5rem;background:#00b8d4;color:#fff;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
+  btn.style.cssText = "padding:0.75rem 0;background:transparent !important;color:#febc04;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);";
   btn.textContent = t("fire.pass_pull_badge_btn", "👉 SWIPE RIGHT OR TAP TO PULL PIN");
 
-  let dragStart = null;
+  let pinPulled = false;
+  const _cleanPinListeners = () => {
+    if (typeof window !== "undefined") {
+      window.removeEventListener("touchstart", onScreenTouchStart);
+      window.removeEventListener("touchend", onScreenTouchEnd);
+      window.removeEventListener("mousedown", onScreenTouchStart);
+      window.removeEventListener("mouseup", onScreenTouchEnd);
+    }
+  };
 
+  const doPull = () => {
+    if (pinPulled) return;
+    pinPulled = true;
+    _cleanPinListeners();
+    _onPinPulled(overlay, container);
+  };
+
+  let dragStart = null;
+  btn.addEventListener("click", () => doPull());
   btn.addEventListener("touchstart", (e) => {
     const touch = e.touches[0];
     if (touch) dragStart = { x: touch.clientX, y: touch.clientY };
+  }, { passive: true });
+  btn.addEventListener("touchend", (e) => {
+    const touch = e.changedTouches ? e.changedTouches[0] : null;
+    if (touch && dragStart) {
+      const dx = touch.clientX - dragStart.x;
+      const dist = calcDragDistance(dragStart, { x: touch.clientX, y: touch.clientY });
+      if (dx > 25 || dist < 20 || isPinPullComplete(dist)) {
+        doPull();
+        return;
+      }
+    }
+    doPull();
   });
   btn.addEventListener("mousedown", (e) => {
     dragStart = { x: e.clientX, y: e.clientY };
   });
+  btn.addEventListener("mouseup", (e) => {
+    if (dragStart) {
+      const dx = e.clientX - dragStart.x;
+      const dist = calcDragDistance(dragStart, { x: e.clientX, y: e.clientY });
+      if (dx > 25 || dist < 20 || isPinPullComplete(dist)) {
+        doPull();
+        return;
+      }
+    }
+    doPull();
+  });
 
-  const checkPull = (endPos) => {
-    if (!dragStart) {
-      // simple tap — treat as pull
-      _onPinPulled(overlay, container);
-      return;
+  // screen swipe / tap detection on window
+  let windowTouchStart = null;
+  const onScreenTouchStart = (e) => {
+    const touch = e.touches ? e.touches[0] : e;
+    if (touch) {
+      windowTouchStart = { x: touch.clientX, y: touch.clientY };
     }
-    const dist = calcDragDistance(dragStart, endPos);
-    if (isPinPullComplete(dist)) {
-      _onPinPulled(overlay, container);
+  };
+  const onScreenTouchEnd = (e) => {
+    const touch = e.changedTouches ? e.changedTouches[0] : (e.clientX ? e : null);
+    if (touch && windowTouchStart) {
+      const dx = touch.clientX - windowTouchStart.x;
+      const dist = calcDragDistance(windowTouchStart, { x: touch.clientX, y: touch.clientY });
+      if (dx > 25 || dist < 20) {
+        doPull();
+      }
     }
-    dragStart = null;
+    windowTouchStart = null;
   };
 
-  btn.addEventListener("touchend", (e) => {
-    const touch = e.changedTouches[0];
-    if (touch) checkPull({ x: touch.clientX, y: touch.clientY });
-    else _onPinPulled(overlay, container);
-  });
-  btn.addEventListener("mouseup", (e) => {
-    checkPull({ x: e.clientX, y: e.clientY });
-  });
+  if (typeof window !== "undefined") {
+    window.addEventListener("touchstart", onScreenTouchStart, { passive: true });
+    window.addEventListener("touchend", onScreenTouchEnd, { passive: true });
+    window.addEventListener("mousedown", onScreenTouchStart);
+    window.addEventListener("mouseup", onScreenTouchEnd);
+  }
 
   overlay.appendChild(btn);
 }
@@ -387,6 +1339,10 @@ function _onPinPulled(overlay, container) {
   if (_extMesh && _extMesh.userData) {
     const pin = _extMesh.getObjectByName("extinguisher-pin");
     if (pin) pin.visible = false;
+    const arrow = _extMesh.getObjectByName("extinguisher-guide-arrow");
+    if (arrow) arrow.visible = false;
+    const ring = _extMesh.getObjectByName("ext-pin-ring");
+    if (ring) ring.visible = false;
     _extMesh.userData._pinPulled = true;
   }
 
@@ -397,6 +1353,7 @@ function _onPinPulled(overlay, container) {
 // aim phase: point device at fire base, hold steady
 function _showAimPhase(overlay, container) {
   if (!overlay) return;
+  _showAimCrosshair(container);
 
   let aimStartMs = 0;
   let aimActive = false;
@@ -406,15 +1363,14 @@ function _showAimPhase(overlay, container) {
     <div class="hud-eyebrow">${t("fire.pass_aim_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (2/4)")}</div>
     <div class="hud-title">${t("fire.pass_aim_title", "A — Aim at Base of Fire")}</div>
     <div class="hud-instruction">${t("fire.pass_aim_desc", "Point your device directly at the base of the fire. Hold steady for 0.8 seconds.")}</div>
-    <div id="aim-progress-bar" style="width:100%;max-width:320px;height:8px;background:#1e293b;border-radius:4px;overflow:hidden;margin-top:0.5rem;">
-      <div id="aim-progress-fill" class="hud-meter__fill"></div>
+    <div id="aim-progress-bar" style="width:100%;max-width:320px;height:8px;background:rgba(30,41,59,0.7);border-radius:4px;overflow:hidden;margin-top:0.5rem;">
+      <div id="aim-progress-fill" style="width:0%;height:100%;background:#2f9e63;transition:width 0.1s;"></div>
     </div>
   `;
 
   // raycaster for aim detection against fire mesh
   const THREE = typeof window !== "undefined" && window.THREE;
   if (!THREE || !_fireMesh || !_controller) {
-    // fallback: skip to button-based aim
     _showAimFallback(overlay, container);
     return;
   }
@@ -437,14 +1393,13 @@ function _showAimPhase(overlay, container) {
     let hitDistance = null;
 
     if (intersects.length > 0) {
-      // compute distance to fire base center in world space
       const hitPoint = intersects[0].point;
       const baseWorldPos = new THREE.Vector3();
       if (targetBase) {
         targetBase.getWorldPosition(baseWorldPos);
       } else {
         baseWorldPos.copy(_fireMesh.position);
-        baseWorldPos.y += 0.85 * _fireMesh.scale.y;
+        baseWorldPos.y += 0.12 * _fireMesh.scale.y;
       }
       hitDistance = hitPoint.distanceTo(baseWorldPos);
     }
@@ -488,9 +1443,10 @@ function _showAimFallback(overlay, container) {
   if (!overlay) return;
   const btn = document.createElement("button");
   btn.id = "btn-webxr-aim-confirm";
-  btn.className = "hud-btn hud-btn--done";
+  btn.style.cssText = "margin-top:0.6rem;padding:0.75rem 0;background:transparent !important;color:#2f9e63;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);";
   btn.textContent = t("fire.pass_aim_btn", "🎯 I'm aiming at the base");
   btn.addEventListener("click", () => {
+    _hideAimCrosshair();
     if (_controller && _aimFrameHandler) {
       _controller.offFrame(_aimFrameHandler);
       _aimFrameHandler = null;
@@ -504,6 +1460,7 @@ function _showAimFallback(overlay, container) {
 // hitDistanceM is null unless a real raycast produced it. the fallback button
 // measures nothing, and the server scores a null distance zero.
 function _onAimComplete(overlay, container, accuracy, hitDistanceM = null, frameCount = 0, dwellMs = 0) {
+  _hideAimCrosshair();
   if (_interactionState) {
     _interactionState.phase = "squeeze";
     _interactionState.aimAccuracy = accuracy;
@@ -526,17 +1483,20 @@ function _showSqueezePhase(overlay, container, aimAccuracy) {
     <div class="hud-eyebrow">${t("fire.pass_squeeze_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (3/4)")}</div>
     <div class="hud-title">${t("fire.pass_squeeze_title", "S — Squeeze the Handle")}</div>
     <div class="hud-instruction">${t("fire.pass_squeeze_desc", "Press and hold the button below for 1.5 seconds to discharge the extinguisher.")}</div>
-    <div id="squeeze-progress-bar" style="width:100%;max-width:320px;height:8px;background:#1e293b;border-radius:4px;overflow:hidden;margin-top:0.5rem;">
+    <div id="squeeze-progress-bar" style="width:100%;max-width:320px;height:8px;background:rgba(30,41,59,0.7);border-radius:4px;overflow:hidden;margin-top:0.5rem;">
       <div id="squeeze-progress-fill" style="width:0%;height:100%;background:#f59e0b;transition:width 0.05s;"></div>
     </div>
   `;
 
   const btn = document.createElement("button");
   btn.id = "btn-webxr-squeeze";
-  btn.style.cssText = "margin-top:0.8rem;padding:0.9rem 1.5rem;background:#f59e0b;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;user-select:none;";
+  btn.style.cssText = "margin-top:0.6rem;padding:0.75rem 0;background:transparent !important;color:#f59e0b;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;user-select:none;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);";
   btn.textContent = t("fire.pass_squeeze_btn", "👇 HOLD TO SQUEEZE (1.5s)");
 
   const startHold = () => {
+    if (_extMesh && _extMesh.userData) {
+      _extMesh.userData._discharging = true;
+    }
     squeezeStart = Date.now();
     squeezeTimer = setInterval(() => {
       const elapsed = Date.now() - squeezeStart;
@@ -547,6 +1507,9 @@ function _showSqueezePhase(overlay, container, aimAccuracy) {
       if (isSqueezeComplete(elapsed, 1500)) {
         clearInterval(squeezeTimer);
         squeezeTimer = null;
+        if (_extMesh && _extMesh.userData) {
+          _extMesh.userData._discharging = false;
+        }
         logger.info({ event: "webxr_squeeze_complete", elapsed }, "Squeeze done (WebXR)");
         _onSqueezeComplete(overlay, container, aimAccuracy);
       }
@@ -557,6 +1520,9 @@ function _showSqueezePhase(overlay, container, aimAccuracy) {
     if (squeezeTimer) {
       clearInterval(squeezeTimer);
       squeezeTimer = null;
+    }
+    if (_extMesh && _extMesh.userData) {
+      _extMesh.userData._discharging = false;
     }
     const fill = document.getElementById("squeeze-progress-fill");
     if (fill) fill.style.width = "0%";
@@ -581,35 +1547,57 @@ function _onSqueezeComplete(overlay, container, aimAccuracy) {
 // sweep phase: move device side to side
 function _showSweepPhase(overlay, container, aimAccuracy) {
   if (!overlay) return;
+  _showAimCrosshair(container);
   overlay.innerHTML = `
-    <div class="hud-eyebrow">${t("fire.pass_sweep_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (4/4)")}</div>
-    <div class="hud-title">${t("fire.pass_sweep_title", "S — Sweep Side to Side")}</div>
-    <div class="hud-instruction">${t("fire.pass_sweep_desc", "Move your device left and right to sweep the fire base. Cover at least 75% of the fire width.")}</div>
-    <div id="sweep-progress-bar" style="width:100%;max-width:320px;height:8px;background:#1e293b;border-radius:4px;overflow:hidden;margin-top:0.5rem;">
-      <div id="sweep-progress-fill" style="width:0%;height:100%;background:#06b6d4;transition:width 0.1s;"></div>
+    <div class="fire-hud-card">
+      <div class="hud-eyebrow">${t("fire.pass_sweep_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (4/4)")}</div>
+      <div class="hud-title">${t("fire.pass_sweep_title", "S — Sweep Side to Side")}</div>
+      <div class="hud-instruction">${t("fire.pass_sweep_desc", "Move your device left and right to sweep the fire base. Cover at least 75% of the fire width.")}</div>
+      <div id="sweep-progress-bar" style="width:100%;height:8px;background:rgba(30,41,59,0.7);border-radius:4px;overflow:hidden;margin-top:0.5rem;">
+        <div id="sweep-progress-fill" style="width:0%;height:100%;background:#06b6d4;transition:width 0.1s;"></div>
+      </div>
     </div>
   `;
 
   const sweepSamples = [];
 
-  // use webxr camera pose x-position for sweep tracking (real 6DOF motion)
-  _sweepFrameHandler = ({ pose }) => {
-    if (!pose || !pose.transform) return;
-    const cameraX = pose.transform.position.x;
-    sweepSamples.push(cameraX);
+  // discharge white gas particles during sweeping
+  if (_extMesh && _extMesh.userData) {
+    _extMesh.userData._discharging = true;
+  }
 
+  let touchSweepHandler = null;
+  const cleanupSweepTouch = () => {
+    if (touchSweepHandler && typeof window !== "undefined") {
+      window.removeEventListener("touchmove", touchSweepHandler);
+      window.removeEventListener("pointermove", touchSweepHandler);
+      touchSweepHandler = null;
+    }
+  };
+
+  const processSweep = () => {
     const coverage = calcMotionSweepCoverage(sweepSamples);
+    if (_fireMesh && _fireMesh.userData) {
+      _fireMesh.userData.extinguishProgress = coverage;
+    }
     const fill = document.getElementById("sweep-progress-fill");
     if (fill) fill.style.width = `${Math.round(coverage * 100)}%`;
 
     if (isSweepComplete(coverage)) {
+      _hideAimCrosshair();
       if (_controller && _sweepFrameHandler) {
         _controller.offFrame(_sweepFrameHandler);
         _sweepFrameHandler = null;
       }
+      cleanupSweepTouch();
+      if (_extMesh && _extMesh.userData) {
+        _extMesh.userData._discharging = false;
+      }
+      if (_fireMesh && _fireMesh.userData) {
+        _fireMesh.userData.extinguishProgress = 1.0;
+      }
       logger.info({ event: "webxr_sweep_complete", coverage, sampleCount: sweepSamples.length }, "Sweep done (WebXR)");
 
-      // fire step 2 checkpoint with aim accuracy
       const passed = aimAccuracy >= AIM_PASS_THRESHOLD;
       fireCheckpointResult(
         CP_EXTINGUISHER_ID,
@@ -634,19 +1622,73 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
     }
   };
 
+  // 1. WebXR camera pose tracking combining 6DOF translation and yaw rotation
+  const THREE = typeof window !== "undefined" && window.THREE;
+  let prevYaw = null;
+  let accumYaw = 0;
+
+  _sweepFrameHandler = ({ pose }) => {
+    if (!pose || !pose.transform) return;
+    const cameraX = pose.transform.position.x;
+
+    let yawDelta = 0;
+    if (THREE && pose.transform.orientation) {
+      const q = new THREE.Quaternion(
+        pose.transform.orientation.x,
+        pose.transform.orientation.y,
+        pose.transform.orientation.z,
+        pose.transform.orientation.w
+      );
+      const euler = new THREE.Euler().setFromQuaternion(q, "YXZ");
+      if (prevYaw !== null) {
+        let diff = euler.y - prevYaw;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        accumYaw += diff;
+      }
+      prevYaw = euler.y;
+      yawDelta = accumYaw * 0.45;
+    }
+
+    const combinedSample = cameraX + yawDelta;
+    sweepSamples.push(combinedSample);
+    processSweep();
+  };
+
   if (_controller) {
     _controller.onFrame(_sweepFrameHandler);
   }
 
-  // fallback button in case motion tracking isn't working
+  // 2. Touch screen sweep fallback
+  if (typeof window !== "undefined") {
+    touchSweepHandler = (e) => {
+      const touch = e.touches ? e.touches[0] : e;
+      if (!touch) return;
+      const screenSpan = ((touch.clientX / window.innerWidth) - 0.5) * 0.6;
+      sweepSamples.push(screenSpan);
+      processSweep();
+    };
+    window.addEventListener("touchmove", touchSweepHandler, { passive: true });
+    window.addEventListener("pointermove", touchSweepHandler, { passive: true });
+  }
+
+  // fallback skip button
   const btn = document.createElement("button");
   btn.id = "btn-webxr-sweep-skip";
-  btn.style.cssText = "margin-top:1rem;padding:0.6rem 1rem;background:rgba(203, 209, 216, 0.18);color:#a7adb5;border:1px solid #475569;border-radius:8px;font-size:0.85rem;cursor:pointer;display:block;width:100%;max-width:320px;";
+  btn.style.cssText = "margin-top:0.8rem;padding:0.5rem 0;background:transparent !important;color:#94a3b8;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:0.85rem;cursor:pointer;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000;";
   btn.textContent = "Skip (if motion not detected)";
   btn.addEventListener("click", () => {
+    _hideAimCrosshair();
     if (_controller && _sweepFrameHandler) {
       _controller.offFrame(_sweepFrameHandler);
       _sweepFrameHandler = null;
+    }
+    cleanupSweepTouch();
+    if (_extMesh && _extMesh.userData) {
+      _extMesh.userData._discharging = false;
+    }
+    if (_fireMesh && _fireMesh.userData) {
+      _fireMesh.userData.extinguishProgress = 1.0;
     }
     const passed = aimAccuracy >= AIM_PASS_THRESHOLD;
     // the sweep was skipped, so no coverage was observed. null, not 1.0.
@@ -673,10 +1715,28 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
   overlay.appendChild(btn);
 }
 
-// step 3: evacuation route selection (pure DOM, same as tier 2)
+// step 3: evacuation route selection with 3d exit sign
 function _setupStep3WebXR(container, _step2Passed) {
   _currentStep = 3;
   logger.info({ event: "webxr_fire_step_start", step: 3 }, "Evacuation (WebXR)");
+  _showAimCrosshair(container);
+
+  if (_fireMesh && _controller && typeof _controller.removeFromScene === "function") {
+    _controller.removeFromScene(_fireMesh);
+    _fireMesh = null;
+  }
+  if (_extMesh && _controller && typeof _controller.removeFromScene === "function") {
+    _controller.removeFromScene(_extMesh);
+    _extMesh = null;
+  }
+
+  if (!_exitMesh && _controller && typeof _controller.addToScene === "function") {
+    _exitMesh = createExitSignMesh({ position: { x: 0, y: 1.8, z: -1.8 } });
+    if (_exitMesh) {
+      _controller.addToScene(_exitMesh);
+      _ensureFrameHandler();
+    }
+  }
 
   registerCheckpoint({
     id: CP_EVACUATION_WEBXR_ID,
@@ -698,15 +1758,23 @@ function _setupStep3WebXR(container, _step2Passed) {
   ];
 
   overlay.innerHTML = `
-    <div class="hud-eyebrow">${t("fire.evac_badge_3", "🔥 STEP 3 / 3 — EVACUATION ROUTE")}</div>
-    <div class="hud-title">${t("fire.evac_title_3", "Choose Safest Evacuation Path")}</div>
-    <div class="hud-instruction">${t("fire.evac_desc_3", "After using the extinguisher, you must evacuate. Select the safest option:")}</div>
+    <div class="fire-hud-card">
+      <div class="hud-eyebrow">${t("fire.evac_badge_3", "🔥 STEP 3 / 3 — EVACUATION ROUTE")}</div>
+      <div class="hud-title">${t("fire.evac_title_3", "Choose Safest Evacuation Path")}</div>
+      <div class="hud-instruction">${t("fire.evac_desc_3", "After using the extinguisher, you must evacuate. Select the safest option:")}</div>
+      <div id="webxr-evac-options" style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.4rem;width:100%;"></div>
+    </div>
   `;
 
-  const wrapper = document.createElement("div");
-  wrapper.style.cssText = "display:flex;flex-direction:column;gap:0.5rem;margin-top:0.5rem;";
+  const wrapper = overlay.querySelector("#webxr-evac-options") || overlay;
 
   const onSelect = (id, correct) => {
+    _hideAimCrosshair();
+    if (_exitMesh && _controller && typeof _controller.removeFromScene === "function") {
+      _controller.removeFromScene(_exitMesh);
+      _exitMesh = null;
+    }
+
     fireCheckpointResult(
       CP_EVACUATION_WEBXR_ID,
       correct,
@@ -722,45 +1790,133 @@ function _setupStep3WebXR(container, _step2Passed) {
     btn.id = `evacuation-opt-${id}`;
     btn.dataset.optionId = id;
     btn.style.cssText = [
-      "padding:0.7rem 0.5rem", "border-radius:8px",
-      "border:1px solid rgba(203, 209, 216, 0.22)", "background:rgba(17, 19, 21, 0.86)",
-      "color:#fff", "cursor:pointer", "font-size:0.9rem"
+      "padding:0.65rem 0", "border-radius:0",
+      "border:none !important", "outline:none !important", "background:transparent !important",
+      "color:#ff9800", "cursor:pointer", "font-size:0.92rem",
+      "font-weight:600", "line-height:1.3", "box-shadow:none !important",
+      "text-align:left", "text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95)"
     ].join(";");
     btn.textContent = label;
     btn.addEventListener("click", () => onSelect(id, id === CORRECT));
     wrapper.appendChild(btn);
   });
 
+  const handleStep3ExitTap = (e) => {
+    if (e && e.target && e.target.closest && e.target.closest("button")) return;
+    const hitExit = _raycastMesh(e, _exitMesh);
+    if (hitExit) {
+      if (_step3ExitTapHandler && typeof window !== "undefined") {
+        window.removeEventListener("pointerdown", _step3ExitTapHandler);
+        window.removeEventListener("click", _step3ExitTapHandler);
+        _step3ExitTapHandler = null;
+      }
+      onSelect(CORRECT, true);
+    }
+  };
+
+  _step3ExitTapHandler = handleStep3ExitTap;
+  if (typeof window !== "undefined") {
+    window.addEventListener("pointerdown", _step3ExitTapHandler);
+    window.addEventListener("click", _step3ExitTapHandler);
+  }
+
   overlay.appendChild(wrapper);
 }
 
-// completion screen
-function _showCompletionWebXR(overlay, container, passed) {
+// draw final safety log card with mines act compliance
+function _renderDebriefCardWebXR(overlay, passed = true) {
   if (!overlay) return;
-  overlay.innerHTML = `
-    <div class="hud-title" style="color:${passed ? "#2f9e63" : "#e04a3f"}">
-      ${passed ? t("cert.passed", "✔ Module Complete — All Steps Passed") : t("cert.review_needed", "✖ Module Complete — Review Needed")}
+  const existing = document.getElementById("debrief-summary-card");
+  if (existing && existing.remove) existing.remove();
+
+  const reading = typeof _methaneReading === "number" ? _methaneReading : 0;
+  const isExplosive = reading >= METHANE_EXPLOSIVE_THRESHOLD;
+  const card = document.createElement("div");
+  card.id = "debrief-summary-card";
+  card.style.cssText = [
+    "background:#0f172a", "border:2px solid " + (isExplosive ? "#ef4444" : "#10b981"),
+    "border-radius:10px", "padding:0.5rem 0.65rem", "margin:0 auto",
+    "width:100%", "max-width:min(600px, calc(100vw - 1rem))",
+    "color:#fff", "box-shadow:0 4px 14px rgba(0,0,0,0.5)",
+    "box-sizing:border-box", "overflow:hidden", "word-break:break-word"
+  ].join(";");
+
+  const branchLabel = _currentBranch === "evacuate"
+    ? "Branch A (Immediate Evacuation)"
+    : (_currentBranch === "suppress" ? "Branch B (Alarm & Suppression Drill)" : "Standard Sequence");
+
+  const alarmStatus = _alarmPulled ? "✔ Sounded & Activated" : (_currentBranch === "evacuate" ? "N/A (Evacuated Immediately)" : "Completed");
+
+  card.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.25rem;gap:0.4rem;flex-wrap:wrap;">
+      <div style="font-size:0.75rem;font-weight:bold;color:${isExplosive ? "#f87171" : "#34d399"};letter-spacing:0.5px;min-width:0;overflow:hidden;text-overflow:ellipsis;">📋 DRILL DEBRIEF &amp; MINE SAFETY LOG</div>
+      <div style="font-size:0.72rem;font-weight:bold;color:${passed ? "#10b981" : "#f59e0b"};background:rgba(30,41,59,0.9);padding:2px 8px;border-radius:8px;border:1px solid ${passed ? "rgba(16,185,129,0.3)" : "rgba(245,158,11,0.3)"};white-space:nowrap;flex-shrink:0;">
+        ${passed ? "✔ PASSED" : "REVIEW NEEDED"}
+      </div>
     </div>
-    <div style="font-size:0.92rem;color:#d5d9de;margin-bottom:0.8rem;">
-      ${passed ? t("fire.complete_pass_desc", "Excellent work! You completed the PASS fire extinguisher technique correctly.") : t("fire.complete_fail_desc", "Some steps need improvement. Review the PASS technique and try again.")}
+    <div class="debrief-kpi-grid" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0.35rem;margin:0.3rem 0;font-size:0.76rem;width:100%;box-sizing:border-box;">
+      <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;min-width:0;overflow:hidden;box-sizing:border-box;">
+        <span style="color:#94a3b8;display:block;font-size:0.68rem;">Methane Level:</span>
+        <strong style="color:${isExplosive ? "#ef4444" : "#10b981"};display:block;word-break:break-word;overflow-wrap:break-word;">${reading.toFixed(1)}% CH₄ (${isExplosive ? "EXPLOSIVE" : "SAFE/INCIPIENT"})</strong>
+      </div>
+      <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;min-width:0;overflow:hidden;box-sizing:border-box;">
+        <span style="color:#94a3b8;display:block;font-size:0.68rem;">Action Taken:</span>
+        <strong style="display:block;word-break:break-word;overflow-wrap:break-word;">${branchLabel}</strong>
+      </div>
+      <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;min-width:0;overflow:hidden;box-sizing:border-box;">
+        <span style="color:#94a3b8;display:block;font-size:0.68rem;">Alarm Station:</span>
+        <strong style="display:block;word-break:break-word;overflow-wrap:break-word;">${alarmStatus}</strong>
+      </div>
+      <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;min-width:0;overflow:hidden;box-sizing:border-box;">
+        <span style="color:#94a3b8;display:block;font-size:0.68rem;">Evacuation Status:</span>
+        <strong style="color:#10b981;display:block;word-break:break-word;overflow-wrap:break-word;">✔ Safe Exit Reached</strong>
+      </div>
+    </div>
+    <div style="font-size:0.71rem;color:#cbd5e1;line-height:1.3;margin:0.25rem 0 0.35rem 0;word-break:break-word;overflow-wrap:break-word;">
+      ${isExplosive
+        ? t("fire.training_feedback_explosive", "Training feedback: Trainee recognized explosive atmosphere above 5.0% LEL and executed immediate evacuation without risking secondary blast.")
+        : t("fire.training_feedback_standard", "Training feedback: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit.")
+      }
     </div>
   `;
 
   const btnExit = document.createElement("button");
   btnExit.id = "btn-exit-module";
-  btnExit.className = "hud-btn hud-btn--quiet";
-  btnExit.textContent = t("app.exit_module", "✖ Exit Module");
+  btnExit.className = "safear-btn-exit";
+  btnExit.style.cssText = [
+    "display:block", "width:100%", "padding:0.6rem 1rem",
+    "background:#10b981 !important", "color:#ffffff !important",
+    "border:none !important", "border-radius:8px !important",
+    "font-size:0.95rem !important", "font-weight:bold !important",
+    "cursor:pointer !important", "text-align:center !important",
+    "box-shadow:0 0 14px rgba(16,185,129,0.35) !important",
+    "letter-spacing:0.5px !important", "margin-top:0.3rem !important"
+  ].join(";");
+  btnExit.textContent = "✔ Finish & Exit Drill";
   btnExit.addEventListener("click", () => {
     cleanupWebXRFireModule();
     unloadModule();
   });
-  overlay.appendChild(btnExit);
+  card.appendChild(btnExit);
 
+  overlay.appendChild(card);
+}
+
+// completion screen
+function _showCompletionWebXR(overlay, container, passed) {
+  _hideAimCrosshair();
+  dismissWebXRDiag();
+  if (!overlay) return;
+  overlay.style.padding = "0.5rem";
+  overlay.style.boxSizing = "border-box";
+  _updateWebXRDiag(`Module Complete | Passed: ${passed}`);
+  overlay.innerHTML = "";
+  _renderDebriefCardWebXR(overlay, passed);
   logger.info({ event: "webxr_fire_module_complete", passed }, "Fire module complete (WebXR)");
 }
 
 // entry point for tier 1 webxr fire module
-function startFireModuleWebXR(container, controller) {
+function startFireModuleWebXR(container, controller, options = {}) {
   _currentStep = 0;
   _controller = controller;
   logger.info({ event: "webxr_fire_module_start" }, "Fire module starting (WebXR Tier 1)");
@@ -768,12 +1924,79 @@ function startFireModuleWebXR(container, controller) {
   cleanupWebXRFireModule();
   _controller = controller;
 
+  if (options && typeof options.reading === "number" && !isNaN(options.reading)) {
+    _methaneReading = options.reading;
+  } else {
+    _methaneReading = generateMethaneReading();
+  }
+
+  _initDiagErrorTraps();
+  _updateWebXRDiag(`Module Start (Tier 1 WebXR) | Reading: ${_methaneReading}%`);
+
+  // initialize orientation recommendation toast for portrait view
+  _orientationNudge = initOrientationNudge(container);
+
   _createOverlay(container, "<div>Loading Fire & Explosion Response (WebXR)...</div>");
   _setupStep1WebXR(container);
+}
+
+// read methane gas concentration
+function getMethaneReadingWebXR() {
+  return _methaneReading;
+}
+
+// set methane gas concentration for testing
+function setMethaneReadingWebXR(val) {
+  _methaneReading = typeof val === "number" && !isNaN(val) ? val : 0;
+}
+
+// get active scenario branch
+function getActiveBranchWebXR() {
+  return _currentBranch;
+}
+
+// read trainee decision
+function getDecisionMadeWebXR() {
+  return _decisionMade;
+}
+
+// tell caller if alarm was pulled
+function getAlarmPulledWebXR() {
+  return _alarmPulled;
 }
 
 export {
   startFireModuleWebXR,
   cleanupWebXRFireModule,
-  getCurrentStepWebXR
+  getCurrentStepWebXR,
+  dismissWebXRDiag,
+  isDiagHudVisibleWebXR,
+  setZoomScaleWebXR,
+  getZoomScaleWebXR,
+  getMethaneReadingWebXR,
+  setMethaneReadingWebXR,
+  getActiveBranchWebXR,
+  getDecisionMadeWebXR,
+  getAlarmPulledWebXR,
+  _showAimCrosshair,
+  _hideAimCrosshair,
+  _renderDebriefCardWebXR,
+  _setupStep3WebXR,
+  _showAlarmPullStationWebXR,
+  _showEvacuateConfirmationWebXR,
+  createExitSignMesh,
+  createAlarmStationMesh,
+  animateExitSignMesh,
+  animateAlarmStationMesh,
+  renderDecisionWheel,
+  renderAlertFlash,
+  renderGasGaugeSvg,
+  generateMethaneReading,
+  isCorrectDecision,
+  getDecisionExplanation,
+  CP_DECISION_ID,
+  DECISION_CHOICES,
+  METHANE_EXPLOSIVE_THRESHOLD,
+  _computePlacementPose,
+  _raycastMesh
 };

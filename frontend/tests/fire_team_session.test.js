@@ -1,0 +1,1096 @@
+import { describe, it, beforeEach, afterEach, mock } from "node:test";
+import assert from "node:assert";
+
+// minimal event bus for safear events
+const _listeners = {};
+globalThis.window = {
+  dispatchEvent(ev) {
+    (_listeners[ev.type] || []).forEach((fn) => fn(ev));
+  },
+  addEventListener(type, fn) {
+    if (!_listeners[type]) _listeners[type] = [];
+    _listeners[type].push(fn);
+  },
+  removeEventListener(type, fn) {
+    if (!_listeners[type]) return;
+    _listeners[type] = _listeners[type].filter((f) => f !== fn);
+  },
+  location: {
+    protocol: "http:",
+    host: "localhost:3000"
+  }
+};
+
+const _progressStore = {};
+globalThis.localStorage = {
+  getItem(key) { return Object.prototype.hasOwnProperty.call(_progressStore, key) ? _progressStore[key] : null; },
+  setItem(key, value) { _progressStore[key] = String(value); },
+  removeItem(key) { delete _progressStore[key]; }
+};
+
+// element store for stubbed dom
+const _elements = {};
+
+// clean element and all kids out of element dictionary
+function _unregisterElement(el) {
+  if (el && el.id && _elements[el.id] === el) {
+    delete _elements[el.id];
+  }
+  if (el && Array.isArray(el.children)) {
+    el.children.forEach(_unregisterElement);
+  }
+}
+
+// make fake element for dom tree
+function _makeEl(initId) {
+  let _id = initId;
+  const el = {
+    get id() { return _id; },
+    set id(newId) {
+      if (_id && _elements[_id] === el) delete _elements[_id];
+      _id = newId;
+      if (newId) _elements[newId] = el;
+    },
+    tagName: "div",
+    value: "",
+    disabled: false,
+    textContent: "",
+    _innerHTML: "",
+    get innerHTML() {
+      return this._innerHTML;
+    },
+    set innerHTML(val) {
+      if (Array.isArray(this.children)) {
+        this.children.forEach(_unregisterElement);
+        this.children = [];
+      }
+      this._innerHTML = val;
+      this.textContent = val.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      // scan markup for ids and register child elements
+      const idRegex = /<([a-zA-Z0-9-]+)[^>]*id=["']([^"']+)["'][^>]*>([^<]*)/g;
+      let match;
+      while ((match = idRegex.exec(val)) !== null) {
+        const tag = match[1].toLowerCase();
+        const childId = match[2];
+        let child = _elements[childId];
+        if (!child) {
+          child = _makeEl(childId);
+          child.tagName = tag;
+          if (tag === "select") child.value = "alarm";
+        }
+        if (match[3]) child.textContent = match[3].trim();
+        this.appendChild(child);
+      }
+    },
+    style: { cssText: "" },
+    dataset: {},
+    children: [],
+    _attrs: {},
+    _listeners: {},
+    addEventListener(ev, fn) {
+      if (!this._listeners[ev]) this._listeners[ev] = [];
+      this._listeners[ev].push(fn);
+    },
+    removeEventListener(ev, fn) {
+      if (!this._listeners[ev]) return;
+      this._listeners[ev] = this._listeners[ev].filter((f) => f !== fn);
+    },
+    setAttribute(name, val) {
+      this[name] = val;
+      this._attrs[name] = val;
+    },
+    getAttribute(name) {
+      if (this._attrs[name] !== undefined) return this._attrs[name];
+      return this[name] !== undefined ? this[name] : null;
+    },
+    hasAttribute(name) {
+      return this._attrs[name] !== undefined || this[name] !== undefined;
+    },
+    removeAttribute(name) {
+      delete this._attrs[name];
+      delete this[name];
+    },
+    click() {
+      (this._listeners["click"] || []).forEach((fn) => fn());
+    },
+    querySelector(sel) {
+      if (sel.startsWith("#")) {
+        const targetId = sel.slice(1);
+        if (_elements[targetId]) return _elements[targetId];
+        return this.children.find((c) => c.id === targetId) || null;
+      }
+      return this.children.find((c) => c.tagName === sel.toLowerCase()) || null;
+    },
+    querySelectorAll(sel) {
+      if (sel.startsWith("#")) {
+        const targetId = sel.slice(1);
+        const match = _elements[targetId] || this.children.find((c) => c.id === targetId);
+        return match ? [match] : [];
+      }
+      return this.children.filter((c) => c.tagName === sel.toLowerCase());
+    },
+    appendChild(child) {
+      if (!child) return child;
+      if (child.id) _elements[child.id] = child;
+      child.parentNode = this;
+      if (!this.children.includes(child)) {
+        this.children.push(child);
+      }
+      return child;
+    },
+    removeChild(child) {
+      const idx = this.children.indexOf(child);
+      if (idx !== -1) this.children.splice(idx, 1);
+      child.parentNode = null;
+      _unregisterElement(child);
+      return child;
+    },
+    remove() {
+      if (this.parentNode && typeof this.parentNode.removeChild === "function") {
+        this.parentNode.removeChild(this);
+      }
+      _unregisterElement(this);
+    }
+  };
+
+  if (initId) _elements[initId] = el;
+  return el;
+}
+
+globalThis.document = {
+  body: _makeEl("body"),
+  getElementById(id) {
+    return _elements[id] || null;
+  },
+  createElement(tag) {
+    const el = _makeEl(null);
+    el.tagName = (tag || "").toLowerCase();
+    return el;
+  },
+  querySelector(sel) {
+    if (sel.startsWith("#")) {
+      return _elements[sel.slice(1)] || null;
+    }
+    if (sel === "[camera]" || sel === "#main-camera") {
+      return _elements["main-camera"] || Object.values(_elements).find((e) => e.hasAttribute && e.hasAttribute("camera")) || null;
+    }
+    if (sel === "a-marker") {
+      return _elements["a-marker"] || null;
+    }
+    if (sel === "a-scene") {
+      return _elements["a-scene"] || null;
+    }
+    return null;
+  },
+  querySelectorAll(sel) {
+    if (sel.startsWith("#")) {
+      const el = _elements[sel.slice(1)];
+      return el ? [el] : [];
+    }
+    return Object.values(_elements).filter((e) => e.tagName === sel.toLowerCase());
+  }
+};
+
+// fake websocket talk to team session
+class MockWebSocket {
+  static OPEN = 1;
+  static CLOSED = 3;
+  static instances = [];
+  static onSend = null;
+
+  constructor(url) {
+    this.url = url;
+    this.readyState = MockWebSocket.OPEN;
+    this.sent = [];
+    MockWebSocket.instances.push(this);
+
+    globalThis.queueMicrotask(() => {
+      if (this.readyState === MockWebSocket.OPEN && typeof this.onopen === "function") {
+        this.onopen();
+      }
+    });
+  }
+
+  send(data) {
+    this.sent.push(data);
+    const parsed = typeof data === "string" ? JSON.parse(data) : data;
+    if (typeof MockWebSocket.onSend === "function") {
+      MockWebSocket.onSend(this, parsed);
+    }
+  }
+
+  close() {
+    this.readyState = MockWebSocket.CLOSED;
+    if (typeof this.onclose === "function") {
+      this.onclose();
+    }
+  }
+
+  receive(msg) {
+    if (typeof this.onmessage === "function") {
+      this.onmessage({ data: JSON.stringify(msg) });
+    }
+  }
+}
+
+globalThis.WebSocket = MockWebSocket;
+
+import { clearCheckpoints } from "../ar/interactions.js";
+
+import {
+  startTeamScenario,
+  cleanupFireModule,
+  isAimHoldComplete,
+  PIN_PULL_THRESHOLD_PX,
+  AIM_HOLD_DURATION_MS,
+  SQUEEZE_HOLD_DURATION_MS,
+  CP_ALARM_ID
+} from "../modules/fire-response/fire-response.js";
+
+import {
+  promptJoinTeamSession,
+  resetTeamSession,
+  getRoomState,
+  getCurrentRole,
+  getPeers,
+  getCurrentScenario
+} from "../modules/fire-response/team-session.js";
+import { recordStageResult } from "../prerequisite/progress.js";
+
+import {
+  buildPeerAvatarEntity
+} from "../modules/fire-response/graphics.js";
+import { loadMarkerModuleScene } from "../ar/marker.js";
+
+// join team session fast for tests
+async function setupTeamScenario(role = "alarm", initialRoomState = {}, viaMarker = false) {
+  recordStageResult("WRK-0001", "fire-response", 2, 0.8);
+  let container = document.getElementById("ar-viewport");
+  if (!container) {
+    container = _makeEl("ar-viewport");
+  }
+
+  // guarantee viewport overlays and entities exist
+  if (!document.getElementById("fire-module-overlay")) {
+    const fireOverlay = _makeEl("fire-module-overlay");
+    container.appendChild(fireOverlay);
+  }
+  if (!document.getElementById("a-marker")) {
+    const marker = _makeEl("a-marker");
+    container.appendChild(marker);
+  }
+  if (!document.getElementById("main-camera")) {
+    const camera = _makeEl("main-camera");
+    camera.setAttribute("camera", "");
+    camera.setAttribute("position", { x: 0, y: 1.6, z: 0 });
+    camera.setAttribute("rotation", { x: 0, y: 0, z: 0 });
+    container.appendChild(camera);
+  }
+
+  MockWebSocket.onSend = (ws, msg) => {
+    if (msg.type === "join") {
+      ws.receive({
+        type: "joined",
+        roomId: msg.roomId,
+        role: msg.role,
+        phase: initialRoomState.phase || "guided",
+        state: initialRoomState,
+        roleDoubling: initialRoomState.roleDoubling || null,
+        scenario: initialRoomState.scenario || { id: "standard", fireClass: "A", acceptableMedia: ["abc_powder", "water"] }
+      });
+    } else if (msg.type === "state_update") {
+      Object.assign(initialRoomState, msg.state);
+      ws.receive({ type: "state_changed", state: { ...initialRoomState } });
+    }
+  };
+
+  // auto-fill and submit join form as soon as mounted
+  const origAppend = container.appendChild.bind(container);
+  container.appendChild = (child) => {
+    const res = origAppend(child);
+    if (child && child.id === "team-session-join") {
+      globalThis.queueMicrotask(() => {
+        const roomInput = child.querySelector("#ts-room-id");
+        const roleSelect = child.querySelector("#ts-role");
+        const joinBtn = child.querySelector("#ts-join-btn");
+        if (roomInput) roomInput.value = "TEST-ROOM";
+        if (roleSelect) roleSelect.value = role;
+        if (joinBtn) joinBtn.click();
+      });
+    }
+    return res;
+  };
+
+  if (viaMarker) {
+    await loadMarkerModuleScene("fire-response", null, { team: true });
+  } else {
+    await startTeamScenario(container, { tier: 2 });
+  }
+  container.appendChild = origAppend;
+  return container;
+}
+
+describe("Phase 3 Fire Team Session", () => {
+  beforeEach(() => {
+    cleanupFireModule();
+    resetTeamSession();
+    clearCheckpoints();
+    MockWebSocket.instances = [];
+    MockWebSocket.onSend = null;
+
+    Object.keys(_elements).forEach((k) => delete _elements[k]);
+    Object.keys(_listeners).forEach((k) => delete _listeners[k]);
+
+    const viewport = _makeEl("ar-viewport");
+    const camera = _makeEl("main-camera");
+    camera.setAttribute("camera", "");
+    camera.setAttribute("position", { x: 0, y: 1.6, z: 0 });
+    camera.setAttribute("rotation", { x: 0, y: 0, z: 0 });
+
+    const marker = _makeEl("a-marker");
+    const fireOverlay = _makeEl("fire-module-overlay");
+
+    viewport.appendChild(camera);
+    viewport.appendChild(marker);
+    viewport.appendChild(fireOverlay);
+  });
+
+  afterEach(() => {
+    cleanupFireModule();
+    resetTeamSession();
+  });
+
+  describe("1. Role-claim conflict at UI layer", () => {
+    // bad role pick get error banner, button wake back up
+    it("shows error message when attempting to claim already-claimed role, does not silent fail or double-claim", async () => {
+      const container = _makeEl("ar-viewport");
+
+      MockWebSocket.onSend = (ws, msg) => {
+        if (msg.type === "join") {
+          ws.receive({ type: "error", message: "role already claimed" });
+        }
+      };
+
+      let resolved = false;
+      const joinPromise = promptJoinTeamSession(container).then((role) => {
+        resolved = true;
+        return role;
+      });
+
+      const overlay = container.querySelector("#team-session-join");
+      assert.ok(overlay, "join overlay must be added to container");
+
+      const roomInput = overlay.querySelector("#ts-room-id");
+      const roleSelect = overlay.querySelector("#ts-role");
+      const joinBtn = overlay.querySelector("#ts-join-btn");
+      const errorEl = overlay.querySelector("#ts-error");
+
+      roomInput.value = "MINE-99";
+      roleSelect.value = "alarm";
+      joinBtn.click();
+
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+      }
+
+      assert.strictEqual(errorEl.textContent, "role already claimed", "must display role conflict error message");
+      assert.strictEqual(joinBtn.disabled, false, "join button must be re-enabled for another attempt");
+      assert.strictEqual(resolved, false, "promise must not resolve on conflict");
+      assert.ok(container.children.includes(overlay), "overlay must not be removed on conflict");
+
+      // pick free role and finish join
+      MockWebSocket.onSend = (ws, msg) => {
+        if (msg.type === "join") {
+          ws.receive({ type: "joined", roomId: msg.roomId, role: msg.role, state: {} });
+        }
+      };
+
+      roleSelect.value = "extinguisher_operator";
+      joinBtn.click();
+
+      const chosenRole = await joinPromise;
+      assert.strictEqual(chosenRole, "extinguisher_operator", "resolves with newly selected available role");
+      assert.ok(!container.children.includes(overlay), "overlay removed on successful join");
+    });
+
+    it("surfaces missing Capacitor backend config in join error", async () => {
+      const previousLocation = window.location;
+      window.location = { protocol: "capacitor:", host: "localhost", search: "" };
+      try {
+        const container = _makeEl("capacitor-join");
+        promptJoinTeamSession(container);
+        const overlay = container.querySelector("#team-session-join");
+        overlay.querySelector("#ts-room-id").value = "MINE-99";
+        overlay.querySelector("#ts-join-btn").click();
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+        assert.match(overlay.querySelector("#ts-error").textContent, /Backend address is not configured/);
+      } finally {
+        window.location = previousLocation;
+      }
+    });
+  });
+
+  it("production marker route starts team scenario, not solo fire module", async () => {
+    await setupTeamScenario("alarm", {}, true);
+    assert.ok(document.getElementById("team-module-overlay"), "marker route must mount team overlay");
+    assert.ok(document.getElementById("team-instruction"), "marker route must mount team instructions");
+  });
+
+  it("alarm pull fires alarm checkpoint, not exit checkpoint", async () => {
+    await setupTeamScenario("alarm");
+    const events = [];
+    const listener = (event) => events.push(event.detail.checkpointId);
+    window.addEventListener("safear:checkpoint", listener);
+    document.getElementById("btn-pull-alarm").click();
+    window.removeEventListener("safear:checkpoint", listener);
+    assert.deepStrictEqual(events, [CP_ALARM_ID]);
+    assert.ok(!events.includes("fire_exit_identification"));
+  });
+
+  describe("2. Peer position broadcast and avatar rendering", () => {
+    // avatar build right colors and label per role
+    it("buildPeerAvatarEntity creates grounded avatar with role color and label without sphere or cone", () => {
+      const alarmAvatar = buildPeerAvatarEntity("alarm");
+      assert.ok(alarmAvatar, "must return an avatar entity");
+
+      const head = alarmAvatar.children.find((c) => c.tagName === "a-sphere");
+      const body = alarmAvatar.children.find((c) => c.tagName === "a-cone");
+      assert.strictEqual(head, undefined, "avatar has no floating head sphere");
+      assert.strictEqual(body, undefined, "avatar has no floating body cone");
+
+      const shadow = alarmAvatar.children.find((c) => c.tagName === "a-circle" && c.getAttribute("class") === "peer-avatar-shadow");
+      const ring = alarmAvatar.children.find((c) => c.tagName === "a-ring");
+      const heading = alarmAvatar.children.find((c) => c.tagName === "a-triangle");
+      const label = alarmAvatar.children.find((c) => c.tagName === "a-text");
+
+      assert.ok(shadow, "avatar has ground shadow");
+      assert.ok(ring, "avatar has ground ring");
+      assert.ok(heading, "avatar has heading triangle");
+      assert.ok(label, "avatar has text label");
+      assert.strictEqual(ring.getAttribute("color"), "#ef4444");
+      assert.strictEqual(label.getAttribute("value"), "ALARM");
+
+      const extAvatar = buildPeerAvatarEntity("extinguisher_operator");
+      const extRing = extAvatar.children.find((c) => c.tagName === "a-ring");
+      const extLabel = extAvatar.children.find((c) => c.tagName === "a-text");
+      assert.strictEqual(extRing.getAttribute("color"), "#3b82f6");
+      assert.strictEqual(extLabel.getAttribute("value"), "EXTINGUISHER OPERATOR");
+
+      const evacAvatar = buildPeerAvatarEntity("backup_coordinator");
+      const evacRing = evacAvatar.children.find((c) => c.tagName === "a-ring");
+      const evacLabel = evacAvatar.children.find((c) => c.tagName === "a-text");
+      assert.strictEqual(evacRing.getAttribute("color"), "#10b981");
+      assert.strictEqual(evacLabel.getAttribute("value"), "BACKUP COORDINATOR");
+    });
+
+    // peer move update avatar coords on marker
+    it("updates peer avatar position and rotation on position broadcast via buildPeerAvatarEntity", async () => {
+      await setupTeamScenario("backup_coordinator");
+
+      const marker = document.getElementById("a-marker");
+      assert.ok(marker, "marker exists in DOM");
+
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      assert.ok(ws, "active websocket exists");
+
+      ws.receive({
+        type: "peer_position",
+        role: "alarm",
+        position: { x: 1.25, z: -2.5, headingDeg: 75 }
+      });
+
+      const avatar = marker.children.find((c) => c.children.some((ch) => ch.getAttribute("value") === "ALARM"));
+      assert.ok(avatar, "peer avatar mounted inside marker");
+      assert.strictEqual(avatar.getAttribute("position"), "1.25 0 -2.5");
+      assert.strictEqual(avatar.getAttribute("rotation"), "0 75 0");
+
+      ws.receive({
+        type: "peer_position",
+        role: "alarm",
+        position: { x: 3.0, z: -1.0, headingDeg: 180 }
+      });
+
+      // M7: avatar eases toward the target at alpha 0.5 instead of snapping
+      assert.strictEqual(avatar.getAttribute("position"), "2.125 0 -1.75");
+      assert.strictEqual(avatar.getAttribute("rotation"), "0 127.5 0");
+
+      const avatars = marker.children.filter((c) => c.children.some((ch) => ch.getAttribute("value") === "ALARM"));
+      assert.strictEqual(avatars.length, 1, "reuses same avatar entity without creating duplicates");
+    });
+
+    // peer leave throw avatar in trash
+    it("removes peer avatar when peer leaves", async () => {
+      await setupTeamScenario("backup_coordinator");
+      const marker = document.getElementById("a-marker");
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+
+      ws.receive({
+        type: "peer_position",
+        role: "alarm",
+        position: { x: 1, z: 1, headingDeg: 0 }
+      });
+      assert.strictEqual(marker.children.length, 1);
+
+      ws.receive({
+        type: "peer_left",
+        role: "alarm"
+      });
+      assert.strictEqual(marker.children.length, 0, "avatar removed from marker when peer leaves");
+    });
+  });
+
+  it("keeps team session alive when server rejects a state update", async () => {
+    await setupTeamScenario("alarm");
+    const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    ws.receive({ type: "error", message: "only alarm role may set alarm_pulled" });
+    assert.strictEqual(getCurrentRole(), "alarm", "state rejection must not close joined session");
+    assert.strictEqual(document.getElementById("team-error").textContent, "only alarm role may set alarm_pulled");
+  });
+
+  describe("3. cleanupFireModule resets team state and permits double-session (Bug 3 regression)", () => {
+    // cleanup reset state, second session boot clean
+    it("cleans up overlay, calls resetTeamSession, and allows starting second team session", async () => {
+      await setupTeamScenario("alarm");
+
+      assert.ok(document.getElementById("team-module-overlay"), "team overlay exists in session 1");
+      assert.ok(document.getElementById("fire-alarm-station"), "alarm station rendered in session 1");
+      assert.strictEqual(getCurrentRole(), "alarm");
+
+      cleanupFireModule();
+
+      // private setup flags reset verified by second session reboot
+      assert.strictEqual(document.getElementById("team-module-overlay"), null, "team overlay removed");
+      assert.strictEqual(document.getElementById("fire-alarm-station"), null, "alarm station removed");
+      assert.strictEqual(getCurrentRole(), null, "current role cleared by resetTeamSession");
+      assert.deepStrictEqual(getRoomState(), {}, "room state cleared by resetTeamSession");
+      assert.strictEqual(getPeers().length, 0, "peers cleared by resetTeamSession");
+
+      // start session 2: Bug 3 regression test
+      await setupTeamScenario("alarm");
+
+      assert.ok(document.getElementById("team-module-overlay"), "team overlay exists in session 2");
+      assert.ok(document.getElementById("fire-alarm-station"), "alarm station rendered again in session 2");
+      assert.ok(document.getElementById("btn-pull-alarm"), "alarm pull button rendered again in session 2");
+    });
+
+    // second extinguisher run get fresh pass step
+    it("resets extinguisher setup state allowing second extinguisher session", async () => {
+      await setupTeamScenario("extinguisher_operator", { alarm_pulled: true, extinguisher_selected: true });
+      assert.ok(document.getElementById("pin-status-badge"), "pass step 2 mounted in session 1");
+
+      cleanupFireModule();
+      assert.strictEqual(document.getElementById("pin-status-badge"), null);
+
+      await setupTeamScenario("extinguisher_operator", { alarm_pulled: true, extinguisher_selected: true });
+      assert.ok(document.getElementById("pin-status-badge"), "pass step 2 mounted again in session 2");
+    });
+
+    // second evac run get fresh step three
+    it("resets evacuation setup state allowing second evacuation session", async () => {
+      await setupTeamScenario("backup_coordinator", { alarm_pulled: true, extinguisher_selected: true, fire_extinguished: true });
+      assert.ok(document.getElementById("btn-step-next"), "step 3 UI mounted in session 1");
+
+      cleanupFireModule();
+      assert.strictEqual(document.getElementById("btn-step-next"), null, "step 3 UI removed on cleanup");
+
+      await setupTeamScenario("backup_coordinator", { alarm_pulled: true, extinguisher_selected: true, fire_extinguished: true });
+      assert.ok(document.getElementById("btn-step-next"), "step 3 UI mounted again in session 2");
+    });
+  });
+
+  describe("4. Extinguisher operator PASS function invocation", () => {
+    // esm calls not spyable, reuse verified by simulate threshold pass fail
+    // aim gating not observable from outside, handleAimSuccess transitions unconditionally
+    it("calls isPinPullComplete, isSqueezeComplete, and isSweepComplete during PASS flow and updates room state", async () => {
+      const roomState = { alarm_pulled: true, extinguisher_selected: true, fire_extinguished: false };
+      await setupTeamScenario("extinguisher_operator", roomState);
+
+      const instr = document.getElementById("team-instruction");
+      assert.match(instr.textContent, /Extinguish the fire using PASS/i);
+
+      const pin = document.getElementById("extinguisher-pin");
+      assert.ok(pin, "extinguisher pin exists in step 2");
+      assert.strictEqual(typeof pin.simulatePull, "function", "simulatePull hook exists");
+
+      const failPull = pin.simulatePull(PIN_PULL_THRESHOLD_PX - 10);
+      assert.strictEqual(failPull, false, "drag below threshold fails isPinPullComplete");
+
+      const passPull = pin.simulatePull(PIN_PULL_THRESHOLD_PX + 10);
+      assert.strictEqual(passPull, true, "drag at/above threshold passes isPinPullComplete");
+
+      const reticle = document.getElementById("aim-reticle");
+      assert.ok(reticle, "aim reticle exists");
+      assert.strictEqual(isAimHoldComplete(AIM_HOLD_DURATION_MS), true, "isAimHoldComplete validates duration threshold");
+      assert.strictEqual(isAimHoldComplete(AIM_HOLD_DURATION_MS - 100), false, "sub-threshold duration fails");
+
+      reticle.simulateAim(0.95, 0.1);
+      assert.ok(document.getElementById("squeeze-status-badge"), "simulateAim advances to squeeze step");
+
+      const handle = document.getElementById("extinguisher-handle");
+      assert.ok(handle, "extinguisher handle exists");
+      assert.strictEqual(typeof handle.simulateSqueeze, "function", "simulateSqueeze hook exists");
+
+      const failSqueeze = handle.simulateSqueeze(SQUEEZE_HOLD_DURATION_MS - 200);
+      assert.strictEqual(failSqueeze, false, "squeeze below duration fails isSqueezeComplete");
+
+      const passSqueeze = handle.simulateSqueeze(SQUEEZE_HOLD_DURATION_MS + 200);
+      assert.strictEqual(passSqueeze, true, "squeeze at/above duration passes isSqueezeComplete");
+
+      const sweep = document.getElementById("sweep-zone");
+      assert.ok(sweep, "sweep zone exists");
+      assert.strictEqual(typeof sweep.simulateSweep, "function", "simulateSweep hook exists");
+
+      sweep.simulateSweep([0, 10]);
+      assert.strictEqual(roomState.fire_extinguished, false, "sweep below coverage does not extinguish fire");
+
+      sweep.simulateSweep([0, 100, 200, 240]);
+      assert.strictEqual(roomState.fire_extinguished, true, "team checkpoint handler updates fire_extinguished: true");
+    });
+  });
+
+  describe("5. Hint timer reuse and stall detection", () => {
+    // slow poke get hint after fifteen second wait
+    it("uses 15s hint timer for stall detection in team mode", async () => {
+      mock.timers.enable({ apis: ["setTimeout"] });
+      try {
+        await setupTeamScenario("alarm");
+
+        const overlay = document.getElementById("team-module-overlay");
+        assert.ok(overlay, "team overlay exists");
+
+        assert.strictEqual(overlay.querySelector("#fire-step-hint"), null, "no hint initially");
+
+        mock.timers.tick(14900);
+        assert.strictEqual(overlay.querySelector("#fire-step-hint"), null, "no hint before 15s");
+
+        mock.timers.tick(100);
+        const hintEl = overlay.querySelector("#fire-step-hint");
+        assert.ok(hintEl, "hint appears after 15s inactivity");
+        assert.match(hintEl.textContent, /alarm/i, "hint contains alarm prompt");
+      } finally {
+        mock.timers.reset();
+      }
+    });
+
+    // fast work kill hint timer before tick
+    it("clears hint timer when action completes before 15s threshold", async () => {
+      mock.timers.enable({ apis: ["setTimeout"] });
+      try {
+        await setupTeamScenario("alarm");
+        const overlay = document.getElementById("team-module-overlay");
+
+        mock.timers.tick(5000);
+        assert.strictEqual(overlay.querySelector("#fire-step-hint"), null);
+
+        const btn = document.getElementById("btn-pull-alarm");
+        assert.ok(btn, "pull alarm button exists");
+        btn.click();
+
+        mock.timers.tick(15000);
+        assert.strictEqual(overlay.querySelector("#fire-step-hint"), null, "hint was cleared and never appeared");
+      } finally {
+        mock.timers.reset();
+      }
+    });
+
+    // tear down kill running hint timer
+    it("clears hint timer on cleanupFireModule", async () => {
+      mock.timers.enable({ apis: ["setTimeout"] });
+      try {
+        await setupTeamScenario("alarm");
+        mock.timers.tick(5000);
+
+        cleanupFireModule();
+
+        mock.timers.tick(20000);
+        assert.strictEqual(document.getElementById("fire-step-hint"), null, "hint timer killed by cleanup");
+      } finally {
+        mock.timers.reset();
+      }
+    });
+  });
+
+  describe("6. Distinct team-module-overlay and fire-module-overlay (Bug 4 regression)", () => {
+    // team overlay and fire overlay keep out of each other way
+    it("team-module-overlay and fire-module-overlay coexist without DOM collision during alarm step", async () => {
+      await setupTeamScenario("alarm");
+
+      const teamOverlay = document.getElementById("team-module-overlay");
+      const fireOverlay = document.getElementById("fire-module-overlay");
+
+      assert.ok(teamOverlay, "team-module-overlay must exist in DOM");
+      assert.ok(fireOverlay, "fire-module-overlay must exist in DOM");
+      assert.notStrictEqual(teamOverlay, fireOverlay, "team-module-overlay and fire-module-overlay must be distinct elements");
+
+      assert.ok(teamOverlay.querySelector("#team-ui-panel"), "team overlay holds team ui panel");
+      assert.ok(teamOverlay.querySelector("#team-instruction"), "team overlay holds team instructions");
+
+      assert.ok(fireOverlay.querySelector("#fire-hud-card"), "fire overlay holds fire hud card");
+      assert.ok(fireOverlay.querySelector("#btn-pull-alarm"), "fire overlay holds pull alarm button");
+    });
+
+    // alarm pull html swap leave team text alone
+    it("overwriting fire-module-overlay during alarm pull does not destroy team instruction panel", async () => {
+      await setupTeamScenario("alarm");
+
+      const teamOverlay = document.getElementById("team-module-overlay");
+      const instr = teamOverlay.querySelector("#team-instruction");
+      assert.ok(instr, "team instruction element exists before alarm pull");
+      assert.match(instr.textContent, /Locate and pull the fire alarm/i);
+
+      const pullBtn = document.getElementById("btn-pull-alarm");
+      pullBtn.click();
+
+      const instrAfter = teamOverlay.querySelector("#team-instruction");
+      assert.ok(instrAfter, "team instruction element preserved after alarm step");
+      assert.match(instrAfter.textContent, /Waiting for Extinguisher Operator/i, "instruction updated without DOM obliteration");
+    });
+  });
+
+  describe("7. Drill Phase Handling, Cold Unguided, and Team HUD", () => {
+    // lobby render with roles, calibration, and ready toggle
+    it("renders lobby UI with roles, calibration status, and sends ready on toggle", async () => {
+      await setupTeamScenario("alarm", { phase: "lobby" });
+
+      const teamOverlay = document.getElementById("team-module-overlay");
+      assert.ok(teamOverlay, "team overlay rendered");
+
+      const lobbyPanel = teamOverlay.querySelector("#team-lobby-panel");
+      assert.ok(lobbyPanel, "lobby panel mounted");
+
+      const readyBtn = lobbyPanel.querySelector("#btn-team-ready");
+      assert.ok(readyBtn, "ready button exists");
+      assert.strictEqual(readyBtn.textContent.trim(), "I am Ready");
+
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      assert.ok(ws, "active websocket exists");
+
+      readyBtn.click();
+      assert.strictEqual(readyBtn.textContent.trim(), "Ready (Waiting for team...)");
+
+      const readyMsg = ws.sent.map((s) => JSON.parse(s)).find((m) => m.type === "ready");
+      assert.ok(readyMsg, "sent ready message to server");
+
+      // phase transition to guided removes lobby panel
+      ws.receive({ type: "phase", phase: "guided", startedAtMs: Date.now() });
+      assert.strictEqual(teamOverlay.querySelector("#team-lobby-panel"), null, "lobby panel removed on guided phase");
+    });
+
+    // unguided cold start has neutral text and no hint initially
+    it("cold unguided starts with neutral prompt and delays hint until stall", async () => {
+      mock.timers.enable({ apis: ["setTimeout"] });
+      try {
+        await setupTeamScenario("alarm", { phase: "unguided" });
+
+        const teamOverlay = document.getElementById("team-module-overlay");
+        const instr = teamOverlay.querySelector("#team-instruction");
+        assert.ok(instr, "instruction element exists");
+
+        // neutral instruction, does not reveal order or waiting text
+        assert.match(instr.textContent, /Emergency scenario active/i);
+        assert.ok(!instr.textContent.includes("Waiting for"));
+
+        // cold start: hint does not appear immediately
+        assert.strictEqual(teamOverlay.querySelector("#fire-step-hint"), null, "no hint on cold start");
+
+        // after 15s stall, hint appears
+        mock.timers.tick(15000);
+        assert.ok(teamOverlay.querySelector("#fire-step-hint"), "stall hint appears after timeout");
+      } finally {
+        mock.timers.reset();
+      }
+    });
+
+    // peer action shows toast banner with distance
+    it("displays peer action banner and distance HUD on peer activity", async () => {
+      await setupTeamScenario("alarm", { phase: "guided" });
+
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      assert.ok(ws, "active websocket exists");
+
+      // send peer position
+      ws.receive({
+        type: "peer_position",
+        role: "extinguisher_operator",
+        position: { x: 3.0, z: 4.0, headingDeg: 90 }
+      });
+
+      // send peer action
+      ws.receive({
+        type: "peer_action",
+        role: "extinguisher_operator",
+        action: "extinguish_fire",
+        status: "started"
+      });
+
+      const banner = document.getElementById("team-peer-banner");
+      assert.ok(banner, "peer banner rendered");
+      assert.match(banner.textContent, /EXTINGUISHER OPERATOR approaching/i);
+
+      // check distance hud
+      const teamOverlay = document.getElementById("team-module-overlay");
+      const distHud = teamOverlay.querySelector("#team-distance-hud");
+      assert.ok(distHud, "distance hud exists");
+      assert.match(distHud.textContent, /Fire:/i);
+    });
+
+    // drill result renders debrief card with scores and breakdown
+    it("renders completion debrief card on drill_result with scores and breakdown", async () => {
+      await setupTeamScenario("alarm", { phase: "unguided" });
+
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      assert.ok(ws, "active websocket exists");
+
+      ws.receive({
+        type: "drill_result",
+        result: {
+          teamScore: 88,
+          passed: true,
+          perRole: { alarm: 92, extinguisher_operator: 85, backup_coordinator: 87 },
+          breakdown: {
+            completionScore: 60,
+            speedScore: 28,
+            errorPenalty: 0
+          }
+        }
+      });
+
+      const card = document.getElementById("team-debrief-card");
+      assert.ok(card, "team debrief card mounted");
+      assert.match(card.textContent, /88\/100/);
+      assert.match(card.textContent, /DRILL PASSED/);
+      assert.match(card.textContent, /92%/);
+      assert.match(card.textContent, /Completion: 60\/60/);
+
+      const replayBtn = card.querySelector("#btn-team-replay");
+      assert.ok(replayBtn, "ready again button exists");
+      replayBtn.click();
+
+      const readyMsg = ws.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "ready");
+      assert.ok(readyMsg.length >= 1, "replay sent ready message");
+      assert.strictEqual(document.getElementById("team-debrief-card"), null, "card dismissed on replay");
+    });
+
+    // drill result pass queues certificate request and does not write solo stage 3 (M10)
+    it("drill_result pass queues certificate request and does not overwrite solo stage 3", async () => {
+      delete _progressStore["safear_prerequisite_progress"];
+      delete _progressStore["safear_pending_certificates"];
+      await setupTeamScenario("alarm", { phase: "unguided" });
+
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      assert.ok(ws, "active websocket exists");
+
+      ws.receive({
+        type: "drill_result",
+        teamScore: 88,
+        passed: true,
+        perRole: { alarm: 90, extinguisher_operator: 85, backup_coordinator: 89 },
+        attempts: {
+          alarm: "attempt-alarm-pass-1",
+          extinguisher_operator: "attempt-ext-pass-2",
+          backup_coordinator: "attempt-evac-pass-3"
+        }
+      });
+
+      // verify solo stage 3 progress is NOT written (per M10 decision: team drill does not unlock solo stage 3)
+      const progressRaw = globalThis.localStorage.getItem("safear_prerequisite_progress");
+      if (progressRaw) {
+        const progress = JSON.parse(progressRaw);
+        const stage3 = progress["WRK-0001"]?.stages?.["fire-response"]?.["3"];
+        assert.strictEqual(stage3, undefined, "solo stage 3 must not be written by team drill pass");
+      }
+
+      // verify pending cert queued for worker
+      const pendingRaw = globalThis.localStorage.getItem("safear_pending_certificates");
+      assert.ok(pendingRaw, "pending certs stored");
+      const pending = JSON.parse(pendingRaw);
+      const entry = pending.find((p) => p.attemptId === "attempt-alarm-pass-1");
+      assert.ok(entry, "attempt queued in pending certificates");
+      assert.strictEqual(entry.moduleId, "fire-response-team");
+      assert.strictEqual(entry.workerId, "WRK-0001");
+    });
+
+    // drill result fail does not queue certificate
+    it("drill_result fail does not queue certificate", async () => {
+      delete _progressStore["safear_pending_certificates"];
+      await setupTeamScenario("alarm", { phase: "unguided" });
+
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      assert.ok(ws, "active websocket exists");
+
+      ws.receive({
+        type: "drill_result",
+        teamScore: 65,
+        passed: false,
+        perRole: { alarm: 70, extinguisher_operator: 60, backup_coordinator: 65 },
+        attempts: {}
+      });
+
+      const pendingRaw = globalThis.localStorage.getItem("safear_pending_certificates");
+      const pending = pendingRaw ? JSON.parse(pendingRaw) : [];
+      assert.strictEqual(pending.length, 0, "no certificate queued on fail");
+    });
+
+    // guided to unguided resets flags and mounts interaction for role (M1 regression)
+    it("guided to unguided phase transition resets setup flags and remounts interactions", async () => {
+      await setupTeamScenario("alarm", { phase: "guided" });
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      const guidedBtn = document.getElementById("btn-pull-alarm");
+      assert.ok(guidedBtn, "alarm pull button mounted in guided");
+      assert.strictEqual(guidedBtn.disabled, false, "guided button starts enabled");
+
+      // complete guided alarm step: the spent button deactivates but stays mounted
+      guidedBtn.click();
+      assert.strictEqual(guidedBtn.disabled, true, "guided button deactivates after pull");
+
+      // server resets room state and moves to unguided, like the real drill flow
+      ws.receive({ type: "phase", phase: "unguided", startedAtMs: Date.now() });
+      ws.receive({ type: "state_changed", state: {} });
+
+      // M1 fix: setup flags reset so the interaction remounts fresh for unguided.
+      // without the fix no remount happens and the spent guided button stays.
+      const unguidedBtn = document.getElementById("btn-pull-alarm");
+      assert.ok(unguidedBtn, "alarm pull button mounted again in unguided phase (M1 fix)");
+      assert.notStrictEqual(unguidedBtn, guidedBtn, "unguided mounts a fresh button, not the spent guided one");
+      assert.strictEqual(unguidedBtn.disabled, false, "remounted button is enabled");
+      assert.ok(document.getElementById("fire-alarm-station"), "alarm station mounted in unguided phase");
+
+      // pull alarm in unguided
+      unguidedBtn.click();
+
+      // simulate server sending drill_result
+      ws.receive({
+        type: "drill_result",
+        teamScore: 90,
+        passed: true,
+        perRole: { alarm: 90, extinguisher_operator: 90, backup_coordinator: 90 },
+        attempts: { alarm: "att-alarm-1" }
+      });
+
+      const debrief = document.getElementById("team-debrief-card");
+      assert.ok(debrief, "drill debrief card mounted upon unguided completion");
+      assert.match(debrief.textContent, /DRILL PASSED/);
+    });
+
+    // 2-player mode role doubling allows alarm player to cover evacuation (M4)
+    it("alarm player covers evacuation in 2-player mode with roleDoubling", async () => {
+      await setupTeamScenario("alarm", {
+        phase: "guided",
+        roleDoubling: { backup_coordinator: "alarm" }
+      });
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+
+      // guided: simulate fire_extinguished
+      ws.receive({
+        type: "state_changed",
+        state: { alarm_pulled: true, extinguisher_selected: true, fire_extinguished: true }
+      });
+
+      const teamOverlay = document.getElementById("team-module-overlay");
+      assert.match(teamOverlay.querySelector("#team-instruction").textContent, /Coordinate evacuation/i);
+      assert.ok(document.getElementById("btn-step-next"), "step 3 evacuation UI mounted for doubled alarm player");
+    });
+
+    // coverage strip chips turn green on state changes (M9)
+    it("coverage strip displays chips and turns green on state changes", async () => {
+      await setupTeamScenario("alarm", { phase: "guided" });
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+
+      const strip = document.getElementById("team-coverage-strip");
+      assert.ok(strip, "coverage strip exists");
+      const chipAlarm = strip.querySelector("#chip-alarm");
+      assert.ok(chipAlarm, "alarm chip exists");
+      assert.ok(chipAlarm.textContent.includes("○"), "alarm chip initial state unchecked");
+
+      ws.receive({
+        type: "state_changed",
+        state: { alarm_pulled: true }
+      });
+
+      assert.ok(strip.querySelector("#chip-alarm").textContent.includes("✔"), "alarm chip checked after state_changed");
+    });
+  });
+
+  describe("5. Extinguisher Media Selection (MS1)", () => {
+    it("extinguisher operator sees selection prompt and buttons after alarm is pulled; _setupStep2 not called before acceptance", async () => {
+      await setupTeamScenario("extinguisher_operator", { alarm_pulled: true, extinguisher_selected: false });
+
+      const instr = document.getElementById("team-instruction");
+      assert.match(instr.textContent, /Select the correct fire extinguisher/i);
+
+      assert.strictEqual(document.getElementById("pin-status-badge"), null, "_setupStep2 must NOT be called before media acceptance");
+      assert.ok(document.getElementById("extinguisher-selection-panel"), "selection panel mounted");
+      assert.ok(document.getElementById("btn-media-abc_powder"), "ABC powder button exists");
+      assert.ok(document.getElementById("btn-media-co2"), "CO2 button exists");
+      assert.ok(document.getElementById("btn-media-water"), "Water button exists");
+      assert.ok(getCurrentScenario(), "getCurrentScenario returns scenario object");
+      assert.strictEqual(getCurrentScenario().id, "standard");
+    });
+
+    it("tapping media button sends state_update with extinguisher_selected: true and media sibling field", async () => {
+      await setupTeamScenario("extinguisher_operator", { alarm_pulled: true, extinguisher_selected: false });
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+
+      let sentMsg = null;
+      const origSend = ws.send.bind(ws);
+      ws.send = (raw) => {
+        sentMsg = JSON.parse(raw);
+        origSend(raw);
+      };
+
+      const btnAbc = document.getElementById("btn-media-abc_powder");
+      assert.ok(btnAbc, "ABC button present");
+      btnAbc.click();
+
+      assert.ok(sentMsg, "sent state_update message");
+      assert.strictEqual(sentMsg.type, "state_update");
+      assert.strictEqual(sentMsg.state.extinguisher_selected, true);
+      assert.strictEqual(sentMsg.media, "abc_powder", "media sent as sibling field, NOT inside state object");
+    });
+
+    it("wrong_media error token renders localized warning banner based on active scenario", async () => {
+      // standard scenario test
+      await setupTeamScenario("extinguisher_operator", {
+        alarm_pulled: true,
+        extinguisher_selected: false,
+        scenario: { id: "standard", fireClass: "A", acceptableMedia: ["abc_powder", "water"] }
+      });
+      const ws1 = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      ws1.receive({ type: "error", message: "wrong_media" });
+
+      const errEl1 = document.getElementById("team-error");
+      assert.ok(errEl1);
+      assert.match(errEl1.textContent, /CO2 won't knock down a Class-A fire/i, "renders standard wrong-media warning");
+
+      cleanupFireModule();
+
+      // electrical scenario test
+      await setupTeamScenario("extinguisher_operator", {
+        alarm_pulled: true,
+        extinguisher_selected: false,
+        scenario: { id: "electrical", fireClass: "E", acceptableMedia: ["abc_powder", "co2"] }
+      });
+      const ws2 = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      ws2.receive({ type: "error", message: "wrong_media" });
+
+      const errEl2 = document.getElementById("team-error");
+      assert.ok(errEl2);
+      assert.match(errEl2.textContent, /Water on an electrical fire can kill/i, "renders electrical wrong-media warning");
+    });
+
+    it("guided ladder cannot skip selection rung: non-extinguisher roles see waiting banner until extinguisher is selected", async () => {
+      await setupTeamScenario("alarm", { alarm_pulled: true, extinguisher_selected: false });
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+
+      const instr = document.getElementById("team-instruction");
+      assert.match(instr.textContent, /Waiting for Extinguisher Operator to select extinguisher/i);
+
+      ws.receive({
+        type: "state_changed",
+        state: { alarm_pulled: true, extinguisher_selected: true }
+      });
+
+      assert.match(instr.textContent, /Waiting for Extinguisher Operator to suppress the fire/i);
+    });
+  });
+});

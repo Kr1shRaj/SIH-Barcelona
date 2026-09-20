@@ -29,7 +29,13 @@ describe("25. the AR HUD, the assessment panels and the certificate are one prod
     // The one exemption, and it is scenery rather than UI: the 3D flame in the
     // fire module is painted #ff9100 because it is a flame. Every other use of
     // that orange was HUD chrome and is gone. Nothing else is exempt.
-    const SCENERY = { "modules/fire-response/graphics.js": ["#ff9100"] };
+    // A second scenery exemption arrived with the team drill: peer avatars are
+    // coloured by role — red for the alarm puller, blue for the extinguisher
+    // operator, green for the third — and those three have to stay tellable
+    // apart from each other in the 3D scene. Recolouring the blue one to the
+    // SafeAR yellow would put it on top of the HUD's own colour and lose the
+    // distinction the drill depends on. Scenery, like the flame; not chrome.
+    const SCENERY = { "modules/fire-response/graphics.js": ["#ff9100", "#3b82f6"] };
 
     const offenders = [];
     TRAINEE_UI.forEach((file) => {

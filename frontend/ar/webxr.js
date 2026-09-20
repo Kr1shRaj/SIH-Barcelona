@@ -11,11 +11,16 @@ const PLACEMENT_STATES = {
 };
 
 // load 3d scene for named module — routes to webxr fire module for tier 1
-async function loadModule3DScene(moduleId, controller) {
+async function loadModule3DScene(moduleId, controller, options = {}) {
   if (moduleId === "fire-response") {
-    const { startFireModuleWebXR } = await import("../modules/fire-response/webxr_fire_module.js");
+    const fireModule = await import("../modules/fire-response/webxr_fire_module.js");
     const container = typeof document !== "undefined" ? document.getElementById("ar-viewport") : null;
-    startFireModuleWebXR(container, controller);
+    if (options.team === true) {
+      const { startTeamScenario } = await import("../modules/fire-response/fire-response.js");
+      await startTeamScenario(container, { tier: 1, controller });
+    } else {
+      fireModule.startFireModuleWebXR(container, controller);
+    }
     return;
   }
   if (moduleId === "gas-leak") {
@@ -154,8 +159,6 @@ class WebXRPlacementController {
 
   // confirm placement either from hit-test or custom/fallback position
   confirmPlacement(customPos = null, customQuat = null) {
-    if (this.state === PLACEMENT_STATES.PLACED) return;
-
     let pos = customPos;
     let quat = customQuat;
 
@@ -172,6 +175,9 @@ class WebXRPlacementController {
           z: this._lastHitPose.transform.orientation.z,
           w: this._lastHitPose.transform.orientation.w
         };
+      } else if (this._placedTransform) {
+        pos = this._placedTransform;
+        quat = this._placedQuaternion;
       } else {
         // robust fallback: 1.2m forward, 0.45m down
         pos = { x: 0, y: -0.45, z: -1.20 };

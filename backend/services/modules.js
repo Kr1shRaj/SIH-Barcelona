@@ -32,7 +32,9 @@ function listModuleManifests(db) {
     version: moduleRow.version,
     passThreshold: moduleRow.pass_threshold,
     recertMonths: moduleRow.recert_months,
-    requiredCheckpoints: getCheckpointDefinitions(db, moduleRow.module_id).map(_toWireCheckpoint)
+    requiredCheckpoints: getCheckpointDefinitions(db, moduleRow.module_id)
+      .filter((row) => row.required === 1)
+      .map(_toWireCheckpoint)
   }));
 }
 

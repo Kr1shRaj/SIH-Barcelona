@@ -3,7 +3,7 @@ import { detectDeviceCaps, selectArTier } from "../ar/tier.js";
 import { initWebXRSession, loadModule3DScene, WebXRPlacementController } from "../ar/webxr.js";
 import { initMarkerTracking, loadMarkerModuleScene } from "../ar/marker.js";
 import { setTierLoaders, loadModule, unloadModule } from "./module-loader.js";
-import { t, loadLocale, setLocale } from "./i18n.js";
+import { t, loadLocale, setLocale, getLocale, storeLocale, clearStoredLocale } from "./i18n.js";
 import { registerScreens, showScreen } from "../screens/router.js";
 import { mountLanguageScreen, readLocalePreference } from "../screens/language.js";
 import { mountSplashScreen } from "../screens/splash.js";
@@ -135,6 +135,8 @@ function renderArShell(container, tierResult) {
         </a-entity>
       </a-scene>`;
 
+  const currentLocale = (typeof getLocale === "function" ? getLocale() : "en").toUpperCase();
+
   container.innerHTML = `
     <div id="ar-viewport" class="ar-viewport">
       ${tierMarkup}
@@ -147,6 +149,7 @@ function renderArShell(container, tierResult) {
           </div>
           <div class="app-title">SafeAR</div>
           <div class="header-bar__side header-bar__side--end">
+            <button id="lang-switch-btn" class="lang-switch-btn" title="Change Language / भाषा बदलें">🌐 ${currentLocale}</button>
             <span class="tier-badge ${tierClass}">${tierLabel}</span>
           </div>
         </header>
@@ -158,6 +161,21 @@ function renderArShell(container, tierResult) {
       </div>
     </div>
   `;
+
+  if (typeof container.querySelector === "function") {
+    const langBtn = container.querySelector("#lang-switch-btn");
+    if (langBtn) {
+      langBtn.addEventListener("click", () => {
+        clearStoredLocale();
+        renderLanguageSelectionScreen(container, (newLocale) => {
+          storeLocale(newLocale);
+          if (typeof window !== "undefined") {
+            window.location.reload();
+          }
+        });
+      });
+    }
+  }
 
   if (typeof document === "undefined") {
     return { viewport: null, canvas: null, statusCard: null };
@@ -171,7 +189,7 @@ function renderArShell(container, tierResult) {
 }
 
 // boot tier 2 marker tracking flow, loading moduleId once tracking is live
-async function bootTier2(container, decision, moduleId = null) {
+async function bootTier2(container, decision, moduleId = null, moduleOptions = {}) {
   const { viewport, statusCard } = renderArShell(container, decision);
   bindModuleLifecycleUI(statusCard);
 
@@ -203,7 +221,7 @@ async function bootTier2(container, decision, moduleId = null) {
 
     // marker tracking needs no user gesture, so the chosen module can start at once
     if (moduleId) {
-      await _startChosenModule(moduleId);
+      await _startChosenModule(moduleId, moduleOptions);
     }
     return trackingState;
   } catch (err) {
@@ -218,7 +236,7 @@ async function bootTier2(container, decision, moduleId = null) {
 }
 
 // fall back to tier 2 marker mode when webxr fail at runtime
-async function handleWebXRFallback(container, caps, err, loggerInstance = logger) {
+async function handleWebXRFallback(container, caps, err, loggerInstance = logger, moduleId = null, moduleOptions = {}) {
   const errorName = (err && err.name) || "Error";
   const errorMessage = (err && err.message) || String(err);
 
@@ -240,11 +258,11 @@ async function handleWebXRFallback(container, caps, err, loggerInstance = logger
   };
 
   const fallbackDecision = selectArTier(fallbackCaps);
-  return await bootTier2(container, fallbackDecision);
+  return await bootTier2(container, fallbackDecision, moduleId, moduleOptions);
 }
 
 // boot tier 1 webxr flow with user activation button, then load moduleId
-async function bootTier1(container, decision, caps, moduleId = null) {
+async function bootTier1(container, decision, caps, moduleId = null, moduleOptions = {}) {
   const { canvas, statusCard } = renderArShell(container, decision);
   bindModuleLifecycleUI(statusCard);
 
@@ -262,7 +280,7 @@ async function bootTier1(container, decision, caps, moduleId = null) {
       // mid-session fallback: if webxr session dies, degrade to tier 2
       window.addEventListener("safear:webxr_session_lost", async () => {
         logger.warn({ event: "webxr_mid_session_loss" }, "WebXR session lost mid-training");
-        await handleWebXRFallback(container, caps, new Error("WebXR session lost mid-training"), logger);
+        await handleWebXRFallback(container, caps, new Error("WebXR session lost mid-training"), logger, moduleId, moduleOptions);
       }, { once: true });
 
       if (statusCard) {
@@ -276,11 +294,11 @@ async function bootTier1(container, decision, caps, moduleId = null) {
       }
 
       if (moduleId) {
-        await _startChosenModule(moduleId);
+        await _startChosenModule(moduleId, moduleOptions);
       }
       return controller;
     } catch (err) {
-      await handleWebXRFallback(container, caps, err, logger);
+      await handleWebXRFallback(container, caps, err, logger, moduleId, moduleOptions);
       return null;
     }
   }
@@ -308,7 +326,89 @@ async function bootTier1(container, decision, caps, moduleId = null) {
 
 let _appInitPromise = null;
 
-// start mobile app and init audio and ar
+// render language picker before module or tier boot
+function renderLanguageSelectionScreen(container, onLocaleChosen) {
+  if (!container) return;
+  container.innerHTML = `
+    <div class="lang-screen">
+      <div class="lang-card">
+        <div class="lang-header">
+          <div class="lang-globe">🌐</div>
+          <h1 class="lang-title">Select Training Language</h1>
+          <p class="lang-subtitle">प्रशिक्षण भाषा चुनें / ᱯᱟᱹᱨᱥᱤ ᱵᱟᱪᱷᱟᱣ ᱢᱮ</p>
+        </div>
+        <div class="lang-options">
+          <button id="lang-opt-en" class="lang-option-btn" data-locale="en">
+            <div class="lang-btn-left">
+              <span class="lang-btn-name">English</span>
+              <span class="lang-btn-sub">Full Safety Training</span>
+            </div>
+            <span class="lang-btn-badge badge-complete">Ready</span>
+          </button>
+          <button id="lang-opt-hi" class="lang-option-btn" data-locale="hi">
+            <div class="lang-btn-left">
+              <span class="lang-btn-name">हिंदी (Hindi)</span>
+              <span class="lang-btn-sub">पूर्ण सुरक्षा प्रशिक्षण</span>
+            </div>
+            <span class="lang-btn-badge badge-complete">उपलब्ध</span>
+          </button>
+          <button id="lang-opt-sat" class="lang-option-btn" data-locale="sat">
+            <div class="lang-btn-left">
+              <span class="lang-btn-name">ᱥᱟᱱᱛᱟᱲᱤ (Santali)</span>
+              <span class="lang-btn-sub">Ol Chiki — ᱨᱩᱠᱷᱤᱭᱟᱹ ᱥᱮᱪᱮᱫ</span>
+            </div>
+            <span class="lang-btn-badge badge-partial">⚠️ Incomplete / Partial</span>
+          </button>
+        </div>
+        <div class="lang-footer-note">
+          Selection is saved. You can switch language anytime from the top bar.
+        </div>
+      </div>
+    </div>
+  `;
+
+  let chosen = false;
+  const choose = (loc, targetBtn) => {
+    if (chosen) return;
+    chosen = true;
+    if (targetBtn && targetBtn.classList && typeof targetBtn.classList.add === "function") {
+      targetBtn.classList.add("selected");
+    }
+    if (typeof onLocaleChosen === "function") {
+      onLocaleChosen(loc);
+    }
+  };
+
+  ["en", "hi", "sat"].forEach((loc) => {
+    const btn = container.querySelector ? container.querySelector(`#lang-opt-${loc}`) : null;
+    if (btn && typeof btn.addEventListener === "function") {
+      btn.addEventListener("click", (e) => {
+        if (e && typeof e.preventDefault === "function") {
+          e.preventDefault();
+        }
+        choose(loc, btn);
+      });
+      btn.addEventListener("pointerdown", (e) => {
+        if (e && e.pointerType === "touch") {
+          choose(loc, btn);
+        }
+      });
+    }
+  });
+
+  if (container && typeof container.addEventListener === "function") {
+    container.addEventListener("click", (e) => {
+      const targetBtn = e && e.target && typeof e.target.closest === "function"
+        ? e.target.closest(".lang-option-btn")
+        : null;
+      if (targetBtn && targetBtn.dataset && targetBtn.dataset.locale) {
+        choose(targetBtn.dataset.locale, targetBtn);
+      }
+    });
+  }
+}
+
+// boot safeAR app with explicit language selection first
 async function initApp() {
   if (_appInitPromise) {
     return _appInitPromise;
@@ -321,12 +421,11 @@ async function initApp() {
     }
 
     // bootstrap default and fallback locales and bind assessment listeners.
-    // loadLocale needs a locale name: called bare it throws and no dictionary
-    // registers, which leaves every t() call rendering its raw key.
     try {
       await Promise.allSettled([
+        loadLocale("en"),
         loadLocale("hi"),
-        loadLocale("en")
+        loadLocale("sat")
       ]);
 
       // a phone that has already been set to a language stays on it. the picker still
@@ -384,9 +483,9 @@ function bindModuleLifecycleUI(statusCard) {
 
 // hand the chosen module to the loader. the loader re-checks the prerequisite gate
 // and refuses if it is not done, so a failure here is reported, never swallowed.
-async function _startChosenModule(moduleId) {
+async function _startChosenModule(moduleId, moduleOptions = {}) {
   try {
-    await loadModule(moduleId);
+    await loadModule(moduleId, moduleOptions);
     return true;
   } catch (err) {
     logger.warn({ event: "module_start_failed", moduleId, error: err.message }, "Module start failed");
@@ -396,7 +495,7 @@ async function _startChosenModule(moduleId) {
 
 // turn the camera on and run the module. this is the first point at which SafeAR asks
 // for camera permission — the language and equipment screens never do.
-async function startTraining(container, moduleId) {
+async function startTraining(container, moduleId, moduleOptions = {}) {
   if (typeof document !== "undefined" && container && container.classList) {
     container.classList.remove("screen-mode");
   }
@@ -411,9 +510,9 @@ async function startTraining(container, moduleId) {
   }
 
   if (decision.tier === 1) {
-    await bootTier1(container, decision, caps, moduleId);
+    await bootTier1(container, decision, caps, moduleId, moduleOptions);
   } else {
-    await bootTier2(container, decision, moduleId);
+    await bootTier2(container, decision, moduleId, moduleOptions);
   }
 
   // expose unloadModule on window for manual dev testing
@@ -459,10 +558,11 @@ function startScreenFlow(container) {
         container: host,
         workerId: getEffectiveWorkerId(),
         onStart: (moduleId) => showScreen("training", { moduleId }),
+        onStartTeam: (moduleId) => showScreen("training", { moduleId, team: true }),
         onBack: () => showScreen("prerequisite")
       });
     },
-    training: (host, params) => startTraining(host, params && params.moduleId)
+    training: (host, params) => startTraining(host, params && params.moduleId, params)
   });
 
   // Where the app opens once the loading screen is done.
@@ -553,6 +653,7 @@ export {
   initApp,
   renderUnsupportedView,
   renderArShell,
+  renderLanguageSelectionScreen,
   bindModuleLifecycleUI,
   registerServiceWorker,
   syncAttemptsThenCertificates,

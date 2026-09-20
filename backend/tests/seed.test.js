@@ -81,10 +81,16 @@ describe("Deterministic seed data", () => {
       .all();
 
     assert.deepStrictEqual(rows, [
+      { module_id: "fire-response", checkpoint_id: "fire_alarm_pull", checkpoint_type: "select" },
       { module_id: "fire-response", checkpoint_id: "fire_evacuation_sequence_marker", checkpoint_type: "select" },
       { module_id: "fire-response", checkpoint_id: "fire_evacuation_sequence_webxr", checkpoint_type: "select" },
       { module_id: "fire-response", checkpoint_id: "fire_exit_identification", checkpoint_type: "proximity" },
       { module_id: "fire-response", checkpoint_id: "fire_extinguisher_aim", checkpoint_type: "aim" },
+      { module_id: "fire-response-team", checkpoint_id: "team_alarm_pull", checkpoint_type: "select" },
+      { module_id: "fire-response-team", checkpoint_id: "team_drill_outcome", checkpoint_type: "select" },
+      { module_id: "fire-response-team", checkpoint_id: "team_evac_coordinate", checkpoint_type: "select" },
+      { module_id: "fire-response-team", checkpoint_id: "team_extinguisher_select", checkpoint_type: "select" },
+      { module_id: "fire-response-team", checkpoint_id: "team_fire_extinguish", checkpoint_type: "select" },
       { module_id: "gas-leak", checkpoint_id: "gas_buddy_procedure", checkpoint_type: "select" },
       { module_id: "gas-leak", checkpoint_id: "gas_hazard_zone_recognition", checkpoint_type: "proximity" },
       { module_id: "gas-leak", checkpoint_id: "gas_ppe_selection", checkpoint_type: "select" }
@@ -148,27 +154,35 @@ describe("Deterministic seed data", () => {
       .map((row) => ({ checkpoint_id: row.checkpoint_id, expected: JSON.parse(row.expected_value) }));
 
     assert.deepStrictEqual(rows, [
+      { checkpoint_id: "fire_alarm_pull", expected: "alarm_pull" },
       { checkpoint_id: "fire_evacuation_sequence_marker", expected: "sound_alarm_then_evacuate" },
       { checkpoint_id: "fire_evacuation_sequence_webxr", expected: "wind_based_upwind" },
       { checkpoint_id: "gas_buddy_procedure", expected: "standby_outside_with_lifeline" },
-      { checkpoint_id: "gas_ppe_selection", expected: ["scba_respirator", "multi_gas_detector", "safety_harness"] }
+      { checkpoint_id: "gas_ppe_selection", expected: ["scba_respirator", "multi_gas_detector", "safety_harness"] },
+      { checkpoint_id: "team_alarm_pull", expected: "alarm_pulled" },
+      { checkpoint_id: "team_drill_outcome", expected: "drill_passed" },
+      { checkpoint_id: "team_evac_coordinate", expected: "evac_checked" },
+      { checkpoint_id: "team_extinguisher_select", expected: "correct_selection" },
+      { checkpoint_id: "team_fire_extinguish", expected: "fire_extinguished" }
     ]);
   });
 
-  it("marks every seeded checkpoint required with equal weight", () => {
+  it("marks required checkpoints and keeps alarm pull optional with equal weight", () => {
     seedDatabase(db);
     db.prepare("SELECT * FROM checkpoint_definition").all().forEach((row) => {
-      assert.strictEqual(row.required, 1, `${row.checkpoint_id} must be required`);
+      const expectedRequired = row.checkpoint_id === "fire_alarm_pull" ? 0 : 1;
+      assert.strictEqual(row.required, expectedRequired, `${row.checkpoint_id} required flag is wrong`);
       assert.strictEqual(row.weight, 1, `${row.checkpoint_id} must weigh 1 until content says otherwise`);
     });
   });
 
-  it("leaves critical at 0, the safety ruling has not been made yet", () => {
+  it("leaves critical at 0 everywhere except team_drill_outcome", () => {
     seedDatabase(db);
     assert.strictEqual(CRITICAL_PENDING, 0);
 
     db.prepare("SELECT checkpoint_id, critical FROM checkpoint_definition").all().forEach((row) => {
-      assert.strictEqual(row.critical, 0, `${row.checkpoint_id} must not claim a safety ruling`);
+      const expected = row.checkpoint_id === "team_drill_outcome" ? 1 : 0;
+      assert.strictEqual(row.critical, expected, `${row.checkpoint_id} critical flag is wrong`);
     });
   });
 
@@ -210,7 +224,7 @@ describe("Deterministic seed data", () => {
     seedDatabase(db);
     const ids = db.prepare("SELECT module_id FROM module ORDER BY module_id").all().map((r) => r.module_id);
 
-    assert.deepStrictEqual(ids, ["fire-response", "gas-leak"]);
+    assert.deepStrictEqual(ids, ["fire-response", "fire-response-team", "gas-leak"]);
   });
 
   it("gives every module a pass threshold between 0 and 1", () => {
