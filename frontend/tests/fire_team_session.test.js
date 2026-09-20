@@ -65,8 +65,9 @@ function _makeEl(initId) {
         this.children = [];
       }
       this._innerHTML = val;
+      this.textContent = val.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
       // scan markup for ids and register child elements
-      const idRegex = /<([a-zA-Z0-9-]+)[^>]*id=["']([^"']+)["'][^>]*>/g;
+      const idRegex = /<([a-zA-Z0-9-]+)[^>]*id=["']([^"']+)["'][^>]*>([^<]*)/g;
       let match;
       while ((match = idRegex.exec(val)) !== null) {
         const tag = match[1].toLowerCase();
@@ -77,6 +78,7 @@ function _makeEl(initId) {
           child.tagName = tag;
           if (tag === "select") child.value = "alarm";
         }
+        if (match[3]) child.textContent = match[3].trim();
         this.appendChild(child);
       }
     },
@@ -156,6 +158,7 @@ function _makeEl(initId) {
 }
 
 globalThis.document = {
+  body: _makeEl("body"),
   getElementById(id) {
     return _elements[id] || null;
   },
@@ -289,6 +292,7 @@ async function setupTeamScenario(role = "alarm", initialRoomState = {}, viaMarke
         type: "joined",
         roomId: msg.roomId,
         role: msg.role,
+        phase: initialRoomState.phase || "guided",
         state: initialRoomState
       });
     } else if (msg.type === "state_update") {
@@ -442,30 +446,37 @@ describe("Phase 3 Fire Team Session", () => {
 
   describe("2. Peer position broadcast and avatar rendering", () => {
     // avatar build right colors and label per role
-    it("buildPeerAvatarEntity creates avatar with role color and label", () => {
+    it("buildPeerAvatarEntity creates grounded avatar with role color and label without sphere or cone", () => {
       const alarmAvatar = buildPeerAvatarEntity("alarm");
       assert.ok(alarmAvatar, "must return an avatar entity");
 
       const head = alarmAvatar.children.find((c) => c.tagName === "a-sphere");
       const body = alarmAvatar.children.find((c) => c.tagName === "a-cone");
+      assert.strictEqual(head, undefined, "avatar has no floating head sphere");
+      assert.strictEqual(body, undefined, "avatar has no floating body cone");
+
+      const shadow = alarmAvatar.children.find((c) => c.tagName === "a-circle" && c.getAttribute("class") === "peer-avatar-shadow");
+      const ring = alarmAvatar.children.find((c) => c.tagName === "a-ring");
+      const heading = alarmAvatar.children.find((c) => c.tagName === "a-triangle");
       const label = alarmAvatar.children.find((c) => c.tagName === "a-text");
 
-      assert.ok(head, "avatar has head sphere");
-      assert.ok(body, "avatar has body cone");
+      assert.ok(shadow, "avatar has ground shadow");
+      assert.ok(ring, "avatar has ground ring");
+      assert.ok(heading, "avatar has heading triangle");
       assert.ok(label, "avatar has text label");
-      assert.strictEqual(head.getAttribute("color"), "#ef4444");
+      assert.strictEqual(ring.getAttribute("color"), "#ef4444");
       assert.strictEqual(label.getAttribute("value"), "ALARM");
 
       const extAvatar = buildPeerAvatarEntity("extinguisher_operator");
-      const extHead = extAvatar.children.find((c) => c.tagName === "a-sphere");
+      const extRing = extAvatar.children.find((c) => c.tagName === "a-ring");
       const extLabel = extAvatar.children.find((c) => c.tagName === "a-text");
-      assert.strictEqual(extHead.getAttribute("color"), "#3b82f6");
+      assert.strictEqual(extRing.getAttribute("color"), "#3b82f6");
       assert.strictEqual(extLabel.getAttribute("value"), "EXTINGUISHER OPERATOR");
 
       const evacAvatar = buildPeerAvatarEntity("backup_coordinator");
-      const evacHead = evacAvatar.children.find((c) => c.tagName === "a-sphere");
+      const evacRing = evacAvatar.children.find((c) => c.tagName === "a-ring");
       const evacLabel = evacAvatar.children.find((c) => c.tagName === "a-text");
-      assert.strictEqual(evacHead.getAttribute("color"), "#10b981");
+      assert.strictEqual(evacRing.getAttribute("color"), "#10b981");
       assert.strictEqual(evacLabel.getAttribute("value"), "BACKUP COORDINATOR");
     });
 
@@ -729,6 +740,131 @@ describe("Phase 3 Fire Team Session", () => {
       const instrAfter = teamOverlay.querySelector("#team-instruction");
       assert.ok(instrAfter, "team instruction element preserved after alarm step");
       assert.match(instrAfter.textContent, /Waiting for Extinguisher Operator/i, "instruction updated without DOM obliteration");
+    });
+  });
+
+  describe("7. Drill Phase Handling, Cold Unguided, and Team HUD", () => {
+    // lobby render with roles, calibration, and ready toggle
+    it("renders lobby UI with roles, calibration status, and sends ready on toggle", async () => {
+      await setupTeamScenario("alarm", { phase: "lobby" });
+
+      const teamOverlay = document.getElementById("team-module-overlay");
+      assert.ok(teamOverlay, "team overlay rendered");
+
+      const lobbyPanel = teamOverlay.querySelector("#team-lobby-panel");
+      assert.ok(lobbyPanel, "lobby panel mounted");
+
+      const readyBtn = lobbyPanel.querySelector("#btn-team-ready");
+      assert.ok(readyBtn, "ready button exists");
+      assert.strictEqual(readyBtn.textContent.trim(), "I am Ready");
+
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      assert.ok(ws, "active websocket exists");
+
+      readyBtn.click();
+      assert.strictEqual(readyBtn.textContent.trim(), "Ready (Waiting for team...)");
+
+      const readyMsg = ws.sent.map((s) => JSON.parse(s)).find((m) => m.type === "ready");
+      assert.ok(readyMsg, "sent ready message to server");
+
+      // phase transition to guided removes lobby panel
+      ws.receive({ type: "phase", phase: "guided", startedAtMs: Date.now() });
+      assert.strictEqual(teamOverlay.querySelector("#team-lobby-panel"), null, "lobby panel removed on guided phase");
+    });
+
+    // unguided cold start has neutral text and no hint initially
+    it("cold unguided starts with neutral prompt and delays hint until stall", async () => {
+      mock.timers.enable({ apis: ["setTimeout"] });
+      try {
+        await setupTeamScenario("alarm", { phase: "unguided" });
+
+        const teamOverlay = document.getElementById("team-module-overlay");
+        const instr = teamOverlay.querySelector("#team-instruction");
+        assert.ok(instr, "instruction element exists");
+
+        // neutral instruction, does not reveal order or waiting text
+        assert.match(instr.textContent, /Emergency scenario active/i);
+        assert.ok(!instr.textContent.includes("Waiting for"));
+
+        // cold start: hint does not appear immediately
+        assert.strictEqual(teamOverlay.querySelector("#fire-step-hint"), null, "no hint on cold start");
+
+        // after 15s stall, hint appears
+        mock.timers.tick(15000);
+        assert.ok(teamOverlay.querySelector("#fire-step-hint"), "stall hint appears after timeout");
+      } finally {
+        mock.timers.reset();
+      }
+    });
+
+    // peer action shows toast banner with distance
+    it("displays peer action banner and distance HUD on peer activity", async () => {
+      await setupTeamScenario("alarm", { phase: "guided" });
+
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      assert.ok(ws, "active websocket exists");
+
+      // send peer position
+      ws.receive({
+        type: "peer_position",
+        role: "extinguisher_operator",
+        position: { x: 3.0, z: 4.0, headingDeg: 90 }
+      });
+
+      // send peer action
+      ws.receive({
+        type: "peer_action",
+        role: "extinguisher_operator",
+        action: "extinguish_fire",
+        status: "started"
+      });
+
+      const banner = document.getElementById("team-peer-banner");
+      assert.ok(banner, "peer banner rendered");
+      assert.match(banner.textContent, /EXTINGUISHER OPERATOR approaching/i);
+
+      // check distance hud
+      const teamOverlay = document.getElementById("team-module-overlay");
+      const distHud = teamOverlay.querySelector("#team-distance-hud");
+      assert.ok(distHud, "distance hud exists");
+      assert.match(distHud.textContent, /Fire:/i);
+    });
+
+    // drill result renders debrief card with scores and breakdown
+    it("renders completion debrief card on drill_result with scores and breakdown", async () => {
+      await setupTeamScenario("alarm", { phase: "unguided" });
+
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      assert.ok(ws, "active websocket exists");
+
+      ws.receive({
+        type: "drill_result",
+        result: {
+          teamScore: 88,
+          passed: true,
+          perRole: { alarm: 92, extinguisher_operator: 85, backup_coordinator: 87 },
+          breakdown: {
+            completionScore: 60,
+            speedScore: 28,
+            errorPenalty: 0
+          }
+        }
+      });
+
+      const card = document.getElementById("team-debrief-card");
+      assert.ok(card, "team debrief card mounted");
+      assert.match(card.textContent, /88\/100/);
+      assert.match(card.textContent, /DRILL PASSED/);
+      assert.match(card.textContent, /92%/);
+      assert.match(card.textContent, /Completion: 60\/60/);
+
+      const replayBtn = card.querySelector("#btn-team-replay");
+      assert.ok(replayBtn, "ready again button exists");
+      replayBtn.click();
+
+      const readyMsg = ws.sent.map((s) => JSON.parse(s)).filter((m) => m.type === "ready");
+      assert.ok(readyMsg.length >= 1, "replay sent ready message");
+      assert.strictEqual(document.getElementById("team-debrief-card"), null, "card dismissed on replay");
     });
   });
 });

@@ -442,41 +442,70 @@ function buildFireAlarmEntity() {
   return entity;
 }
 
-// build generic avatar for teammates in multiplayer mode
+// build flat grounded marker avatar with ring shadow heading wedge and eye height text
 function buildPeerAvatarEntity(role) {
   const entity = document.createElement("a-entity");
-  
-  // a simple floating cone + sphere to represent a person
-  const head = document.createElement("a-sphere");
-  head.setAttribute("radius", "0.15");
-  head.setAttribute("position", "0 1.6 0");
-  head.setAttribute("color", role === "alarm" ? "#ef4444" : role === "extinguisher_operator" ? "#3b82f6" : "#10b981");
-  head.setAttribute("opacity", "0.7");
-  
-  const body = document.createElement("a-cone");
-  body.setAttribute("radius-bottom", "0.25");
-  body.setAttribute("radius-top", "0.05");
-  body.setAttribute("height", "1.2");
-  body.setAttribute("position", "0 0.8 0");
-  body.setAttribute("color", role === "alarm" ? "#ef4444" : role === "extinguisher_operator" ? "#3b82f6" : "#10b981");
-  body.setAttribute("opacity", "0.5");
-  
-  const text = document.createElement("a-text");
+  const color = role === "alarm" ? "#ef4444" : role === "extinguisher_operator" ? "#3b82f6" : "#10b981";
   const roleName = role.replace("_", " ").toUpperCase();
+
+  // ground shadow disc
+  const shadow = document.createElement("a-circle");
+  shadow.setAttribute("class", "peer-avatar-shadow");
+  shadow.setAttribute("radius", "0.4");
+  shadow.setAttribute("rotation", "-90 0 0");
+  shadow.setAttribute("position", "0 0.005 0");
+  shadow.setAttribute("color", "#000000");
+  shadow.setAttribute("opacity", "0.3");
+  shadow.setAttribute("material", "shader: flat; transparent: true;");
+
+  // flat grounded role-colored ring on floor plane
+  const ring = document.createElement("a-ring");
+  ring.setAttribute("class", "peer-avatar-ground-ring");
+  ring.setAttribute("radius-inner", "0.22");
+  ring.setAttribute("radius-outer", "0.32");
+  ring.setAttribute("rotation", "-90 0 0");
+  ring.setAttribute("position", "0 0.01 0");
+  ring.setAttribute("color", color);
+  ring.setAttribute("opacity", "0.85");
+  ring.setAttribute("material", "shader: flat; side: double;");
+
+  // flat grounded center disc
+  const disc = document.createElement("a-circle");
+  disc.setAttribute("class", "peer-avatar-ground-disc");
+  disc.setAttribute("radius", "0.22");
+  disc.setAttribute("rotation", "-90 0 0");
+  disc.setAttribute("position", "0 0.01 0");
+  disc.setAttribute("color", color);
+  disc.setAttribute("opacity", "0.35");
+  disc.setAttribute("material", "shader: flat; side: double;");
+
+  // heading indicator triangle pointing gaze direction forward
+  const heading = document.createElement("a-triangle");
+  heading.setAttribute("class", "peer-avatar-heading");
+  heading.setAttribute("vertex-a", "0 0.015 -0.42");
+  heading.setAttribute("vertex-b", "-0.12 0.015 -0.28");
+  heading.setAttribute("vertex-c", "0.12 0.015 -0.28");
+  heading.setAttribute("rotation", "-90 0 0");
+  heading.setAttribute("color", "#ffffff");
+  heading.setAttribute("opacity", "0.9");
+  heading.setAttribute("material", "shader: flat; side: double;");
+
+  // text label at eye height
+  const text = document.createElement("a-text");
+  text.setAttribute("class", "peer-avatar-label");
   text.setAttribute("value", roleName);
   text.setAttribute("align", "center");
-  text.setAttribute("position", "0 2.0 0");
+  text.setAttribute("position", "0 1.6 0");
   text.setAttribute("scale", "0.5 0.5 0.5");
   text.setAttribute("color", "#ffffff");
   text.setAttribute("side", "double");
 
-  entity.appendChild(head);
-  entity.appendChild(body);
+  entity.appendChild(shadow);
+  entity.appendChild(ring);
+  entity.appendChild(disc);
+  entity.appendChild(heading);
   entity.appendChild(text);
-  
-  // animate floating
-  entity.setAttribute("animation", "property: position; dir: alternate; dur: 2000; easing: easeInOutSine; loop: true; to: 0 0.05 0");
-  
+
   return entity;
 }
 

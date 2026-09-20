@@ -110,6 +110,10 @@ function _connectWebSocket(roomId, role, joinOptions = {}) {
           currentRoomId = msg.roomId;
           currentRole = msg.role;
           roomState = msg.state || {};
+          if (msg.phase) currentPhase = msg.phase;
+          if (Array.isArray(msg.peers)) {
+            msg.peers.forEach(p => peers.set(p, { stale: false }));
+          }
           logger.info(`joined team session as ${currentRole}`);
           resolve(); // successful join
         } else if (msg.type === "error") {
@@ -145,6 +149,7 @@ function _connectWebSocket(roomId, role, joinOptions = {}) {
           drillResultListeners.forEach(cb => cb(msg));
         } else if (msg.type === "peer_joined") {
           logger.info(`peer ${msg.role} joined`);
+          peers.set(msg.role, { stale: false });
           peerJoinLeaveListeners.forEach(cb => cb(msg.role, "joined"));
         } else if (msg.type === "peer_left") {
           logger.info(`peer ${msg.role} left`);
