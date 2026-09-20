@@ -5,16 +5,20 @@ import { selectionSingle, aimDwell, spatialAlignment, trackingSourceForTier } fr
 import { unloadModule } from "../../js/module-loader.js";
 import { requestCertificateForAttempt, flushPendingCertificates } from "../../js/certificates.js";
 import { renderCompletionPanel } from "../../js/certificate-panel.js";
-import { buildFireGraphic, buildExitGraphic, buildExtinguisherGraphic, buildFireAlarmEntity } from "./graphics.js";
+import { buildFireGraphic, buildExitGraphic, buildExtinguisherGraphic, buildFireAlarmEntity, buildPeerAvatarEntity } from "./graphics.js";
 import { t } from "../../js/i18n.js";
 import { playNarration, stopNarration } from "../../js/audio.js";
+import { cameraToMarkerSpace } from "../../ar/marker-pose.js";
+import { markerDistance, formatDistance, lerpPosition, lerpAngleDeg, MARKER_SIZE_CM } from "./distance.js";
 import {
   startAssessmentSession,
   finishAssessmentSession,
   abortAssessmentSession,
   getActiveSession,
-  bindAssessmentSessionListeners
+  bindAssessmentSessionListeners,
+  getEffectiveWorkerId
 } from "../../assessment/engine.js";
+import { recordStageResult, isStage2Passed } from "../../prerequisite/progress.js";
 import {
   generateMethaneReading,
   isCorrectDecision,
@@ -36,6 +40,7 @@ function addCleanup(fn) {
 
 // checkpoint ids — stable identifiers for assessment engine to key on
 const CP_EXIT_ID = "fire_exit_identification";
+const CP_ALARM_ID = "fire_alarm_pull";
 const CP_EXTINGUISHER_ID = "fire_extinguisher_aim";
 // tier 2 asks the marker variant of the evacuation question. tier 1 asks its own,
 // so the server holds a separate answer key for each and they must not be mixed.
@@ -379,6 +384,13 @@ function _executeBranchA_Evacuate(container, tierInfo, reading) {
 // show 3d alarm station and require pull action
 function _showAlarmPullStation(container, tierInfo, onDone) {
   _currentStep = 1;
+  registerCheckpoint({
+    id: CP_ALARM_ID,
+    type: "select",
+    onTrigger: (detail) => {
+      logger.info({ event: "checkpoint_cb", id: detail.checkpointId, passed: detail.passed }, "Alarm pull checkpoint triggered");
+    }
+  });
   const overlay = document.getElementById("fire-module-overlay");
 
   const camera = typeof document !== "undefined" && typeof document.querySelector === "function"
@@ -428,16 +440,10 @@ function _showAlarmPullStation(container, tierInfo, onDone) {
       btn.textContent = "✔ ALARM ACTIVATED! PREPARING EXTINGUISHER...";
 
       fireCheckpointResult(
-        CP_EXIT_ID,
+        CP_ALARM_ID,
         true,
-        { method: "alarm_pull_activated", reading: _methaneReading },
-        spatialAlignment({
-          anchorId: EXIT_ANCHOR_ID,
-          angularErrorRad: 0,
-          dwellMs: 500,
-          frameCount: 10,
-          trackingSource: trackingSourceForTier(tierInfo && tierInfo.tier)
-        })
+        { method: "alarm_pull_activated", reading: _methaneReading, tier: tierInfo && tierInfo.tier },
+        selectionSingle("alarm_pull")
       );
 
       if (alarmEntity && alarmEntity.remove) alarmEntity.remove();
@@ -531,8 +537,8 @@ function _renderDebriefCard(overlay) {
     </div>
     <div style="font-size:0.8rem;color:#cbd5e1;line-height:1.4;margin-top:0.35rem;">
       ${isExplosive
-        ? "Mines Act Compliance: Trainee correctly recognized explosive atmosphere above 5.0% LEL and executed immediate evacuation without risking secondary blast."
-        : "Standard Safety Drill: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit."
+        ? t("fire.training_feedback_explosive", "Training feedback: Trainee recognized explosive atmosphere above 5.0% LEL and executed immediate evacuation without risking secondary blast.")
+        : t("fire.training_feedback_standard", "Training feedback: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit.")
       }
     </div>
   `;
@@ -1971,6 +1977,32 @@ function cleanupFireModule() {
   _currentBranch = null;
   _alarmPulled = false;
   _decisionMade = null;
+  // reset team scenario state
+  _teamAlarmSetup = false;
+  _teamSelectSetup = false;
+  _teamExtSetup = false;
+  _teamEvacSetup = false;
+  _teamScenario = null;
+  const selProps = document.getElementById("extinguisher-selection-props");
+  if (selProps) selProps.remove();
+  _teamPhase = "lobby";
+  _teamIsReady = false;
+  _peerAvatars = {};
+  _peerPosMap = {};
+  _localMarkerPos = null;
+  _teamState = {};
+  _teamRoleDoubling = null;
+  _clearHintTimer();
+  if (_teamSessionMod && typeof _teamSessionMod.resetTeamSession === "function") {
+    _teamSessionMod.resetTeamSession();
+  }
+  _teamSessionMod = null;
+  if (typeof document !== "undefined") {
+    document.getElementById("team-module-overlay")?.remove();
+    document.getElementById("team-peer-banner")?.remove();
+    document.getElementById("team-debrief-card")?.remove();
+    document.getElementById("team-coverage-strip")?.remove();
+  }
   stopNarration();
   // a sampler left running holds a requestAnimationFrame loop against a scene
   // that is about to be torn down
@@ -2078,6 +2110,10 @@ function _showComplete(_lastPassed) {
       });
   }
 
+  if (evaluated && typeof evaluated.percentage === "number") {
+    recordStageResult(getEffectiveWorkerId(), "fire-response", 2, evaluated.percentage / 100);
+  }
+
   logger.info({ event: "fire_module_complete" }, "Fire module all steps done");
 }
 
@@ -2119,10 +2155,838 @@ function startFireModule(container, tierInfo, options = {}) {
   _setupStep1(container, tierInfo);
 }
 
+// hint timer for team scenario (assessment)
+const HINT_TIMEOUT_MS = 15000;
+let _hintTimer = null;
+let _hintShown = false;
+
+function _startHintTimer(overlay, hintText) {
+  _clearHintTimer();
+  _hintShown = false;
+  _hintTimer = setTimeout(() => {
+    _hintShown = true;
+    if (overlay) {
+      let hintEl = overlay.querySelector ? overlay.querySelector("#fire-step-hint") : null;
+      if (!hintEl) {
+        hintEl = document.createElement("div");
+        hintEl.id = "fire-step-hint";
+        hintEl.style.cssText = "margin-top:0.6rem;padding:0.6rem 0.8rem;background:rgba(245,158,11,0.15);border-left:3px solid #f59e0b;border-radius:4px;font-size:0.85rem;color:#fcd34d;line-height:1.4;";
+        overlay.appendChild(hintEl);
+      }
+      hintEl.textContent = hintText;
+    }
+  }, HINT_TIMEOUT_MS);
+}
+
+function _clearHintTimer() {
+  if (_hintTimer) {
+    clearTimeout(_hintTimer);
+    _hintTimer = null;
+  }
+}
+
+let _peerAvatars = {};
+let _teamState = {};
+let _teamPhase = "lobby";
+let _teamIsReady = false;
+let _teamRoleDoubling = null;
+let _peerPosMap = {};
+let _localMarkerPos = null;
+let _peerBannerTimer = null;
+let _teamAlarmSetup = false;
+let _teamSelectSetup = false;
+let _teamExtSetup = false;
+let _teamEvacSetup = false;
+let _teamScenario = null;
+let _teamSessionMod = null;
+let _teamCheckpointHandler = null;
+
+// update peer avatar in marker space with lerp step
+function _updatePeerAvatarPose(avatar, pos) {
+  if (!avatar || !pos) return;
+  const targetX = typeof pos.x === "number" ? pos.x : 0;
+  const targetZ = typeof pos.z === "number" ? pos.z : 0;
+  const targetHeading = typeof pos.headingDeg === "number" ? pos.headingDeg : 0;
+
+  if (!avatar._currentPose) {
+    avatar._currentPose = { x: targetX, y: 0, z: targetZ, headingDeg: targetHeading };
+  } else {
+    const nextPos = lerpPosition(avatar._currentPose, { x: targetX, y: 0, z: targetZ }, 0.5);
+    const nextHeading = lerpAngleDeg(avatar._currentPose.headingDeg, targetHeading, 0.5);
+    avatar._currentPose = { x: nextPos.x, y: 0, z: nextPos.z, headingDeg: nextHeading };
+  }
+
+  avatar.setAttribute("position", `${avatar._currentPose.x} 0 ${avatar._currentPose.z}`);
+  avatar.setAttribute("rotation", `0 ${avatar._currentPose.headingDeg} 0`);
+}
+
+// dim or restore grounded avatar visuals when peer signal weak
+function _setAvatarStale(peerRole, isStale) {
+  const avatar = _peerAvatars[peerRole];
+  if (!avatar) return;
+  const elements = avatar.querySelectorAll ? avatar.querySelectorAll("a-circle, a-ring, a-triangle, a-text, a-sphere, a-cone, .peer-avatar-ground-disc, .peer-avatar-ground-ring, .peer-avatar-shadow, .peer-avatar-heading, .peer-avatar-label") : [];
+  for (const el of elements) {
+    if (el.setAttribute) {
+      if (el.classList && el.classList.contains("peer-avatar-shadow")) {
+        el.setAttribute("opacity", isStale ? "0.1" : "0.3");
+      } else if (el.classList && el.classList.contains("peer-avatar-heading")) {
+        el.setAttribute("opacity", isStale ? "0.2" : "0.9");
+      } else if (el.classList && el.classList.contains("peer-avatar-ground-ring")) {
+        el.setAttribute("opacity", isStale ? "0.25" : "0.85");
+      } else if (el.classList && el.classList.contains("peer-avatar-ground-disc")) {
+        el.setAttribute("opacity", isStale ? "0.1" : "0.35");
+      } else {
+        el.setAttribute("opacity", isStale ? "0.2" : "0.7");
+      }
+    }
+  }
+}
+
+// show peer action toast banner with distance in ar view
+function _showPeerActionBanner(peerRole, action, status) {
+  let banner = document.getElementById("team-peer-banner");
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "team-peer-banner";
+    banner.style.cssText = [
+      "position:fixed", "top:60px", "left:50%", "transform:translateX(-50%)",
+      "background:rgba(15,23,42,0.9)", "border:1px solid #3b82f6",
+      "border-radius:20px", "padding:0.4rem 1rem", "font-size:0.85rem",
+      "color:#93c5fd", "z-index:102", "pointer-events:none",
+      "box-shadow:0 4px 12px rgba(0,0,0,0.4)", "transition:opacity 0.3s ease"
+    ].join(";");
+    document.body.appendChild(banner);
+  }
+
+  let roleName = t(`modules.fire_response.role_${peerRole}`, {}, peerRole.replace("_", " ").toUpperCase());
+  const canonicalOwners = {
+    fire_alarm: "alarm",
+    alarm_pulled: "alarm",
+    pull_alarm: "alarm",
+    fire_extinguisher: "extinguisher_operator",
+    fire_extinguished: "extinguisher_operator",
+    extinguish_fire: "extinguisher_operator",
+    evacuation_check: "backup_coordinator",
+    evac_checked: "backup_coordinator",
+    coordinate_evac: "backup_coordinator"
+  };
+  const canonicalRole = canonicalOwners[action];
+  if (canonicalRole && canonicalRole !== peerRole) {
+    const coveringRoleLabel = canonicalRole === "backup_coordinator" ? "EVAC" : (canonicalRole === "alarm" ? "ALARM" : "EXT");
+    roleName = `${roleName} (${t("fire.team_covering_label", { role: coveringRoleLabel }, `covering ${coveringRoleLabel}`)})`;
+  }
+
+  let actionLabel = action;
+  if (action === "fire_alarm" || action === "alarm_pulled" || action === "pull_alarm") actionLabel = t("fire.action_alarm", "Alarm Pull");
+  else if (action === "fire_extinguisher" || action === "fire_extinguished" || action === "extinguish_fire") actionLabel = t("fire.action_ext", "Extinguisher PASS");
+  else if (action === "evacuation_check" || action === "evac_checked" || action === "coordinate_evac") actionLabel = t("fire.action_evac", "Evacuation Route");
+
+  const peerPos = _peerPosMap[peerRole];
+  const dist = _localMarkerPos && peerPos ? markerDistance(_localMarkerPos, peerPos, MARKER_SIZE_CM) : null;
+  const distText = dist !== null ? t("fire.dist_away", { dist: formatDistance(dist) }, ` (${formatDistance(dist)} away)`) : "";
+
+  if (status === "started") {
+    banner.textContent = t("fire.peer_action_started", { role: roleName, action: actionLabel, dist: distText }, `${roleName} approaching ${actionLabel}${distText}`);
+  } else {
+    banner.textContent = t("fire.peer_action_completed", { action: actionLabel, role: roleName, dist: distText }, `${actionLabel} completed by ${roleName}${distText}`);
+  }
+
+  banner.style.display = "block";
+  banner.style.opacity = "1";
+  const root = document.getElementById("ar-viewport") || document.body || document.documentElement;
+  if (root && !banner.parentNode) root.appendChild(banner);
+
+  if (_peerBannerTimer) clearTimeout(_peerBannerTimer);
+  _peerBannerTimer = setTimeout(() => {
+    if (banner) banner.style.opacity = "0";
+  }, 3500);
+}
+
+// update distance hud to fire and teammates in ar view
+function _updateDistanceHud(ui) {
+  if (!ui) return;
+  let hud = ui.querySelector("#team-distance-hud");
+  if (!hud) {
+    hud = document.createElement("div");
+    hud.id = "team-distance-hud";
+    hud.style.cssText = "margin-top:0.4rem;font-size:0.8rem;color:#9ca3af;display:flex;flex-wrap:wrap;gap:0.6rem;";
+    const panel = ui.querySelector("#team-ui-panel");
+    if (panel) panel.appendChild(hud);
+  }
+
+  const fireDist = _localMarkerPos ? markerDistance(_localMarkerPos, { x: 0, z: 0 }, MARKER_SIZE_CM) : null;
+  const parts = [];
+  parts.push(`${t("fire.hud_dist_fire", "Fire")}: ${fireDist !== null ? formatDistance(fireDist) : "--"}`);
+
+  for (const [pRole, pPos] of Object.entries(_peerPosMap)) {
+    const d = _localMarkerPos && pPos ? markerDistance(_localMarkerPos, pPos, MARKER_SIZE_CM) : null;
+    const name = t(`modules.fire_response.role_${pRole}`, {}, pRole.replace("_", " "));
+    parts.push(`${name}: ${d !== null ? formatDistance(d) : "--"}`);
+  }
+
+  hud.textContent = parts.join(" | ");
+}
+
+// show completion debrief modal with team score and breakdown
+function _showDrillDebriefCard(container, role, result) {
+  const oldCard = document.getElementById("team-debrief-card");
+  if (oldCard) oldCard.remove();
+
+  const card = document.createElement("div");
+  card.id = "team-debrief-card";
+  card.style.cssText = [
+    "position:fixed", "top:50%", "left:50%", "transform:translate(-50%,-50%)",
+    "background:rgba(15,23,42,0.95)", "border:2px solid #3b82f6",
+    "border-radius:12px", "padding:1.5rem", "color:#fff",
+    "font-family:sans-serif", "max-width:90vw", "width:360px",
+    "z-index:200", "box-shadow:0 8px 32px rgba(0,0,0,0.6)", "text-align:center"
+  ].join(";");
+
+  const teamScore = typeof result.teamScore === "number" ? result.teamScore : (result.score || 0);
+  const passed = result.passed !== undefined ? result.passed : teamScore >= 80;
+  const roleScore = (result.perRole && result.perRole[role]) ? result.perRole[role] : teamScore;
+  const bd = result.breakdown || {};
+
+  card.innerHTML = `
+    <h2 style="margin-top:0;color:#60a5fa;font-size:1.4rem;">${t("fire.team_debrief_title", "Team Drill Debrief")}</h2>
+    <div style="font-size:2rem;font-weight:bold;margin:0.5rem 0;color:${passed ? '#34d399' : '#f87171'};">${teamScore}/100</div>
+    <div style="display:inline-block;padding:0.25rem 0.8rem;border-radius:999px;font-weight:bold;font-size:0.85rem;background:${passed ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)'};color:${passed ? '#34d399' : '#f87171'};margin-bottom:1rem;">
+      ${passed ? t("fire.team_passed", "DRILL PASSED") : t("fire.team_failed", "RETRY REQUIRED")}
+    </div>
+    <div style="text-align:left;background:rgba(0,0,0,0.3);border-radius:8px;padding:0.8rem;margin-bottom:1rem;font-size:0.85rem;line-height:1.6;">
+      <div><strong>${t("fire.team_your_role_score", "Your Role Score")}:</strong> ${roleScore}%</div>
+      ${bd.completionScore !== undefined ? `<div>${t("fire.bd_completion", "Completion")}: ${bd.completionScore}/60</div>` : ""}
+      ${bd.speedScore !== undefined ? `<div>${t("fire.bd_speed", "Speed")}: ${bd.speedScore}/25</div>` : ""}
+      ${bd.errorPenalty !== undefined ? `<div>${t("fire.bd_errors", "Error Penalty")}: -${bd.errorPenalty}</div>` : ""}
+    </div>
+    <div style="display:flex;gap:0.5rem;">
+      <button id="btn-team-replay" style="flex:1;padding:0.7rem;background:#2563eb;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">${t("fire.team_btn_replay", "Ready Again")}</button>
+      <button id="btn-team-exit" style="flex:1;padding:0.7rem;background:#475569;color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">${t("fire.team_btn_exit", "Exit")}</button>
+    </div>
+  `;
+  const root = container || document.getElementById("ar-viewport") || document.body || document.documentElement;
+  if (root) root.appendChild(card);
+
+  card.querySelector("#btn-team-replay")?.addEventListener("click", () => {
+    card.remove();
+    _teamAlarmSetup = false;
+    _teamSelectSetup = false;
+    _teamExtSetup = false;
+    _teamEvacSetup = false;
+    _teamPhase = "lobby";
+    _teamIsReady = true;
+    if (_teamSessionMod && typeof _teamSessionMod.sendReady === "function") {
+      _teamSessionMod.sendReady();
+    }
+  });
+
+  card.querySelector("#btn-team-exit")?.addEventListener("click", () => {
+    card.remove();
+    cleanupFireModule();
+  });
+}
+
+// render lobby screen with role status and ready toggle
+function _renderLobbyUI(ui, role, tierInfo) {
+  let lobby = ui.querySelector("#team-lobby-panel");
+  if (!lobby) {
+    lobby = document.createElement("div");
+    lobby.id = "team-lobby-panel";
+    lobby.style.cssText = "margin-top:0.6rem;background:rgba(0,0,0,0.3);border-radius:6px;padding:0.8rem;";
+    const panel = ui.querySelector("#team-ui-panel");
+    if (panel) panel.appendChild(lobby);
+  }
+
+  const markerOk = tierInfo && tierInfo.trackingState && tierInfo.trackingState.markerVisible;
+  const markerStatusText = markerOk
+    ? t("fire.team_marker_calibrated", "✔ Hiro marker calibrated")
+    : t("fire.team_calibrate_notice", "Aim camera at Hiro marker to calibrate");
+
+  const peers = _teamSessionMod && typeof _teamSessionMod.getPeers === "function" ? _teamSessionMod.getPeers() : [];
+  const presentRoles = new Set(peers);
+  presentRoles.add(role);
+
+  const roles = ["alarm", "extinguisher_operator", "backup_coordinator"];
+  const roleItems = roles.map((r) => {
+    const isSelf = r === role;
+    const isPresent = presentRoles.has(r);
+    const label = t(`modules.fire_response.role_${r}`, {}, r.replace("_", " ").toUpperCase());
+    return `<div style="display:flex;justify-content:space-between;font-size:0.85rem;padding:0.2rem 0;color:${isPresent ? '#34d399' : '#9ca3af'};">
+      <span>${isPresent ? "✔" : "⌛"} ${label} ${isSelf ? `(${t("fire.team_self", "You")})` : ""}</span>
+      <span>${isPresent ? t("fire.team_status_present", "Connected") : t("fire.team_status_waiting_for", { role: label }, `Waiting for: ${label}`)}</span>
+    </div>`;
+  }).join("");
+
+  const isDoublingPair = presentRoles.size === 2 && presentRoles.has("alarm") && presentRoles.has("extinguisher_operator");
+  const doublingNoticeHtml = isDoublingPair
+    ? `<div id="team-doubling-notice" style="margin-bottom:0.6rem;padding:0.3rem 0.5rem;background:rgba(59,130,246,0.2);border:1px solid #3b82f6;border-radius:4px;font-size:0.8rem;color:#93c5fd;">${t("fire.team_doubling_notice", "2 players connected: Alarm Operator will cover Evacuation.")}</div>`
+    : "";
+
+  lobby.innerHTML = `
+    <div style="font-size:0.85rem;margin-bottom:0.4rem;color:#93c5fd;"><strong>${t("fire.team_lobby_header", "Drill Lobby")}</strong></div>
+    <div style="margin-bottom:0.6rem;">${roleItems}</div>
+    ${doublingNoticeHtml}
+    <div style="font-size:0.8rem;color:${markerOk ? '#34d399' : '#fbbf24'};margin-bottom:0.6rem;">${markerStatusText}</div>
+    <button id="btn-team-ready" style="width:100%;padding:0.6rem;background:${_teamIsReady ? '#10b981' : '#2563eb'};color:#fff;border:none;border-radius:6px;font-weight:bold;cursor:pointer;">
+      ${_teamIsReady ? t("fire.team_ready_waiting", "Ready (Waiting for team...)") : t("fire.team_ready", "I am Ready")}
+    </button>
+  `;
+
+  const readyBtn = lobby.querySelector("#btn-team-ready");
+  readyBtn?.addEventListener("click", () => {
+    _teamIsReady = true;
+    if (_teamSessionMod && typeof _teamSessionMod.sendReady === "function") {
+      _teamSessionMod.sendReady();
+    }
+    readyBtn.textContent = t("fire.team_ready_waiting", "Ready (Waiting for team...)");
+    readyBtn.style.background = "#10b981";
+  });
+}
+
+// update role coverage strip chips based on team state
+function _updateRoleCoverageStrip(ui) {
+  if (!ui) return;
+  let strip = ui.querySelector("#team-coverage-strip");
+  if (!strip) {
+    strip = document.createElement("div");
+    strip.id = "team-coverage-strip";
+    strip.style.cssText = "display:flex;gap:0.4rem;margin-bottom:0.6rem;";
+    const panel = ui.querySelector("#team-ui-panel");
+    const instr = ui.querySelector("#team-instruction");
+    if (panel && instr) {
+      panel.insertBefore(strip, instr);
+    } else if (panel) {
+      panel.appendChild(strip);
+    }
+  }
+
+  const isAlarmDone = Boolean(_teamState && _teamState.alarm_pulled);
+  const isExtDone = Boolean(_teamState && _teamState.fire_extinguished);
+  const isEvacDone = Boolean(_teamState && _teamState.evac_checked);
+
+  const chips = [
+    { key: "alarm", done: isAlarmDone, label: t("fire.team_chip_alarm", "Alarm") },
+    { key: "ext", done: isExtDone, label: t("fire.team_chip_ext", "Extinguisher") },
+    { key: "evac", done: isEvacDone, label: t("fire.team_chip_evac", "Evacuation") }
+  ];
+
+  strip.innerHTML = chips.map((c) => {
+    const bg = c.done ? "rgba(16,185,129,0.25)" : "rgba(107,114,128,0.2)";
+    const border = c.done ? "#10b981" : "#4b5563";
+    const text = c.done ? "#34d399" : "#9ca3af";
+    const icon = c.done ? "✔" : "○";
+    return `<div id="chip-${c.key}" style="flex:1;padding:0.25rem 0.4rem;border-radius:4px;background:${bg};border:1px solid ${border};color:${text};font-size:0.75rem;text-align:center;font-weight:600;">${icon} ${c.label}</div>`;
+  }).join("");
+}
+
+async function startTeamScenario(container, tierInfo) {
+  logger.info({ tier: tierInfo.tier }, "Starting Fire-Response Team Scenario");
+
+  if (!isStage2Passed(getEffectiveWorkerId(), "fire-response")) {
+    _createOverlay(container, `<div><h3>${t("fire.team_locked_title", "Team Drill Locked")}</h3><p>${t("fire.team_locked_desc", "Pass the solo fire drill with 80% or higher before joining a team drill.")}</p></div>`);
+    logger.warn({ event: "team_drill_blocked_stage" }, "Team drill blocked, solo stage not passed");
+    return false;
+  }
+
+  if (tierInfo.tier === 1) {
+    _createOverlay(container, `<div><h3 style="color:#ef4444;">${t("fire.team_tier1_error", "Team Scenario requires Tier-2 (Marker) Mode")}</h3><p>${t("fire.team_tier1_desc", "Please use the AR.js marker version for multiplayer so all devices share the same coordinate system.")}</p></div>`);
+    return;
+  }
+
+  // dynamic import so solo play never loads ws client
+  _teamSessionMod = await import("./team-session.js");
+  const {
+    promptJoinTeamSession,
+    sendPositionUpdate,
+    sendHeartbeat,
+    updateRoomState,
+    getRoomState,
+    onStateChange,
+    onPeerPosition,
+    onPeerJoinLeave,
+    onSessionError,
+    onPeerStale,
+    onDrillAborted,
+    sendActionStart,
+    sendActionEnd,
+    onPhaseChange,
+    onPeerAction,
+    onDrillResult,
+    getCurrentPhase,
+    getRoleDoubling,
+    getCurrentScenario
+  } = _teamSessionMod;
+
+  const workerId = getEffectiveWorkerId();
+  const role = await promptJoinTeamSession(container, { workerId, markerId: "hiro", markerSizeCm: MARKER_SIZE_CM });
+  logger.info({ role, workerId }, "Team session joined");
+  _teamState = getRoomState();
+  _teamPhase = (typeof getCurrentPhase === "function" ? getCurrentPhase() : "lobby") || "lobby";
+  _teamRoleDoubling = (typeof getRoleDoubling === "function" ? getRoleDoubling() : null) || null;
+  _teamScenario = (typeof getCurrentScenario === "function" ? getCurrentScenario() : null) || null;
+
+  // team overlay uses distinct id so _showAlarmPullStation doesn't nuke it
+  const ui = document.createElement("div");
+  ui.id = "team-module-overlay";
+  ui.style.cssText = [
+    "position:fixed", "bottom:0", "left:0", "right:0",
+    "background:transparent", "color:#fff",
+    "font-family:sans-serif", "padding:1.2rem",
+    "z-index:101", "pointer-events:auto"
+  ].join(";");
+  ui.innerHTML = `
+    <div id="team-ui-panel" style="background:rgba(0,0,0,0.8);border:1px solid #444;border-radius:8px;padding:1rem;">
+      <div style="margin-bottom:0.4rem;padding:0.4rem 0.6rem;background:rgba(245,158,11,0.15);border-left:3px solid #f59e0b;border-radius:4px;font-size:0.8rem;color:#fcd34d;">${t("fire.team_wifi_notice", "⚠ Phase 3 needs all devices on the same WiFi")}</div>
+      <h3 style="margin-top:0;margin-bottom:0.5rem;color:#fff;">${t("fire.team_role", "Role")}: <span style="color:#60a5fa;text-transform:uppercase;">${role.replace("_", " ")}</span></h3>
+      <div id="team-scenario-tag" style="font-size:0.85rem;color:#60a5fa;margin-bottom:0.4rem;font-weight:bold;">${_teamScenario ? (_teamScenario.id === "electrical" ? t("fire.team_scenario_electrical_desc", "Class E: High-voltage electrical panel fire") : t("fire.team_scenario_standard_desc", "Class A: Conveyor belt and timber fire")) : ""}</div>
+      <div id="team-coverage-strip" style="display:flex;gap:0.4rem;margin-bottom:0.6rem;"></div>
+      <div id="team-instruction" style="font-size:1.1rem;color:#e5e7eb;margin-bottom:0.5rem;">${t("fire.team_wait", "Waiting for team...")}</div>
+      <div id="team-error" role="status" style="min-height:1.2rem;color:#fca5a5;font-size:0.85rem;"></div>
+    </div>
+  `;
+  container.appendChild(ui);
+  addCleanup(() => { if (ui.parentNode) ui.remove(); });
+  _updateRoleCoverageStrip(ui);
+
+  onSessionError((message) => {
+    const errorEl = ui.querySelector("#team-error");
+    if (errorEl) {
+      if (message === "wrong_media") {
+        const scenario = _teamScenario || { id: "standard" };
+        const localizedMsg = scenario.id === "electrical"
+          ? t("fire.team_wrong_media_electrical", "Water on an electrical fire can kill — pick CO2 or ABC powder.")
+          : t("fire.team_wrong_media_standard", "CO2 won't knock down a Class-A fire — pick ABC powder or water.");
+        errorEl.textContent = localizedMsg;
+      } else {
+        errorEl.textContent = message;
+      }
+    }
+  });
+
+  // dim avatar and warn when peer connection weak
+  onPeerStale((peerRole) => {
+    _setAvatarStale(peerRole, true);
+    const errorEl = ui.querySelector("#team-error");
+    if (errorEl) {
+      const roleName = t(`modules.fire_response.role_${peerRole}`, {}, peerRole.replace("_", " "));
+      errorEl.textContent = t("fire.team_peer_weak", { role: roleName }, `${roleName} connection weak`);
+    }
+  });
+
+  // reset scene and return to lobby on abort
+  onDrillAborted((reason) => {
+    const errorEl = ui.querySelector("#team-error");
+    if (errorEl) {
+      errorEl.textContent = t("fire.team_drill_aborted", { reason }, `Drill aborted: ${reason}`);
+    }
+    _teamAlarmSetup = false;
+    _teamSelectSetup = false;
+    _teamExtSetup = false;
+    _teamEvacSetup = false;
+    _teamPhase = "lobby";
+    _teamIsReady = false;
+    _teamRoleDoubling = null;
+    _teamScenario = null;
+    const selProps = document.getElementById("extinguisher-selection-props");
+    if (selProps) selProps.remove();
+    _clearHintTimer();
+    _updateRoleCoverageStrip(ui);
+    const instr = ui.querySelector("#team-instruction");
+    if (instr) instr.textContent = t("fire.team_wait", "Waiting for team...");
+    _updateTeamFlow(role, container, tierInfo, ui);
+  });
+
+  // broadcast position in marker-local space, only when marker tracked
+  const camera = document.querySelector("[camera]");
+  const marker = document.querySelector("a-marker");
+  if (!marker) return;
+
+  const sendPosInterval = setInterval(() => {
+    if (camera && marker && tierInfo.trackingState && tierInfo.trackingState.markerVisible) {
+      const camPos = camera.getAttribute("position");
+      const camRot = camera.getAttribute("rotation");
+      const markerPos = marker.getAttribute("position");
+      const markerRot = marker.getAttribute("rotation");
+      const local = cameraToMarkerSpace(
+        camPos, camRot && camRot.y,
+        markerPos, markerRot && markerRot.y
+      );
+      if (local) {
+        _localMarkerPos = local;
+        sendPositionUpdate({ x: local.x, z: local.z, headingDeg: local.yawDeg });
+        _updateDistanceHud(ui);
+      }
+    }
+  }, 250);
+  addCleanup(() => clearInterval(sendPosInterval));
+
+  // heartbeat every 2s so server can tell marker-lost from phone-dead
+  const heartbeatInterval = setInterval(() => {
+    sendHeartbeat(tierInfo.trackingState ? tierInfo.trackingState.markerVisible : false);
+  }, 2000);
+  addCleanup(() => clearInterval(heartbeatInterval));
+
+  onPeerPosition((peerRole, pos) => {
+    _setAvatarStale(peerRole, false);
+    _peerPosMap[peerRole] = pos;
+    const errorEl = ui.querySelector("#team-error");
+    if (errorEl && errorEl.textContent && errorEl.textContent.includes("connection weak")) {
+      errorEl.textContent = "";
+    }
+    if (!_peerAvatars[peerRole]) {
+      const avatar = buildPeerAvatarEntity(peerRole);
+      marker.appendChild(avatar);
+      _peerAvatars[peerRole] = avatar;
+    }
+    _updatePeerAvatarPose(_peerAvatars[peerRole], pos);
+    _updateDistanceHud(ui);
+  });
+  
+  onPeerJoinLeave((peerRole, action) => {
+    if (action === "left") {
+      delete _peerPosMap[peerRole];
+      if (_peerAvatars[peerRole]) {
+        if (_peerAvatars[peerRole].parentNode) _peerAvatars[peerRole].parentNode.removeChild(_peerAvatars[peerRole]);
+        delete _peerAvatars[peerRole];
+      }
+      _updateDistanceHud(ui);
+    }
+    if (_teamPhase === "lobby") {
+      _renderLobbyUI(ui, role, tierInfo);
+    }
+  });
+
+  onStateChange((newState) => {
+    _teamState = newState;
+    _updateRoleCoverageStrip(ui);
+    _updateTeamFlow(role, container, tierInfo, ui);
+  });
+
+  onPhaseChange((newPhase, startedAtMs, roleDoubling, scenario) => {
+    _teamPhase = newPhase;
+    if (roleDoubling !== undefined) _teamRoleDoubling = roleDoubling;
+    if (scenario !== undefined) _teamScenario = scenario;
+    if (newPhase === "guided" || newPhase === "unguided") {
+      _teamAlarmSetup = false;
+      _teamSelectSetup = false;
+      _teamExtSetup = false;
+      _teamEvacSetup = false;
+    }
+    if (newPhase === "unguided") {
+      const oldCard = document.getElementById("fire-hud-card");
+      if (oldCard) oldCard.remove();
+    }
+    const tag = ui.querySelector("#team-scenario-tag");
+    if (tag) {
+      tag.textContent = _teamScenario
+        ? (_teamScenario.id === "electrical"
+          ? t("fire.team_scenario_electrical_desc", "Class E: High-voltage electrical panel fire")
+          : t("fire.team_scenario_standard_desc", "Class A: Conveyor belt and timber fire"))
+        : "";
+    }
+    logger.info({ newPhase }, "Team phase changed");
+    _updateRoleCoverageStrip(ui);
+    _updateTeamFlow(role, container, tierInfo, ui);
+  });
+
+  onPeerAction((peerRole, action, status) => {
+    _showPeerActionBanner(peerRole, action, status);
+  });
+
+  onDrillResult((msg) => {
+    _teamPhase = "complete";
+    const res = msg.result || msg;
+    const teamScore = typeof res.teamScore === "number" ? res.teamScore : (res.score || 0);
+    const passed = res.passed !== undefined ? res.passed : teamScore >= 80;
+    const currentWorkerId = getEffectiveWorkerId();
+
+    if (passed) {
+      const myAttemptId = (res.attempts && res.attempts[role]) || res.attemptId;
+      if (myAttemptId) {
+        requestCertificateForAttempt({
+          attemptId: myAttemptId,
+          moduleId: "fire-response-team",
+          workerId: currentWorkerId,
+          passed: true
+        });
+        flushPendingCertificates().catch(() => {});
+      }
+    }
+
+    _showDrillDebriefCard(container, role, res);
+  });
+
+  // listen for AR interactions to update shared state
+  _teamCheckpointHandler = (e) => {
+    const detail = e.detail || {};
+    if (_hintShown) {
+      logger.info({ event: "team_hint_used", role }, "Team hint was visible before action");
+      _hintShown = false;
+    }
+    const isCoveringAlarm = _teamRoleDoubling === "alarm" || (_teamRoleDoubling && _teamRoleDoubling.alarm === role);
+    const canDoAlarm = role === "alarm" || isCoveringAlarm;
+    const isCoveringExt = _teamRoleDoubling === "extinguisher_operator" || (_teamRoleDoubling && _teamRoleDoubling.extinguisher_operator === role);
+    const canDoExt = role === "extinguisher_operator" || isCoveringExt;
+    const isCoveringEvac = _teamRoleDoubling === "backup_coordinator" || (_teamRoleDoubling && _teamRoleDoubling.backup_coordinator === role);
+    const canDoEvac = role === "backup_coordinator" || isCoveringEvac;
+
+    if (detail.checkpointId === CP_ALARM_ID && canDoAlarm && detail.passed) {
+      if (typeof sendActionStart === "function") sendActionStart("fire_alarm");
+      updateRoomState({ alarm_pulled: true });
+      if (typeof sendActionEnd === "function") sendActionEnd("fire_alarm");
+    }
+    if (detail.checkpointId === CP_EXTINGUISHER_ID && canDoExt && detail.passed) {
+      if (!_teamState.extinguisher_selected) return;
+      if (typeof sendActionStart === "function") sendActionStart("fire_extinguisher");
+      updateRoomState({ fire_extinguished: true });
+      if (typeof sendActionEnd === "function") sendActionEnd("fire_extinguisher");
+    }
+    if ((detail.checkpointId === CP_EVACUATION_ID || detail.checkpointId === CP_EVACUATION_WEBXR_ID) && canDoEvac && detail.passed) {
+      if (typeof sendActionStart === "function") sendActionStart("evacuation_check");
+      updateRoomState({ evac_checked: true });
+      if (typeof sendActionEnd === "function") sendActionEnd("evacuation_check");
+    }
+  };
+  window.addEventListener("safear:checkpoint", _teamCheckpointHandler);
+  addCleanup(() => window.removeEventListener("safear:checkpoint", _teamCheckpointHandler));
+
+  _updateTeamFlow(role, container, tierInfo, ui);
+}
+
+// stage three extinguisher props and selection hud card for media choice
+function _showExtinguisherSelection(container, _tierInfo, _ui) {
+  const overlay = document.getElementById("fire-module-overlay");
+  const scene = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? document.querySelector("a-scene")
+    : null;
+  const camera = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? (document.querySelector("#main-camera") || document.querySelector("[camera]"))
+    : null;
+  const marker = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? document.querySelector("a-marker")
+    : null;
+
+  const scenario = _teamScenario || { id: "standard" };
+  const scenarioDesc = scenario.id === "electrical"
+    ? t("fire.team_scenario_electrical_desc", "Class E: High-voltage electrical panel fire")
+    : t("fire.team_scenario_standard_desc", "Class A: Conveyor belt and timber fire");
+
+  // render scenario fire prop
+  _renderFireGraphic(container);
+
+  // stage three 3D extinguisher props anchored to marker, camera, or scene
+  const mountRoot = marker || camera || scene || container;
+  const existingSelection = document.getElementById("extinguisher-selection-props");
+  if (existingSelection) existingSelection.remove();
+
+  const propsGroup = document.createElement("a-entity");
+  propsGroup.id = "extinguisher-selection-props";
+
+  const medias = [
+    { id: "abc_powder", label: t("fire.team_media_abc_powder", "ABC Dry Chemical Powder"), color: "#3b82f6", posX: -0.45 },
+    { id: "co2", label: t("fire.team_media_co2", "CO2 (Carbon Dioxide)"), color: "#10b981", posX: 0 },
+    { id: "water", label: t("fire.team_media_water", "Water (Class A)"), color: "#ef4444", posX: 0.45 }
+  ];
+
+  medias.forEach((m) => {
+    const prop = document.createElement("a-entity");
+    prop.id = `extinguisher-prop-${m.id}`;
+    prop.setAttribute("class", "clickable");
+    prop.setAttribute("position", `${m.posX} 0 -0.8`);
+    prop.innerHTML = `
+      <a-cylinder radius="0.12" height="0.6" material="color: ${m.color}; metalness: 0.6; roughness: 0.4"></a-cylinder>
+      <a-cylinder radius="0.04" height="0.12" position="0 0.35 0" material="color: #334155; metalness: 0.8"></a-cylinder>
+      <a-text value="${m.id.toUpperCase()}" align="center" position="0 0.52 0" scale="0.3 0.3 0.3" color="#ffffff"></a-text>
+    `;
+    prop.addEventListener("click", () => {
+      if (_teamSessionMod && typeof _teamSessionMod.updateRoomState === "function") {
+        _teamSessionMod.updateRoomState({ extinguisher_selected: true }, { media: m.id });
+      }
+    });
+    propsGroup.appendChild(prop);
+  });
+
+  if (mountRoot && typeof mountRoot.appendChild === "function") {
+    mountRoot.appendChild(propsGroup);
+  }
+
+  if (overlay) {
+    overlay.innerHTML = `
+      <div id="extinguisher-selection-panel" class="fire-hud-card">
+        <div class="hud-badge">${t("fire.team_select_badge", "🔥 STEP 2 — SELECT EXTINGUISHER")}</div>
+        <div class="hud-title">${t("fire.team_select_title", "Select Fire Extinguisher")}</div>
+        <div class="hud-desc">${scenarioDesc}. ${t("fire.team_select_desc", "Choose the correct extinguisher media for this fire hazard.")}</div>
+        <div id="media-selection-buttons" style="display:flex;flex-direction:column;gap:0.4rem;margin-top:0.6rem;">
+          <button id="btn-media-abc_powder" data-media="abc_powder" style="padding:0.75rem 1rem;background:#1e293b;color:#60a5fa;border:2px solid #3b82f6;border-radius:8px;font-size:0.95rem;font-weight:bold;cursor:pointer;text-align:left;display:flex;align-items:center;gap:0.5rem;box-shadow:0 0 10px rgba(59,130,246,0.3);pointer-events:auto !important;">🧯 ${t("fire.team_media_abc_powder", "ABC Dry Chemical Powder")}</button>
+          <button id="btn-media-co2" data-media="co2" style="padding:0.75rem 1rem;background:#1e293b;color:#34d399;border:2px solid #10b981;border-radius:8px;font-size:0.95rem;font-weight:bold;cursor:pointer;text-align:left;display:flex;align-items:center;gap:0.5rem;box-shadow:0 0 10px rgba(16,185,129,0.3);pointer-events:auto !important;">🧯 ${t("fire.team_media_co2", "CO2 (Carbon Dioxide)")}</button>
+          <button id="btn-media-water" data-media="water" style="padding:0.75rem 1rem;background:#1e293b;color:#f87171;border:2px solid #ef4444;border-radius:8px;font-size:0.95rem;font-weight:bold;cursor:pointer;text-align:left;display:flex;align-items:center;gap:0.5rem;box-shadow:0 0 10px rgba(239,68,68,0.3);pointer-events:auto !important;">🧯 ${t("fire.team_media_water", "Water (Class A)")}</button>
+        </div>
+      </div>
+    `;
+
+    medias.forEach((m) => {
+      const btn = document.getElementById(`btn-media-${m.id}`);
+      if (btn) {
+        btn.addEventListener("click", () => {
+          if (_teamSessionMod && typeof _teamSessionMod.updateRoomState === "function") {
+            _teamSessionMod.updateRoomState({ extinguisher_selected: true }, { media: m.id });
+          }
+        });
+      }
+    });
+  }
+}
+
+// update team flow ui based on server phase and room state
+function _updateTeamFlow(role, container, tierInfo, ui) {
+  const instr = ui.querySelector("#team-instruction");
+  if (!instr) return;
+
+  const phase = _teamPhase || "guided";
+
+  if (phase === "lobby") {
+    _renderLobbyUI(ui, role, tierInfo);
+    return;
+  }
+
+  // clear lobby elements if phase transitioned
+  const lobbyPanel = ui.querySelector("#team-lobby-panel");
+  if (lobbyPanel) lobbyPanel.remove();
+
+  if (phase === "unguided") {
+    // COLD START: no hint timer on entry, neutral prompt, no order reveal
+    // the guided card is cleared on the phase transition itself, not here:
+    // _updateTeamFlow re-runs on every peer state change and must not nuke
+    // the current step's card
+    instr.textContent = t("fire.team_unguided_prompt", "Emergency scenario active: Take proper action for your role.");
+
+    const isCoveringEvac = _teamRoleDoubling === "backup_coordinator" || (_teamRoleDoubling && _teamRoleDoubling.backup_coordinator === role);
+
+    if (role === "alarm") {
+      if (!_teamAlarmSetup) {
+        _teamAlarmSetup = true;
+        _startHintTimer(ui, t("fire.team_alarm_hint", "Hint: Tap the red fire alarm pull station."));
+        _showAlarmPullStation(container, tierInfo, () => {
+          _clearHintTimer();
+        });
+      }
+      if (isCoveringEvac && _teamState.alarm_pulled && !_teamEvacSetup) {
+        _teamEvacSetup = true;
+        _startHintTimer(ui, t("fire.team_evac_hint", "Hint: Check the exit routes and confirm evacuation."));
+        const card = document.getElementById("fire-hud-card");
+        if (card) card.remove();
+        _setupStep3(container);
+      }
+    } else if (role === "extinguisher_operator") {
+      if (!_teamState.extinguisher_selected) {
+        if (!_teamSelectSetup) {
+          _teamSelectSetup = true;
+          _showExtinguisherSelection(container, tierInfo, ui);
+        }
+      } else if (!_teamExtSetup) {
+        _teamExtSetup = true;
+        const selProps = document.getElementById("extinguisher-selection-props");
+        if (selProps) selProps.remove();
+        const card = document.getElementById("fire-hud-card");
+        if (card) card.remove();
+        _setupStep2(container, tierInfo);
+      }
+    } else if (role === "backup_coordinator") {
+      if (!_teamEvacSetup) {
+        _teamEvacSetup = true;
+        _startHintTimer(ui, t("fire.team_evac_hint", "Hint: Check the exit routes and confirm evacuation."));
+        const card = document.getElementById("fire-hud-card");
+        if (card) card.remove();
+        _setupStep3(container);
+      }
+    }
+    return;
+  }
+
+  if (phase === "complete") {
+    instr.textContent = t("fire.team_complete", "Team drill complete! Reviewing debrief...");
+    _clearHintTimer();
+    return;
+  }
+
+  // guided phase: step-by-step guidance and hint timer
+  if (!_teamState.alarm_pulled) {
+    if (role === "alarm") {
+      instr.textContent = t("fire.team_alarm_instr", "Your task: Locate and pull the fire alarm.");
+      if (!_teamAlarmSetup) {
+        _teamAlarmSetup = true;
+        _startHintTimer(ui, t("fire.team_alarm_hint", "Hint: Tap the red fire alarm pull station."));
+        _showAlarmPullStation(container, tierInfo, () => {
+          _clearHintTimer();
+        });
+      }
+    } else {
+      instr.textContent = t("fire.team_wait_alarm", "Waiting for Alarm Operator to pull the alarm...");
+      _clearHintTimer();
+    }
+  } else if (!_teamState.extinguisher_selected) {
+    if (role === "extinguisher_operator") {
+      instr.textContent = t("fire.team_select_instr", "Alarm pulled! Select the correct fire extinguisher for this fire.");
+      if (!_teamSelectSetup) {
+        _teamSelectSetup = true;
+        _startHintTimer(ui, t("fire.team_select_hint", "Hint: Identify the fire type and select an appropriate extinguisher."));
+        _showExtinguisherSelection(container, tierInfo, ui);
+      }
+    } else {
+      instr.textContent = t("fire.team_wait_select", "Waiting for Extinguisher Operator to select extinguisher...");
+      _clearHintTimer();
+    }
+  } else if (!_teamState.fire_extinguished) {
+    if (role === "extinguisher_operator") {
+      instr.textContent = t("fire.team_ext_instr", "Alarm pulled! Extinguish the fire using PASS.");
+      if (!_teamExtSetup) {
+        _teamExtSetup = true;
+        _startHintTimer(ui, t("fire.team_ext_hint", "Hint: Approach the fire and use the extinguisher (Pull, Aim, Squeeze, Sweep)."));
+        const selProps = document.getElementById("extinguisher-selection-props");
+        if (selProps) selProps.remove();
+        const oldCard = document.getElementById("fire-hud-card");
+        if (oldCard) oldCard.remove();
+        _setupStep2(container, tierInfo);
+      }
+    } else {
+      instr.textContent = t("fire.team_wait_ext", "Waiting for Extinguisher Operator to suppress the fire...");
+      _clearHintTimer();
+    }
+  } else if (!_teamState.evac_checked) {
+    if (role === "extinguisher_operator") {
+      const hud = document.getElementById("fire-hud-card");
+      if (hud) hud.remove();
+    }
+    const isEvacRole = role === "backup_coordinator" || (_teamRoleDoubling === "backup_coordinator") || (_teamRoleDoubling && _teamRoleDoubling.backup_coordinator === role);
+    if (isEvacRole) {
+      instr.textContent = t("fire.team_backup_instr", "Fire suppressed! Coordinate evacuation.");
+      if (!_teamEvacSetup) {
+        _teamEvacSetup = true;
+        _startHintTimer(ui, t("fire.team_evac_hint", "Hint: Check the exit routes and confirm evacuation."));
+        const oldCard = document.getElementById("fire-hud-card");
+        if (oldCard) oldCard.remove();
+        _setupStep3(container);
+      }
+    } else {
+      instr.textContent = t("fire.team_wait_evac", "Waiting for Backup Coordinator to clear the area...");
+      _clearHintTimer();
+    }
+  } else {
+    const isEvacRole = role === "backup_coordinator" || (_teamRoleDoubling === "backup_coordinator") || (_teamRoleDoubling && _teamRoleDoubling.backup_coordinator === role);
+    if (isEvacRole) {
+      const hud = document.getElementById("fire-hud-card");
+      if (hud) hud.remove();
+    }
+    instr.textContent = t("fire.team_done", "Scenario Complete! All roles fulfilled.");
+    _clearHintTimer();
+  }
+}
+
 const calcAimAccuracy = _calcAimAccuracy;
 
 export {
   startFireModule,
+  startTeamScenario,
   cleanupFireModule,
   getCurrentStep,
   calcAimAccuracy,
@@ -2148,6 +3012,7 @@ export {
   canExecuteSelectedAction,
   evaluateGazeAimProgress,
   CP_EXIT_ID,
+  CP_ALARM_ID,
   CP_EXTINGUISHER_ID,
   CP_EVACUATION_ID,
   CP_EVACUATION_WEBXR_ID,

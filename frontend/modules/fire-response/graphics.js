@@ -150,6 +150,11 @@ function buildExtinguisherEntity() {
   // realistic 3D extinguisher model replacing primitive cylinder body
   entity.innerHTML = `
     <a-entity id="extinguisher-model" gltf-model="./assets/models/fire_extinguisher.glb" position="0 -0.20 0" rotation="0 0 0" scale="1.8 1.8 1.8"></a-entity>
+    <!-- equipment inspection components -->
+    <a-entity id="ext-valve-block" visible="false"></a-entity>
+    <a-entity id="ext-gauge-face" visible="false"></a-entity>
+    <a-entity id="ext-hose" visible="false"></a-entity>
+    <a-entity id="ext-nozzle" visible="false"></a-entity>
   `;
 
   // 3d operating handle lever on top of extinguisher
@@ -437,6 +442,73 @@ function buildFireAlarmEntity() {
   return entity;
 }
 
+// build flat grounded marker avatar with ring shadow heading wedge and eye height text
+function buildPeerAvatarEntity(role) {
+  const entity = document.createElement("a-entity");
+  const color = role === "alarm" ? "#ef4444" : role === "extinguisher_operator" ? "#3b82f6" : "#10b981";
+  const roleName = t(`modules.fire_response.role_${role}`, {}, role.replace("_", " ").toUpperCase());
+
+  // ground shadow disc
+  const shadow = document.createElement("a-circle");
+  shadow.setAttribute("class", "peer-avatar-shadow");
+  shadow.setAttribute("radius", "0.4");
+  shadow.setAttribute("rotation", "-90 0 0");
+  shadow.setAttribute("position", "0 0.005 0");
+  shadow.setAttribute("color", "#000000");
+  shadow.setAttribute("opacity", "0.3");
+  shadow.setAttribute("material", "shader: flat; transparent: true;");
+
+  // flat grounded role-colored ring on floor plane
+  const ring = document.createElement("a-ring");
+  ring.setAttribute("class", "peer-avatar-ground-ring");
+  ring.setAttribute("radius-inner", "0.22");
+  ring.setAttribute("radius-outer", "0.32");
+  ring.setAttribute("rotation", "-90 0 0");
+  ring.setAttribute("position", "0 0.01 0");
+  ring.setAttribute("color", color);
+  ring.setAttribute("opacity", "0.85");
+  ring.setAttribute("material", "shader: flat; side: double;");
+
+  // flat grounded center disc
+  const disc = document.createElement("a-circle");
+  disc.setAttribute("class", "peer-avatar-ground-disc");
+  disc.setAttribute("radius", "0.22");
+  disc.setAttribute("rotation", "-90 0 0");
+  disc.setAttribute("position", "0 0.01 0");
+  disc.setAttribute("color", color);
+  disc.setAttribute("opacity", "0.35");
+  disc.setAttribute("material", "shader: flat; side: double;");
+
+  // heading indicator triangle pointing gaze direction forward
+  const heading = document.createElement("a-triangle");
+  heading.setAttribute("class", "peer-avatar-heading");
+  heading.setAttribute("vertex-a", "0 0.015 -0.42");
+  heading.setAttribute("vertex-b", "-0.12 0.015 -0.28");
+  heading.setAttribute("vertex-c", "0.12 0.015 -0.28");
+  heading.setAttribute("rotation", "-90 0 0");
+  heading.setAttribute("color", "#ffffff");
+  heading.setAttribute("opacity", "0.9");
+  heading.setAttribute("material", "shader: flat; side: double;");
+
+  // text label at eye height
+  const text = document.createElement("a-text");
+  text.setAttribute("class", "peer-avatar-label");
+  text.setAttribute("value", roleName);
+  text.setAttribute("align", "center");
+  text.setAttribute("position", "0 1.6 0");
+  text.setAttribute("scale", "0.5 0.5 0.5");
+  text.setAttribute("color", "#ffffff");
+  text.setAttribute("side", "double");
+
+  entity.appendChild(shadow);
+  entity.appendChild(ring);
+  entity.appendChild(disc);
+  entity.appendChild(heading);
+  entity.appendChild(text);
+
+  return entity;
+}
+
 // aliases for backward compatibility
 const buildFireGraphic = buildFireEntity;
 const buildExitGraphic = buildExitEntity;
@@ -452,5 +524,6 @@ export {
   buildFireGraphic,
   buildExitGraphic,
   buildExtinguisherGraphic,
-  buildFireAlarmGraphic
+  buildFireAlarmGraphic,
+  buildPeerAvatarEntity
 };

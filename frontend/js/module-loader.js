@@ -4,8 +4,10 @@ import {
   startAssessmentSession,
   abortAssessmentSession,
   getActiveSession,
-  bindAssessmentSessionListeners
+  bindAssessmentSessionListeners,
+  getEffectiveWorkerId
 } from "../assessment/engine.js";
+import { isPrerequisiteComplete, isStage2Passed } from "../prerequisite/progress.js";
 
 const logger = createLogger("ModuleLoader");
 
@@ -31,9 +33,32 @@ function setTierLoaders(tier, loadSceneFn, tierHandle) {
 }
 
 // load named module: force unload any active module, flush checkpoints, then hand off to tier scene loader
-async function loadModule(moduleId) {
+async function loadModule(moduleId, options = {}) {
   if (!moduleId || typeof moduleId !== "string") {
     throw new Error("moduleId required");
+  }
+
+  // the real gate. the module screen disables its own buttons too, but that is
+  // decoration — a worker must not reach a graded module without having been shown
+  // the equipment, whatever route they took to get here.
+  // an android webview with site data blocked throws on the localStorage property
+  // itself. no worker id means no proof anyone read the equipment, so the gate shuts.
+  let workerId = null;
+  try {
+    workerId = getEffectiveWorkerId();
+  } catch (err) {
+    logger.warn({ event: "worker_id_unavailable", moduleId, error: err.message }, "Cannot identify worker, gate stays shut");
+  }
+
+  // the gate is per module: this module's own equipment, not everyone else's
+  if (!isPrerequisiteComplete(workerId, moduleId)) {
+    logger.warn({ event: "module_blocked_prerequisite", moduleId, workerId }, "Module blocked, equipment familiarization not done");
+    throw new Error("equipment familiarization incomplete — finish the prerequisite before starting a module");
+  }
+
+  if (options.team === true && !isStage2Passed(workerId, "fire-response")) {
+    logger.warn({ event: "team_drill_blocked_stage", moduleId, workerId }, "Team drill blocked, solo stage not passed");
+    throw new Error("solo fire drill must pass at 80 percent before team drill");
   }
 
   // force unload previous module if already active to prevent overlapping state
@@ -65,7 +90,7 @@ async function loadModule(moduleId) {
   }
 
   try {
-    await _sceneLoaders.loadScene(moduleId, _sceneLoaders.tierHandle);
+    await _sceneLoaders.loadScene(moduleId, _sceneLoaders.tierHandle, options);
     logger.info({ event: "module_load_done", moduleId }, "Module loaded");
   } catch (err) {
     // if loading failed or threw not-implemented, reset active module and assessment state

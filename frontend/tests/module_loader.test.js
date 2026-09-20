@@ -2,10 +2,28 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert";
 import { setTierLoaders, loadModule, unloadModule, getActiveModule } from "../js/module-loader.js";
 import { registerCheckpoint, getRegisteredCheckpoints, clearCheckpoints } from "../ar/interactions.js";
+import { getEffectiveWorkerId } from "../assessment/engine.js";
+import { REQUIRED_EQUIPMENT_IDS } from "../prerequisite/equipment-data.js";
+import { markEquipmentViewed, recordStageResult } from "../prerequisite/progress.js";
 
 // stub window for logger + interactions event dispatch
 const _dispatchedEvents = [];
+
+// loadModule now refuses a module until the worker has been through equipment
+// familiarization, and that progress lives in localStorage. node has none, so the
+// tests supply one and walk the set in beforeEach — the gate itself is exercised in
+// prerequisite.test.js, which is where it belongs.
+let _store = {};
+const _storage = {
+  getItem: (key) => (Object.prototype.hasOwnProperty.call(_store, key) ? _store[key] : null),
+  setItem: (key, value) => { _store[key] = String(value); },
+  removeItem: (key) => { delete _store[key]; },
+  clear: () => { _store = {}; }
+};
+globalThis.localStorage = _storage;
+
 globalThis.window = {
+  localStorage: _storage,
   dispatchEvent: (ev) => {
     _dispatchedEvents.push(ev);
   },
@@ -13,11 +31,43 @@ globalThis.window = {
   removeEventListener: () => {}
 };
 
+// mark every required item as seen, the way a worker who read them all would
+function completePrerequisite() {
+  const workerId = getEffectiveWorkerId();
+  REQUIRED_EQUIPMENT_IDS.forEach((id) => markEquipmentViewed(workerId, id));
+}
+
 describe("Module lifecycle (module-loader.js)", () => {
   beforeEach(() => {
     unloadModule();
     clearCheckpoints();
     _dispatchedEvents.length = 0;
+    _store = {};
+    completePrerequisite();
+  });
+
+  it("loadModule refuses every module until the prerequisite is complete", async () => {
+    _store = {};
+    setTierLoaders(2, async () => {}, null);
+
+    await assert.rejects(() => loadModule("fire-response"), /equipment familiarization incomplete/);
+    assert.strictEqual(getActiveModule(), null, "a blocked module must not become active");
+
+    completePrerequisite();
+    await loadModule("fire-response");
+    assert.strictEqual(getActiveModule(), "fire-response");
+  });
+
+  it("loadModule refuses team drill until solo fire score reaches 80 percent", async () => {
+    setTierLoaders(2, async () => {});
+    await assert.rejects(
+      () => loadModule("fire-response", { team: true }),
+      /solo fire drill must pass at 80 percent/
+    );
+
+    recordStageResult(getEffectiveWorkerId(), "fire-response", 2, 0.8);
+    await loadModule("fire-response", { team: true });
+    assert.strictEqual(getActiveModule(), "fire-response");
   });
 
   it("loadModule clears prior checkpoints before attempting load", async () => {

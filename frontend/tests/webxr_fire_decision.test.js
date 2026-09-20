@@ -575,7 +575,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
       assert.ok(debrief.innerHTML.includes("6.5% CH₄ (EXPLOSIVE)"));
       assert.ok(debrief.innerHTML.includes("Branch A (Immediate Evacuation)"));
       assert.ok(debrief.innerHTML.includes("N/A (Evacuated Immediately)"));
-      assert.ok(debrief.innerHTML.includes("Mines Act Compliance"));
+      assert.ok(debrief.innerHTML.includes("Training feedback"));
       done();
     }, 300);
   });
@@ -1117,6 +1117,4 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     cleanupWebXRFireModule();
   });
 });
-
-
 

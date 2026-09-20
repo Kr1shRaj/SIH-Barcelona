@@ -422,6 +422,7 @@ function renderDashboard(container, data, { onRefresh } = {}) {
               <th>Contractor</th>
               <th>Fire Response</th>
               <th>Gas Leak Protocol</th>
+              <th>Team Fire Drill</th>
               <th>Overall Status</th>
             </tr>
           </thead>
@@ -429,6 +430,7 @@ function renderDashboard(container, data, { onRefresh } = {}) {
             ${roster.map((w) => {
               const fire = w.modules["fire-response"] || {};
               const gas = w.modules["gas-leak"] || {};
+              const team = w.modules["fire-response-team"] || {};
 
               const renderModPill = (mod) => {
                 if (mod.passed) {
@@ -454,6 +456,7 @@ function renderDashboard(container, data, { onRefresh } = {}) {
                   <td data-label="Contractor">${esc(w.contractorName)}</td>
                   <td data-label="Fire Response">${renderModPill(fire)}</td>
                   <td data-label="Gas Protocol">${renderModPill(gas)}</td>
+                  <td data-label="Team Fire Drill">${renderModPill(team)}</td>
                   <td data-label="Status">${statusBadge}</td>
                 </tr>
               `;

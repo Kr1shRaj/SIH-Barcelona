@@ -1,7 +1,10 @@
 {
   "app": {
     "title": "SafeAR — Industrial Safety Training",
+    "tagline": "Ready before it's real.",
+    "splash_loading": "Preparing your training environment",
     "select_language": "Select Language",
+    "select_language_hint": "Choose your preferred language",
     "start_training": "Start Training",
     "step_indicator": "STEP {current} / {total}",
     "tier1_ready": "AR Tier 1 Ready (WebXR)",
@@ -37,7 +40,16 @@
       "complete_desc": "All checkpoints fired. Assessment engine will score your attempt.",
       "btn_exit_module": "✖ Exit Module",
       "landscape_nudge": "Tip: rotate your device to landscape for a better experience",
-      "nudge_dismiss": "Dismiss"
+      "nudge_dismiss": "Dismiss",
+      "team_join_title": "Join Fire Response Team",
+      "room_code": "Room Code",
+      "select_role": "Select Your Role",
+      "role_alarm": "Alarm Operator",
+      "role_extinguisher": "Extinguisher Operator",
+      "role_backup": "Backup Coordinator",
+      "role_extinguisher_operator": "Extinguisher Operator",
+      "role_backup_coordinator": "Backup Coordinator",
+      "join_btn": "Join Team"
     },
     "gas_leak": {
       "title": "Gas Leak & Confined Space Protocol",
@@ -62,7 +74,12 @@
       "complete_review": "⚠ MODULE COMPLETE — Review step 3",
       "complete_desc": "All gas protocol checkpoints fired. Assessment engine will score your attempt.",
       "btn_exit_module": "✖ Exit Module"
-    }
+    },
+    "select_title": "Choose Your Training",
+    "select_subtitle": "Pick a module to begin",
+    "locked": "Complete equipment familiarization first",
+    "team_drill": "Team Drill",
+    "team_drill_locked": "Pass solo fire drill with 80% or higher to unlock"
   },
   "marker": {
     "camera_denied": "Camera Permission Denied",
@@ -129,7 +146,87 @@
     "evac_next_2": "Next: Evacuation Protocol Choice ➜",
     "evac_badge_3": "🔥 STEP 3 / 3 — EVACUATION ROUTE",
     "evac_title_3": "Choose Safest Evacuation Path",
-    "evac_desc_3": "After using the extinguisher, you must evacuate. Select the safest option:"
+    "evac_desc_3": "After using the extinguisher, you must evacuate. Select the safest option:",
+    "team_locked_title": "Team Drill Locked",
+    "team_locked_desc": "Pass the solo fire drill with 80% or higher before joining a team drill.",
+    "team_room_required": "Please enter a room code.",
+    "team_connecting": "Connecting...",
+    "team_join_failed": "Failed to join room",
+    "team_backend_unconfigured": "Backend address is not configured for this device.",
+    "team_state_rejected": "Team action rejected by server.",
+    "team_connection_error": "Team drill needs all devices on the same Wi-Fi network with the backend running. Check the backend address and retry.",
+    "team_connection_lost": "Team connection lost.",
+    "team_peer_weak": "{role} connection weak",
+    "team_drill_aborted": "Drill aborted: {reason}",
+    "alarm_wall_found": "Wall surface detected! Tap screen or alarm to lock.",
+    "alarm_mounted": "✔ Alarm mounted on wall! Tap 3D alarm directly (or press button below) to pull.",
+    "alarm_wall_hint": "Aim at wall/door and tap screen to mount alarm, or tap 3D model directly to pull.",
+    "exit_door_found": "Door/wall surface detected! Tap screen or exit sign to lock.",
+    "exit_mounted": "✔ Route marked above door! Tap 3D exit sign or button below to confirm.",
+    "exit_door_hint": "Aim at exit door / frame and tap to lock route, or tap 3D sign directly to confirm.",
+    "team_same_marker": "All devices must scan the SAME printed marker at the SAME size.",
+    "action_alarm": "Alarm Pull",
+    "action_ext": "Extinguisher PASS",
+    "action_evac": "Evacuation Route",
+    "peer_action_started": "{role} approaching {action}{dist}",
+    "peer_action_completed": "{action} completed by {role}{dist}",
+    "dist_away": " ({dist} away)",
+    "hud_dist_fire": "Fire",
+    "team_debrief_title": "Team Drill Debrief",
+    "team_passed": "DRILL PASSED",
+    "team_failed": "RETRY REQUIRED",
+    "team_your_role_score": "Your Role Score",
+    "bd_completion": "Completion",
+    "bd_speed": "Speed",
+    "bd_errors": "Error Penalty",
+    "team_btn_replay": "Ready Again",
+    "team_btn_exit": "Exit",
+    "team_marker_calibrated": "✔ Hiro marker calibrated",
+    "team_calibrate_notice": "Aim camera at Hiro marker to calibrate",
+    "team_self": "You",
+    "team_status_present": "Connected",
+    "team_status_waiting": "Waiting...",
+    "team_status_waiting_for": "Waiting for: {role}",
+    "team_doubling_notice": "2 players connected: Alarm Operator will cover Evacuation.",
+    "team_covering_label": "covering {role}",
+    "team_chip_alarm": "Alarm",
+    "team_chip_ext": "Extinguisher",
+    "team_chip_evac": "Evacuation",
+    "team_lobby_header": "Drill Lobby",
+    "team_ready_waiting": "Ready (Waiting for team...)",
+    "team_ready": "I am Ready",
+    "team_tier1_error": "Team Scenario requires Tier-2 (Marker) Mode",
+    "team_tier1_desc": "Please use the AR.js marker version for multiplayer so all devices share the same coordinate system.",
+    "team_wifi_notice": "⚠ Team drill needs all devices on the same Wi-Fi network",
+    "team_role": "Role",
+    "team_wait": "Waiting for team...",
+    "team_unguided_prompt": "Emergency scenario active: Take proper action for your role.",
+    "team_alarm_hint": "Hint: Tap the red fire alarm pull station.",
+    "team_ext_hint": "Hint: Approach the fire and use the extinguisher (Pull, Aim, Squeeze, Sweep).",
+    "team_evac_hint": "Hint: Check the exit routes and confirm evacuation.",
+    "team_complete": "Team drill complete! Reviewing debrief...",
+    "team_alarm_instr": "Your task: Locate and pull the fire alarm.",
+    "team_wait_alarm": "Waiting for Alarm Operator to pull the alarm...",
+    "team_ext_instr": "Alarm pulled! Extinguish the fire using PASS.",
+    "team_wait_ext": "Waiting for Extinguisher Operator to suppress the fire...",
+    "team_backup_instr": "Fire suppressed! Coordinate evacuation.",
+    "team_wait_evac": "Waiting for Backup Coordinator to clear the area...",
+    "team_done": "Scenario Complete! All roles fulfilled.",
+    "team_media_abc_powder": "ABC Dry Chemical Powder",
+    "team_media_co2": "CO2 (Carbon Dioxide)",
+    "team_media_water": "Water (Class A)",
+    "team_wrong_media_electrical": "Water on an electrical fire can kill — pick CO2 or ABC powder.",
+    "team_wrong_media_standard": "CO2 won't knock down a Class-A fire — pick ABC powder or water.",
+    "team_select_instr": "Alarm pulled! Select the correct fire extinguisher for this fire.",
+    "team_select_hint": "Hint: Identify the fire type and select an appropriate extinguisher.",
+    "team_wait_select": "Waiting for Extinguisher Operator to select extinguisher...",
+    "team_scenario_standard_desc": "Class A: Conveyor belt and timber fire",
+    "team_scenario_electrical_desc": "Class E: High-voltage electrical panel fire",
+    "team_select_badge": "🔥 STEP 2 — SELECT EXTINGUISHER",
+    "team_select_title": "Select Fire Extinguisher",
+    "team_select_desc": "Choose the correct extinguisher media for this fire hazard.",
+    "training_feedback_explosive": "Training feedback: Trainee recognized explosive atmosphere above 5.0% LEL and executed immediate evacuation without risking secondary blast.",
+    "training_feedback_standard": "Training feedback: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit."
   },
   "gas": {
     "step1_badge_1": "☣ STEP 1 / 3 — HAZARD ZONE RECOGNITION (1/3)",
@@ -168,7 +265,10 @@
     "step2_action_desc": "Select all required PPE for hazardous gas entry (select all that apply):",
     "step3_action_badge": "☣ STEP 3 / 3 — BUDDY SYSTEM PROTOCOL",
     "step3_action_title": "Buddy System Protocol Choice",
-    "step3_action_desc": "What is the safety attendant role outside the confined opening?"
+    "step3_action_desc": "What is the safety attendant role outside the confined opening?",
+    "step1_hint": "Hint: Low oxygen (<19.5%) and toxic gases (H₂S, methane) trap in confined pits. Verify hazard boundary before entry.",
+    "step2_hint": "Hint: Only SCBA provides clean breathable air in toxic or low-oxygen atmospheres. Cloth or dust masks offer zero protection.",
+    "step3_hint": "Hint: The standby buddy must remain outside with a continuous lifeline. Never enter to attempt unequipped rescue."
   },
   "cert": {
     "passed": "Training Complete!",
@@ -183,5 +283,194 @@
     "not_passed_desc": "You did not reach the pass mark. You can try again.",
     "scan_hint": "Show this code to your supervisor",
     "preparing": "Training passed. Preparing your certificate…"
+  },
+  "prerequisite": {
+    "title": "Equipment Familiarization",
+    "subtitle": "Learn the equipment before training begins",
+    "progress": "{viewed} of {total} viewed",
+    "card_open_hint": "Tap to open",
+    "card_viewed": "Viewed",
+    "badge_fire": "Fire & Explosion",
+    "badge_gas": "Gas Leak & Confined Space",
+    "badge_both": "Both modules",
+    "complete_title": "Equipment Familiarization Complete",
+    "complete_desc": "You may now begin training.",
+    "locked_notice": "Open every item to unlock training",
+    "detail_components": "Key parts",
+    "btn_listen": "Listen",
+    "audio_unavailable": "Narration not yet recorded",
+    "btn_prev": "Previous",
+    "btn_next": "Next",
+    "btn_done": "Done",
+    "btn_close": "Close",
+    "translation_pending": "Santali translation pending",
+    "item_position": "{current} / {total}",
+    "btn_reassemble": "Reassemble",
+    "explode_hint": "Tap a part to read about it",
+    "tap_to_dismantle": "Tap the equipment to take it apart"
+  },
+  "equipment": {
+    "fire_extinguisher": {
+      "name": "Fire Extinguisher",
+      "purpose": "Puts out a small fire before it spreads. Aim at the base of the flames.",
+      "components": {
+        "pressure_gauge": {
+          "label": "Pressure Gauge",
+          "desc": "The needle must sit in the green band. In the red, the cylinder will not discharge."
+        },
+        "handle": {
+          "label": "Handle / Lever",
+          "desc": "Squeeze to discharge. Release to stop."
+        },
+        "safety_pin": {
+          "label": "Safety Pin",
+          "desc": "Pull this out first. The lever will not move until it is removed."
+        },
+        "valve_block": {
+          "label": "Valve Block",
+          "desc": "Holds the pressure in. Never strike it or loosen it."
+        },
+        "hose": {
+          "label": "Hose",
+          "desc": "Carries the powder from the cylinder to the nozzle. Check it for cracks."
+        },
+        "nozzle": {
+          "label": "Nozzle",
+          "desc": "Point this at the base of the fire, not at the flames."
+        }
+      }
+    },
+    "ppe_kit": {
+      "name": "PPE Kit",
+      "purpose": "The protective clothing worn before entering a fire or hot work area.",
+      "components": {
+        "safety_goggles": {
+          "label": "Safety Goggles",
+          "desc": "Shield the eyes from smoke, sparks and flying debris."
+        },
+        "high_vis_vest": {
+          "label": "High-Visibility Vest",
+          "desc": "Reflective strips let rescuers find you in heavy smoke."
+        },
+        "flame_resistant_coverall": {
+          "label": "Flame-Resistant Coverall",
+          "desc": "Does not melt onto skin. Ordinary synthetic clothing does."
+        },
+        "safety_gloves": {
+          "label": "Safety Gloves",
+          "desc": "Protect the hands from hot metal and from the extinguisher's cold horn."
+        }
+      }
+    },
+    "safety_helmet": {
+      "name": "Safety Helmet",
+      "purpose": "Protects the head from falling rock, tools and impact. Wear it underground at all times.",
+      "components": {
+        "outer_shell": {
+          "label": "Outer Shell",
+          "desc": "Spreads the force of an impact. Replace it after any hard blow."
+        },
+        "brim": {
+          "label": "Brim",
+          "desc": "Keeps falling dust and water off the face."
+        },
+        "suspension_harness": {
+          "label": "Suspension Harness",
+          "desc": "The inner cradle. It holds a gap between shell and skull — never remove it."
+        },
+        "chin_strap": {
+          "label": "Chin Strap",
+          "desc": "Keeps the helmet on your head when you bend or fall. Fasten it every time."
+        }
+      }
+    },
+    "safety_shoes": {
+      "name": "Safety Shoes",
+      "purpose": "Protect the feet from falling loads, sharp scrap and slippery ground.",
+      "components": {
+        "ankle_collar": {
+          "label": "Ankle Collar",
+          "desc": "Supports the ankle on uneven mine floors."
+        },
+        "steel_toe_cap": {
+          "label": "Steel Toe Cap",
+          "desc": "Takes the weight of a dropped load off your toes."
+        },
+        "penetration_resistant_midsole": {
+          "label": "Penetration-Resistant Midsole",
+          "desc": "Stops nails and sharp scrap coming up through the sole."
+        },
+        "anti_slip_sole": {
+          "label": "Anti-Slip Sole",
+          "desc": "Grips wet and oily floors. Check the tread is not worn smooth."
+        }
+      }
+    },
+    "multi_gas_detector": {
+      "name": "Multi-Gas Detector",
+      "purpose": "Reads the air before you enter. It finds gases you cannot smell.",
+      "components": {
+        "alarm_indicator": {
+          "label": "Alarm Indicator",
+          "desc": "Flashes and sounds when gas rises or oxygen falls. Leave at once."
+        },
+        "display_screen": {
+          "label": "Display Screen",
+          "desc": "Shows the live reading for each gas."
+        },
+        "sensor_intake": {
+          "label": "Sensor Intake",
+          "desc": "Air enters here. Never cover it with a hand or a glove."
+        },
+        "control_buttons": {
+          "label": "Control Buttons",
+          "desc": "Power on, move through the readings, and confirm. Test before every shift."
+        }
+      }
+    },
+    "scba": {
+      "name": "SCBA / Breathing Apparatus",
+      "purpose": "Supplies clean air from a cylinder. The only protection in a toxic or low-oxygen space.",
+      "components": {
+        "cylinder_valve": {
+          "label": "Cylinder Valve",
+          "desc": "Open it fully before entry and check the gauge reads full."
+        },
+        "face_mask": {
+          "label": "Face Mask",
+          "desc": "Must seal against the skin. A beard breaks the seal."
+        },
+        "air_cylinder": {
+          "label": "Air Cylinder",
+          "desc": "Holds your air supply. Know how many minutes it gives you."
+        },
+        "pressure_regulator": {
+          "label": "Pressure Regulator",
+          "desc": "Steps the cylinder pressure down to air you can breathe."
+        }
+      }
+    },
+    "safety_harness": {
+      "name": "Safety Harness & Lifeline",
+      "purpose": "Lets the attendant pull you out of a confined space without entering it.",
+      "components": {
+        "dorsal_d_ring": {
+          "label": "Dorsal D-Ring",
+          "desc": "The lifeline attaches here, between the shoulder blades."
+        },
+        "chest_strap": {
+          "label": "Chest Strap",
+          "desc": "Keeps the shoulder straps from sliding off."
+        },
+        "leg_straps": {
+          "label": "Leg Straps",
+          "desc": "Carry your weight during a rescue. Snug, about two fingers of slack."
+        },
+        "lifeline": {
+          "label": "Lifeline",
+          "desc": "Runs to the winch outside. It stays attached the whole time you are inside."
+        }
+      }
+    }
   }
 }

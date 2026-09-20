@@ -1,15 +1,64 @@
-/* SafeAR base mobile styles */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+/* SafeAR base mobile styles.
 
+   THE PALETTE. Every colour in the product comes from here, and the two brand
+   values come from the logo itself — sampled out of assets/brand/safear-logo-source.png
+   rather than guessed at, so the UI and the mark cannot drift apart.
+
+   The ground is a neutral graphite, not a blue-grey. The old slate carried a blue
+   cast that fought the brand navy and made the whole product read as a generic dark
+   web app. Neutral lets the navy be the only navy on screen and the yellow be the
+   only thing that shouts.
+
+   How the accents are meant to be spent:
+     yellow   the one action a worker should take next, and nothing else
+     success  an outcome that went well. never decoration
+     danger   an outcome that did not, and real hazard
+     info     technical annotation — callout lines, exploded-view arrows, selection
+
+   Contrast against the ground, measured: text 16.5:1, muted 8.3:1, yellow 10.4:1,
+   navy on yellow 10.8:1. All well past the 4.5:1 floor, which matters on a scratched
+   phone screen in a lit yard. */
 :root {
-  --color-bg: #0f172a;
-  --color-surface: #1e293b;
-  --color-primary: #f59e0b;
-  --color-text: #f8fafc;
-  --color-text-muted: #94a3b8;
-  --color-danger: #ef4444;
-  --color-success: #10b981;
+  /* brand. sampled from the supplied logo, exact. */
+  --brand-navy: #01172e;
+  --brand-yellow: #febc04;
+
+  /* ground and surfaces */
+  --color-bg: #111315;
+  --color-surface: #1a1d20;
+  --color-surface-raised: #23272b;
+  --color-line: #343a40;
+
+  /* the white the logo was drawn on. its plate, and nothing else. */
+  --color-brand-plate: #ffffff;
+
+  --color-text: #f3f4f6;
+  --color-text-muted: #a7adb5;
+
+  /* anything sitting ON the yellow is navy, never black and never white */
+  --color-on-primary: var(--brand-navy);
+
+  --color-primary: var(--brand-yellow);
+  --color-success: #2f9e63;
+  --color-danger: #e04a3f;
   --color-info: #38bdf8;
+
+  /* one radius scale */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+
+  /* elevation: a line plus a soft shadow. no glow anywhere in this product. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.5);
+
+  /* motion. the same four durations everywhere. */
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur-quick: 160ms;
+  --dur-fade: 240ms;
+  --dur-move: 440ms;
+
+  /* main's entrance curve, used by the AR status card below */
   --ease-spring: cubic-bezier(0.2, 0, 0, 1);
 }
 
@@ -29,7 +78,7 @@ body {
   margin: 0;
   padding: 0;
   overflow-x: hidden;
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: system-ui, -apple-system, sans-serif;
   background-color: var(--color-bg);
   color: var(--color-text);
   -webkit-text-size-adjust: 100%;
@@ -199,7 +248,7 @@ canvas.a-canvas {
 }
 
 .tier-badge.tier-2 {
-  background: rgba(245, 158, 11, 0.15);
+  background: rgba(254, 188, 4, 0.18);
   color: var(--color-primary);
   border: 1px solid rgba(245, 158, 11, 0.5);
   box-shadow: 0 0 8px rgba(245, 158, 11, 0.15);
@@ -260,7 +309,7 @@ canvas.a-canvas {
   text-transform: uppercase;
   letter-spacing: 0.8px;
   color: var(--color-primary);
-  background: rgba(245, 158, 11, 0.12);
+  background: rgba(254, 188, 4, 0.12);
   padding: 3px 10px;
   border-radius: 9999px;
   margin-bottom: 6px;
@@ -348,15 +397,15 @@ canvas.a-canvas {
   max-width: 340px;
   padding: 14px 20px;
   border-radius: 12px;
-  border: 1.5px solid rgba(56, 189, 248, 0.4);
-  background: linear-gradient(135deg, #0284c7, #0369a1);
-  color: #ffffff;
+  border: none;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
   font-size: 1rem;
   font-weight: 700;
   letter-spacing: 0.02em;
   cursor: pointer;
   margin: 10px 0;
-  box-shadow: 0 4px 20px rgba(56, 189, 248, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  box-shadow: var(--shadow-md);
   pointer-events: auto !important;
   text-align: center;
   touch-action: manipulation;
@@ -367,7 +416,7 @@ canvas.a-canvas {
 
 .webxr-start-btn:active {
   transform: scale(0.96);
-  box-shadow: 0 2px 10px rgba(56, 189, 248, 0.2);
+  box-shadow: var(--shadow-sm);
 }
 
 /* ── Entrance keyframes ── */
@@ -582,7 +631,7 @@ canvas.a-canvas {
 }
 
 #fire-module-overlay #squeeze-progress-fill {
-  background: #f59e0b !important;
+  background: var(--color-primary) !important;
 }
 
 #fire-module-overlay #sweep-progress-fill {
@@ -633,7 +682,7 @@ canvas.a-canvas {
 
 .retry-btn {
   background: var(--color-primary);
-  color: #000;
+  color: var(--color-on-primary);
   border: none;
   font-size: 1rem;
   font-weight: 600;
@@ -694,7 +743,7 @@ canvas.a-canvas {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+  background: radial-gradient(circle at center, var(--color-surface-raised) 0%, var(--color-bg) 100%);
   padding: 16px;
   box-sizing: border-box;
   pointer-events: auto !important;
@@ -732,7 +781,7 @@ canvas.a-canvas {
 
 .lang-subtitle {
   font-size: 0.92rem;
-  color: #94a3b8;
+  color: var(--color-text-muted);
   margin: 0;
   line-height: 1.4;
 }
@@ -774,7 +823,7 @@ canvas.a-canvas {
 
 .lang-option-btn:active,
 .lang-option-btn.selected {
-  border-color: #f59e0b !important;
+  border-color: var(--color-primary) !important;
   background: rgba(245, 158, 11, 0.25) !important;
   transform: scale(0.98);
 }
@@ -795,7 +844,7 @@ canvas.a-canvas {
 
 .lang-btn-sub {
   font-size: 0.80rem;
-  color: #94a3b8;
+  color: var(--color-text-muted);
   margin-top: 3px;
 }
 
@@ -824,7 +873,7 @@ canvas.a-canvas {
 
 .badge-partial {
   background: rgba(245, 158, 11, 0.2);
-  color: #f59e0b;
+  color: var(--color-primary);
   border: 1px solid rgba(245, 158, 11, 0.4);
 }
 
@@ -976,7 +1025,7 @@ canvas.a-canvas {
   font-size: 0.72rem;
   font-weight: 800;
   letter-spacing: 1px;
-  color: #f59e0b;
+  color: var(--color-primary);
   text-transform: uppercase;
   margin-bottom: 0.25rem;
 }
@@ -1025,7 +1074,7 @@ canvas.a-canvas {
 .decision-prompt {
   font-size: 0.90rem;
   font-weight: 600;
-  color: #94a3b8;
+  color: var(--color-text-muted);
   margin-bottom: 0.75rem;
 }
 
@@ -1094,7 +1143,7 @@ canvas.a-canvas {
   width: 82px;
   height: 82px;
   border-radius: 50%;
-  background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+  background: radial-gradient(circle at center, var(--color-surface-raised) 0%, var(--color-bg) 100%);
   border: 2px solid rgba(56, 189, 248, 0.6);
   box-shadow: 0 0 16px rgba(56, 189, 248, 0.25), inset 0 0 10px rgba(0, 0, 0, 0.6);
   display: flex;
@@ -1126,7 +1175,7 @@ canvas.a-canvas {
   font-size: 0.65rem;
   font-weight: 800;
   letter-spacing: 0.8px;
-  color: #94a3b8;
+  color: var(--color-text-muted);
   line-height: 1;
 }
 
@@ -1205,14 +1254,14 @@ canvas.a-canvas {
 
 .wheel-btn-radial .wheel-btn-sub {
   font-size: 0.68rem;
-  color: #94a3b8;
+  color: var(--color-text-muted);
   line-height: 1.1;
   margin-top: 2px;
 }
 
 /* Highlight spokes on button hover */
 .decision-wheel-radial:has(.wheel-node-top:hover) .radial-spoke-top {
-  stroke: #f59e0b;
+  stroke: var(--color-primary);
   stroke-width: 3.5;
 }
 
@@ -1222,7 +1271,7 @@ canvas.a-canvas {
 }
 
 .decision-wheel-radial:has(.wheel-node-right:hover) .radial-spoke-right {
-  stroke: #94a3b8;
+  stroke: var(--color-text-muted);
   stroke-width: 3.5;
 }
 
@@ -1273,7 +1322,7 @@ canvas.a-canvas {
 }
 
 .wheel-btn-extinguish:hover {
-  border-color: #f59e0b;
+  border-color: var(--color-primary);
   box-shadow: 0 0 12px rgba(245, 158, 11, 0.35);
 }
 
@@ -1294,7 +1343,7 @@ canvas.a-canvas {
 
 .wheel-btn-sub {
   font-size: 0.75rem;
-  color: #94a3b8;
+  color: var(--color-text-muted);
   margin-top: 2px;
 }
 
@@ -1433,7 +1482,7 @@ canvas.a-canvas {
 .orientation-nudge-toast .nudge-dismiss-btn {
   background: transparent;
   border: none;
-  color: #94a3b8;
+  color: var(--color-text-muted);
   font-size: 1.1rem;
   line-height: 1;
   padding: 4px 6px;

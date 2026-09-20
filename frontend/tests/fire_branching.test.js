@@ -122,6 +122,7 @@ import {
   getActiveBranch,
   getAlarmPulled,
   getDecisionMade,
+  CP_ALARM_ID,
   CP_EXIT_ID,
   CP_EXTINGUISHER_ID,
   CP_EVACUATION_ID,
@@ -290,7 +291,7 @@ describe("Fire Response Branching Scenario Drill", () => {
     });
 
     assert.strictEqual(getAlarmPulled(), true, "alarm must be pulled");
-    assert.ok(alarmEvents.some((e) => e.checkpointId === CP_EXIT_ID), "exit/alarm cp must fire on pull");
+    assert.ok(alarmEvents.some((e) => e.checkpointId === CP_ALARM_ID), "alarm cp must fire on pull");
 
     // 4. Extinguisher PASS step 2: Pull pin
     const pin = _elements["extinguisher-pin"];

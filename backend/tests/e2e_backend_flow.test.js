@@ -36,7 +36,7 @@ describe("End to end backend flow", () => {
     const res = await request(ctx.app).get("/api/modules");
 
     assert.strictEqual(res.status, 200);
-    assert.ok(Array.isArray(res.body) && res.body.length === 2);
+    assert.ok(Array.isArray(res.body) && res.body.length === 3);
 
     const body = JSON.stringify(res.body);
     assert.ok(!body.includes("expected_value") && !body.includes("expectedValue"),
