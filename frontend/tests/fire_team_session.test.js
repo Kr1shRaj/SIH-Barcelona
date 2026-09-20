@@ -252,7 +252,8 @@ import {
   resetTeamSession,
   getRoomState,
   getCurrentRole,
-  getPeers
+  getPeers,
+  getCurrentScenario
 } from "../modules/fire-response/team-session.js";
 import { recordStageResult } from "../prerequisite/progress.js";
 
@@ -294,7 +295,8 @@ async function setupTeamScenario(role = "alarm", initialRoomState = {}, viaMarke
         role: msg.role,
         phase: initialRoomState.phase || "guided",
         state: initialRoomState,
-        roleDoubling: initialRoomState.roleDoubling || null
+        roleDoubling: initialRoomState.roleDoubling || null,
+        scenario: initialRoomState.scenario || { id: "standard", fireClass: "A", acceptableMedia: ["abc_powder", "water"] }
       });
     } else if (msg.type === "state_update") {
       Object.assign(initialRoomState, msg.state);
@@ -573,25 +575,25 @@ describe("Phase 3 Fire Team Session", () => {
 
     // second extinguisher run get fresh pass step
     it("resets extinguisher setup state allowing second extinguisher session", async () => {
-      await setupTeamScenario("extinguisher_operator", { alarm_pulled: true });
+      await setupTeamScenario("extinguisher_operator", { alarm_pulled: true, extinguisher_selected: true });
       assert.ok(document.getElementById("pin-status-badge"), "pass step 2 mounted in session 1");
 
       cleanupFireModule();
       assert.strictEqual(document.getElementById("pin-status-badge"), null);
 
-      await setupTeamScenario("extinguisher_operator", { alarm_pulled: true });
+      await setupTeamScenario("extinguisher_operator", { alarm_pulled: true, extinguisher_selected: true });
       assert.ok(document.getElementById("pin-status-badge"), "pass step 2 mounted again in session 2");
     });
 
     // second evac run get fresh step three
     it("resets evacuation setup state allowing second evacuation session", async () => {
-      await setupTeamScenario("backup_coordinator", { alarm_pulled: true, fire_extinguished: true });
+      await setupTeamScenario("backup_coordinator", { alarm_pulled: true, extinguisher_selected: true, fire_extinguished: true });
       assert.ok(document.getElementById("btn-step-next"), "step 3 UI mounted in session 1");
 
       cleanupFireModule();
       assert.strictEqual(document.getElementById("btn-step-next"), null, "step 3 UI removed on cleanup");
 
-      await setupTeamScenario("backup_coordinator", { alarm_pulled: true, fire_extinguished: true });
+      await setupTeamScenario("backup_coordinator", { alarm_pulled: true, extinguisher_selected: true, fire_extinguished: true });
       assert.ok(document.getElementById("btn-step-next"), "step 3 UI mounted again in session 2");
     });
   });
@@ -600,7 +602,7 @@ describe("Phase 3 Fire Team Session", () => {
     // esm calls not spyable, reuse verified by simulate threshold pass fail
     // aim gating not observable from outside, handleAimSuccess transitions unconditionally
     it("calls isPinPullComplete, isSqueezeComplete, and isSweepComplete during PASS flow and updates room state", async () => {
-      const roomState = { alarm_pulled: true, fire_extinguished: false };
+      const roomState = { alarm_pulled: true, extinguisher_selected: true, fire_extinguished: false };
       await setupTeamScenario("extinguisher_operator", roomState);
 
       const instr = document.getElementById("team-instruction");
@@ -981,7 +983,7 @@ describe("Phase 3 Fire Team Session", () => {
       // guided: simulate fire_extinguished
       ws.receive({
         type: "state_changed",
-        state: { alarm_pulled: true, fire_extinguished: true }
+        state: { alarm_pulled: true, extinguisher_selected: true, fire_extinguished: true }
       });
 
       const teamOverlay = document.getElementById("team-module-overlay");
@@ -1006,6 +1008,89 @@ describe("Phase 3 Fire Team Session", () => {
       });
 
       assert.ok(strip.querySelector("#chip-alarm").textContent.includes("✔"), "alarm chip checked after state_changed");
+    });
+  });
+
+  describe("5. Extinguisher Media Selection (MS1)", () => {
+    it("extinguisher operator sees selection prompt and buttons after alarm is pulled; _setupStep2 not called before acceptance", async () => {
+      await setupTeamScenario("extinguisher_operator", { alarm_pulled: true, extinguisher_selected: false });
+
+      const instr = document.getElementById("team-instruction");
+      assert.match(instr.textContent, /Select the correct fire extinguisher/i);
+
+      assert.strictEqual(document.getElementById("pin-status-badge"), null, "_setupStep2 must NOT be called before media acceptance");
+      assert.ok(document.getElementById("extinguisher-selection-panel"), "selection panel mounted");
+      assert.ok(document.getElementById("btn-media-abc_powder"), "ABC powder button exists");
+      assert.ok(document.getElementById("btn-media-co2"), "CO2 button exists");
+      assert.ok(document.getElementById("btn-media-water"), "Water button exists");
+      assert.ok(getCurrentScenario(), "getCurrentScenario returns scenario object");
+      assert.strictEqual(getCurrentScenario().id, "standard");
+    });
+
+    it("tapping media button sends state_update with extinguisher_selected: true and media sibling field", async () => {
+      await setupTeamScenario("extinguisher_operator", { alarm_pulled: true, extinguisher_selected: false });
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+
+      let sentMsg = null;
+      const origSend = ws.send.bind(ws);
+      ws.send = (raw) => {
+        sentMsg = JSON.parse(raw);
+        origSend(raw);
+      };
+
+      const btnAbc = document.getElementById("btn-media-abc_powder");
+      assert.ok(btnAbc, "ABC button present");
+      btnAbc.click();
+
+      assert.ok(sentMsg, "sent state_update message");
+      assert.strictEqual(sentMsg.type, "state_update");
+      assert.strictEqual(sentMsg.state.extinguisher_selected, true);
+      assert.strictEqual(sentMsg.media, "abc_powder", "media sent as sibling field, NOT inside state object");
+    });
+
+    it("wrong_media error token renders localized warning banner based on active scenario", async () => {
+      // standard scenario test
+      await setupTeamScenario("extinguisher_operator", {
+        alarm_pulled: true,
+        extinguisher_selected: false,
+        scenario: { id: "standard", fireClass: "A", acceptableMedia: ["abc_powder", "water"] }
+      });
+      const ws1 = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      ws1.receive({ type: "error", message: "wrong_media" });
+
+      const errEl1 = document.getElementById("team-error");
+      assert.ok(errEl1);
+      assert.match(errEl1.textContent, /CO2 won't knock down a Class-A fire/i, "renders standard wrong-media warning");
+
+      cleanupFireModule();
+
+      // electrical scenario test
+      await setupTeamScenario("extinguisher_operator", {
+        alarm_pulled: true,
+        extinguisher_selected: false,
+        scenario: { id: "electrical", fireClass: "E", acceptableMedia: ["abc_powder", "co2"] }
+      });
+      const ws2 = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      ws2.receive({ type: "error", message: "wrong_media" });
+
+      const errEl2 = document.getElementById("team-error");
+      assert.ok(errEl2);
+      assert.match(errEl2.textContent, /Water on an electrical fire can kill/i, "renders electrical wrong-media warning");
+    });
+
+    it("guided ladder cannot skip selection rung: non-extinguisher roles see waiting banner until extinguisher is selected", async () => {
+      await setupTeamScenario("alarm", { alarm_pulled: true, extinguisher_selected: false });
+      const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+
+      const instr = document.getElementById("team-instruction");
+      assert.match(instr.textContent, /Waiting for Extinguisher Operator to select extinguisher/i);
+
+      ws.receive({
+        type: "state_changed",
+        state: { alarm_pulled: true, extinguisher_selected: true }
+      });
+
+      assert.match(instr.textContent, /Waiting for Extinguisher Operator to suppress the fire/i);
     });
   });
 });

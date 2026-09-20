@@ -9,9 +9,10 @@ let ws = null;
 let currentRoomId = null;
 let currentRole = null;
 let currentPhase = "lobby";
+let roleDoubling = null;
+let currentScenario = null;
 const peers = new Map(); // role -> { position, rotation }
 let roomState = {};
-let roleDoubling = null;
 
 const stateChangeListeners = [];
 const peerPositionListeners = [];
@@ -116,6 +117,7 @@ function _connectWebSocket(roomId, role, joinOptions = {}) {
           roomState = msg.state || {};
           if (msg.phase) currentPhase = msg.phase;
           if (msg.roleDoubling !== undefined) roleDoubling = msg.roleDoubling;
+          if (msg.scenario !== undefined) currentScenario = msg.scenario;
           if (Array.isArray(msg.peers)) {
             msg.peers.forEach(p => peers.set(p, { stale: false }));
           }
@@ -147,8 +149,9 @@ function _connectWebSocket(roomId, role, joinOptions = {}) {
         } else if (msg.type === "phase") {
           currentPhase = msg.phase;
           if (msg.roleDoubling !== undefined) roleDoubling = msg.roleDoubling;
+          if (msg.scenario !== undefined) currentScenario = msg.scenario;
           logger.info(`phase changed to ${msg.phase}`);
-          phaseChangeListeners.forEach(cb => cb(msg.phase, msg.startedAtMs, msg.roleDoubling));
+          phaseChangeListeners.forEach(cb => cb(msg.phase, msg.startedAtMs, msg.roleDoubling, msg.scenario));
         } else if (msg.type === "peer_action") {
           peerActionListeners.forEach(cb => cb(msg.role, msg.action, msg.status));
         } else if (msg.type === "drill_result") {
@@ -199,9 +202,9 @@ export function sendHeartbeat(markerVisible) {
   }
 }
 
-export function updateRoomState(newStateProps) {
+export function updateRoomState(newStateProps, extra = {}) {
   if (currentRoomId && ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: "state_update", state: newStateProps }));
+    ws.send(JSON.stringify({ type: "state_update", state: newStateProps, ...extra }));
   }
 }
 
@@ -285,6 +288,10 @@ export function getRoleDoubling() {
   return roleDoubling;
 }
 
+export function getCurrentScenario() {
+  return currentScenario;
+}
+
 export function getPeers() {
   return Array.from(peers.keys());
 }
@@ -301,6 +308,7 @@ export function resetTeamSession() {
   peers.clear();
   roomState = {};
   roleDoubling = null;
+  currentScenario = null;
   stateChangeListeners.length = 0;
   peerPositionListeners.length = 0;
   peerJoinLeaveListeners.length = 0;

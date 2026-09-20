@@ -89,6 +89,7 @@ describe("Deterministic seed data", () => {
       { module_id: "fire-response-team", checkpoint_id: "team_alarm_pull", checkpoint_type: "select" },
       { module_id: "fire-response-team", checkpoint_id: "team_drill_outcome", checkpoint_type: "select" },
       { module_id: "fire-response-team", checkpoint_id: "team_evac_coordinate", checkpoint_type: "select" },
+      { module_id: "fire-response-team", checkpoint_id: "team_extinguisher_select", checkpoint_type: "select" },
       { module_id: "fire-response-team", checkpoint_id: "team_fire_extinguish", checkpoint_type: "select" },
       { module_id: "gas-leak", checkpoint_id: "gas_buddy_procedure", checkpoint_type: "select" },
       { module_id: "gas-leak", checkpoint_id: "gas_hazard_zone_recognition", checkpoint_type: "proximity" },
@@ -161,6 +162,7 @@ describe("Deterministic seed data", () => {
       { checkpoint_id: "team_alarm_pull", expected: "alarm_pulled" },
       { checkpoint_id: "team_drill_outcome", expected: "drill_passed" },
       { checkpoint_id: "team_evac_coordinate", expected: "evac_checked" },
+      { checkpoint_id: "team_extinguisher_select", expected: "correct_selection" },
       { checkpoint_id: "team_fire_extinguish", expected: "fire_extinguished" }
     ]);
   });

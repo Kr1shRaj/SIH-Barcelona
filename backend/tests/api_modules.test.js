@@ -30,8 +30,8 @@ describe("GET /api/modules", () => {
       res.body.map((manifest) => [manifest.moduleId, manifest.requiredCheckpoints.length])
     );
 
-    // fire-response carries four because the evacuation question is split per tier, team carries four
-    assert.deepStrictEqual(counts, { "fire-response": 4, "fire-response-team": 4, "gas-leak": 3 });
+    // fire-response carries four because the evacuation question is split per tier, team carries five
+    assert.deepStrictEqual(counts, { "fire-response": 4, "fire-response-team": 5, "gas-leak": 3 });
   });
 
   it("exposes the checkpoint ids the AR modules actually emit", async () => {

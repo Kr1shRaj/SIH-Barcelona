@@ -186,6 +186,17 @@ const CHECKPOINT_DEFINITIONS = [
   },
   {
     moduleId: "fire-response-team",
+    checkpointId: "team_extinguisher_select",
+    type: "select",
+    observationKind: "selection_single",
+    expectedValue: JSON.stringify("correct_selection"),
+    allowedValues: JSON.stringify(["correct_selection", "wrong_selection", "skipped"]),
+    gradeable: 1,
+    required: 1
+    // no critical flag — defaults to CRITICAL_PENDING (0) per existing convention
+  },
+  {
+    moduleId: "fire-response-team",
     checkpointId: "team_fire_extinguish",
     type: "select",
     observationKind: "selection_single",

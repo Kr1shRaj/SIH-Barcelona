@@ -2,7 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert");
 const http = require("node:http");
 const { WebSocket } = require("ws");
-const { initRealtimeServer, getRoom, ACTION_RULES } = require("../realtime/team-session");
+const { initRealtimeServer, getRoom, ACTION_RULES, SCENARIOS, EXTINGUISHER_MEDIA, DEFAULT_SCENARIO_SELECTOR, resetDefaultScenarioCounter } = require("../realtime/team-session");
 
 // wait for one websocket message of the requested type
 function nextMessage(ws, type) {
@@ -112,7 +112,10 @@ test("Team Session Realtime Server", async (t) => {
     assert.strictEqual((await nextMessage(extinguisher.ws, "error")).message, "extinguisher_operator cannot set alarm_pulled");
 
     extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
-    assert.strictEqual((await nextMessage(extinguisher.ws, "error")).message, "fire_extinguished requires alarm_pulled");
+    assert.strictEqual((await nextMessage(extinguisher.ws, "error")).message, "fire_extinguished requires extinguisher_selected");
+
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "abc_powder" }));
+    assert.strictEqual((await nextMessage(extinguisher.ws, "error")).message, "extinguisher_selected requires alarm_pulled");
 
     alarm.ws.send(JSON.stringify({ type: "state_update", state: { unknown_flag: true } }));
     assert.strictEqual((await nextMessage(alarm.ws, "error")).message, "unknown team state");
@@ -126,11 +129,17 @@ test("Team Session Realtime Server", async (t) => {
     const [alarmState] = await Promise.all([alarmExtState, alarmBackupState]);
     assert.deepStrictEqual(alarmState.state, { alarm_pulled: true }, "rejected updates must not mutate room state");
 
+    const extBackupState = nextMessage(backup.ws, "state_changed");
+    const extAlarmState = nextMessage(alarm.ws, "state_changed");
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "abc_powder" }));
+    const [extState] = await Promise.all([extBackupState, extAlarmState]);
+    assert.deepStrictEqual(extState.state, { alarm_pulled: true, extinguisher_selected: true });
+
     const fireBackupState = nextMessage(backup.ws, "state_changed");
     const fireAlarmState = nextMessage(alarm.ws, "state_changed");
     extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
     const [fireState] = await Promise.all([fireBackupState, fireAlarmState]);
-    assert.deepStrictEqual(fireState.state, { alarm_pulled: true, fire_extinguished: true });
+    assert.deepStrictEqual(fireState.state, { alarm_pulled: true, extinguisher_selected: true, fire_extinguished: true });
 
     const evacAlarmState = nextMessage(alarm.ws, "state_changed");
     backup.ws.send(JSON.stringify({ type: "state_update", state: { evac_checked: true } }));
@@ -372,6 +381,11 @@ test("Team Drill State Machine Phases and Timeline", async (t) => {
     alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
     await Promise.all([extAlarm1, backupAlarm1]);
 
+    const extAlarmSelect1 = nextMessage(alarm.ws, "state_changed");
+    const extBackupSelect1 = nextMessage(backup.ws, "state_changed");
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "abc_powder" }));
+    await Promise.all([extAlarmSelect1, extBackupSelect1]);
+
     const alarmExt1 = nextMessage(alarm.ws, "state_changed");
     const backupExt1 = nextMessage(backup.ws, "state_changed");
     extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
@@ -434,6 +448,10 @@ test("Team Drill State Machine Phases and Timeline", async (t) => {
     alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
     await ext1;
 
+    const extSel1 = nextMessage(alarm.ws, "state_changed");
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "abc_powder" }));
+    await extSel1;
+
     const alarm1 = nextMessage(alarm.ws, "state_changed");
     extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
     await alarm1;
@@ -451,6 +469,10 @@ test("Team Drill State Machine Phases and Timeline", async (t) => {
     const ext2 = nextMessage(extinguisher.ws, "state_changed");
     alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
     await ext2;
+
+    const extSel2 = nextMessage(alarm.ws, "state_changed");
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "abc_powder" }));
+    await extSel2;
 
     const alarm2 = nextMessage(alarm.ws, "state_changed");
     extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
@@ -543,6 +565,10 @@ test("Team Drill State Machine Phases and Timeline", async (t) => {
     alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
     await ext1;
 
+    const extSel1 = nextMessage(alarm.ws, "state_changed");
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "abc_powder" }));
+    await extSel1;
+
     const alarm1 = nextMessage(alarm.ws, "state_changed");
     extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
     await alarm1;
@@ -558,6 +584,10 @@ test("Team Drill State Machine Phases and Timeline", async (t) => {
     const ext2 = nextMessage(extinguisher.ws, "state_changed");
     alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
     await ext2;
+
+    const extSel2 = nextMessage(alarm.ws, "state_changed");
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "abc_powder" }));
+    await extSel2;
 
     const alarm2 = nextMessage(alarm.ws, "state_changed");
     extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
@@ -651,6 +681,10 @@ test("Team Drill State Machine Phases and Timeline", async (t) => {
     const st1 = await nextMessage(extinguisher.ws, "state_changed");
     assert.strictEqual(st1.state.alarm_pulled, true);
 
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "abc_powder" }));
+    const stSel = await nextMessage(alarm.ws, "state_changed");
+    assert.strictEqual(stSel.state.extinguisher_selected, true);
+
     extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
     const st2 = await nextMessage(alarm.ws, "state_changed");
     assert.strictEqual(st2.state.fire_extinguished, true);
@@ -682,6 +716,255 @@ test("Team Drill State Machine Phases and Timeline", async (t) => {
     assert.strictEqual(room.roleDoubling, null);
 
     await Promise.all([closeSocket(alarm.ws), closeSocket(backup.ws)]);
+  });
+
+  // DEFAULT_SCENARIO_SELECTOR alternates standard/electrical deterministically
+  await t.test("default scenario selector alternates standard and electrical deterministically", () => {
+    resetDefaultScenarioCounter();
+    const s1 = DEFAULT_SCENARIO_SELECTOR();
+    const s2 = DEFAULT_SCENARIO_SELECTOR();
+    const s3 = DEFAULT_SCENARIO_SELECTOR();
+    assert.strictEqual(s1.id, "standard");
+    assert.strictEqual(s1.fireClass, "A");
+    assert.deepStrictEqual(s1.acceptableMedia, ["abc_powder", "water"]);
+    assert.strictEqual(s2.id, "electrical");
+    assert.strictEqual(s2.fireClass, "E");
+    assert.deepStrictEqual(s2.acceptableMedia, ["abc_powder", "co2"]);
+    assert.strictEqual(s3.id, "standard");
+    assert.strictEqual(EXTINGUISHER_MEDIA.ABC_POWDER, "abc_powder");
+    assert.strictEqual(EXTINGUISHER_MEDIA.CO2, "co2");
+    assert.strictEqual(EXTINGUISHER_MEDIA.WATER, "water");
+  });
+
+  // injected scenarioSelector is honored, broadcasts scenario, survives unguided wipe, reset on lobby
+  await t.test("injected scenarioSelector: lifecycle from guided to unguided to lobby reset", async () => {
+    const customServer = http.createServer((req, res) => res.end());
+    let customWss;
+    let customPort;
+    await new Promise((resolve) => {
+      customWss = initRealtimeServer(customServer, {}, null, {
+        scenarioSelector: () => SCENARIOS.electrical
+      });
+      customServer.listen(0, () => {
+        customPort = customServer.address().port;
+        resolve();
+      });
+    });
+
+    const roomId = `scenario-inject-room-${Date.now()}`;
+    const alarm = await joinRoom(customPort, roomId, "alarm");
+    const extinguisher = await joinRoom(customPort, roomId, "extinguisher_operator");
+    const backup = await joinRoom(customPort, roomId, "backup_coordinator");
+
+    alarm.ws.send(JSON.stringify({ type: "ready" }));
+    extinguisher.ws.send(JSON.stringify({ type: "ready" }));
+    backup.ws.send(JSON.stringify({ type: "ready" }));
+
+    const guidedAlarm = await nextMessage(alarm.ws, "phase");
+    assert.strictEqual(guidedAlarm.phase, "guided");
+    assert.ok(guidedAlarm.scenario, "guided broadcast includes scenario");
+    assert.strictEqual(guidedAlarm.scenario.id, "electrical");
+
+    const room = getRoom(roomId);
+    assert.ok(room.scenario, "room.scenario is set on server room");
+    assert.strictEqual(room.scenario.id, "electrical");
+
+    // advance guided flow
+    alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
+    await nextMessage(extinguisher.ws, "state_changed");
+
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "co2" }));
+    await nextMessage(alarm.ws, "state_changed");
+
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
+    await nextMessage(alarm.ws, "state_changed");
+
+    const pUnguided = nextMessage(alarm.ws, "phase");
+    backup.ws.send(JSON.stringify({ type: "state_update", state: { evac_checked: true } }));
+    const unguidedAlarm = await pUnguided;
+
+    assert.strictEqual(unguidedAlarm.phase, "unguided");
+    assert.ok(unguidedAlarm.scenario, "unguided broadcast includes scenario");
+    assert.strictEqual(unguidedAlarm.scenario.id, "electrical");
+
+    // room.state is wiped to {} but room.scenario survives
+    assert.deepStrictEqual(room.state, {});
+    assert.ok(room.scenario, "room.scenario survives unguided state wipe");
+    assert.strictEqual(room.scenario.id, "electrical");
+
+    // finish unguided to complete
+    alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
+    await nextMessage(extinguisher.ws, "state_changed");
+
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "abc_powder" }));
+    await nextMessage(alarm.ws, "state_changed");
+
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { fire_extinguished: true } }));
+    await nextMessage(alarm.ws, "state_changed");
+
+    const pComplete = nextMessage(alarm.ws, "phase");
+    backup.ws.send(JSON.stringify({ type: "state_update", state: { evac_checked: true } }));
+    await pComplete;
+
+    // all ready to return to lobby
+    const pLobby = nextMessage(alarm.ws, "phase");
+    alarm.ws.send(JSON.stringify({ type: "ready" }));
+    extinguisher.ws.send(JSON.stringify({ type: "ready" }));
+    backup.ws.send(JSON.stringify({ type: "ready" }));
+    const lobbyMsg = await pLobby;
+    assert.strictEqual(lobbyMsg.phase, "lobby");
+    assert.strictEqual(room.scenario, null, "room.scenario reset to null on lobby return");
+
+    await Promise.all([closeSocket(alarm.ws), closeSocket(extinguisher.ws), closeSocket(backup.ws)]);
+    await new Promise((resolve) => {
+      customWss.close();
+      if (typeof customServer.closeAllConnections === "function") customServer.closeAllConnections();
+      customServer.close(resolve);
+    });
+  });
+
+  // standard scenario accepts abc_powder and water, rejects co2 with wrong_media
+  await t.test("standard scenario: accepts abc_powder/water, rejects co2 with wrong_media", async () => {
+    const customServer = http.createServer((req, res) => res.end());
+    let customWss;
+    let customPort;
+    await new Promise((resolve) => {
+      customWss = initRealtimeServer(customServer, {}, null, {
+        scenarioSelector: () => SCENARIOS.standard
+      });
+      customServer.listen(0, () => {
+        customPort = customServer.address().port;
+        resolve();
+      });
+    });
+
+    const roomId = `standard-media-room-${Date.now()}`;
+    const alarm = await joinRoom(customPort, roomId, "alarm");
+    const extinguisher = await joinRoom(customPort, roomId, "extinguisher_operator");
+    const backup = await joinRoom(customPort, roomId, "backup_coordinator");
+
+    alarm.ws.send(JSON.stringify({ type: "ready" }));
+    extinguisher.ws.send(JSON.stringify({ type: "ready" }));
+    backup.ws.send(JSON.stringify({ type: "ready" }));
+    await nextMessage(alarm.ws, "phase");
+
+    alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
+    await nextMessage(extinguisher.ws, "state_changed");
+
+    // co2 is wrong media for standard Class A fire
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "co2" }));
+    const err = await nextMessage(extinguisher.ws, "error");
+    assert.strictEqual(err.message, "wrong_media");
+
+    const room = getRoom(roomId);
+    assert.strictEqual(room.state.extinguisher_selected, undefined, "state not updated on rejection");
+    const rejectedEntry = room.timeline.guided.find((e) => e.action === "extinguisher_selected" && !e.accepted);
+    assert.ok(rejectedEntry, "timeline recorded rejected extinguisher_selected entry");
+
+    // water is accepted for standard Class A fire
+    const pStateChange = nextMessage(alarm.ws, "state_changed");
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "water" }));
+    const stateMsg = await pStateChange;
+    assert.strictEqual(stateMsg.state.extinguisher_selected, true);
+    assert.strictEqual(stateMsg.state.media, undefined, "media is NOT stored in state object");
+
+    await Promise.all([closeSocket(alarm.ws), closeSocket(extinguisher.ws), closeSocket(backup.ws)]);
+    await new Promise((resolve) => {
+      customWss.close();
+      if (typeof customServer.closeAllConnections === "function") customServer.closeAllConnections();
+      customServer.close(resolve);
+    });
+  });
+
+  // electrical scenario accepts abc_powder and co2, rejects water with wrong_media
+  await t.test("electrical scenario: accepts abc_powder/co2, rejects water with wrong_media", async () => {
+    const customServer = http.createServer((req, res) => res.end());
+    let customWss;
+    let customPort;
+    await new Promise((resolve) => {
+      customWss = initRealtimeServer(customServer, {}, null, {
+        scenarioSelector: () => SCENARIOS.electrical
+      });
+      customServer.listen(0, () => {
+        customPort = customServer.address().port;
+        resolve();
+      });
+    });
+
+    const roomId = `elec-media-room-${Date.now()}`;
+    const alarm = await joinRoom(customPort, roomId, "alarm");
+    const extinguisher = await joinRoom(customPort, roomId, "extinguisher_operator");
+    const backup = await joinRoom(customPort, roomId, "backup_coordinator");
+
+    alarm.ws.send(JSON.stringify({ type: "ready" }));
+    extinguisher.ws.send(JSON.stringify({ type: "ready" }));
+    backup.ws.send(JSON.stringify({ type: "ready" }));
+    await nextMessage(alarm.ws, "phase");
+
+    alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
+    await nextMessage(extinguisher.ws, "state_changed");
+
+    // water is wrong media for electrical Class E fire
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "water" }));
+    const errWater = await nextMessage(extinguisher.ws, "error");
+    assert.strictEqual(errWater.message, "wrong_media");
+
+    const room = getRoom(roomId);
+    assert.strictEqual(room.state.extinguisher_selected, undefined);
+    const rejEntry = room.timeline.guided.find((e) => e.action === "extinguisher_selected" && !e.accepted);
+    assert.ok(rejEntry, "timeline records rejected water attempt");
+
+    // missing media or unknown media rejected
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true } }));
+    const errMissing = await nextMessage(extinguisher.ws, "error");
+    assert.strictEqual(errMissing.message, "wrong_media");
+
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "foam" }));
+    const errUnknown = await nextMessage(extinguisher.ws, "error");
+    assert.strictEqual(errUnknown.message, "wrong_media");
+
+    // co2 is accepted for electrical
+    const pStateChange = nextMessage(alarm.ws, "state_changed");
+    extinguisher.ws.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "co2" }));
+    const stateMsg = await pStateChange;
+    assert.strictEqual(stateMsg.state.extinguisher_selected, true);
+    assert.strictEqual(stateMsg.state.media, undefined);
+    assert.strictEqual(room.state.extinguisher_selected, true);
+
+    await Promise.all([closeSocket(alarm.ws), closeSocket(extinguisher.ws), closeSocket(backup.ws)]);
+    await new Promise((resolve) => {
+      customWss.close();
+      if (typeof customServer.closeAllConnections === "function") customServer.closeAllConnections();
+      customServer.close(resolve);
+    });
+  });
+
+  // role enforcement: only extinguisher_operator can set extinguisher_selected
+  await t.test("role enforcement: alarm or backup cannot set extinguisher_selected", async () => {
+    const roomId = `role-ext-room-${Date.now()}`;
+    const alarm = await joinRoom(port, roomId, "alarm");
+    const extinguisher = await joinRoom(port, roomId, "extinguisher_operator");
+    const backup = await joinRoom(port, roomId, "backup_coordinator");
+
+    alarm.ws.send(JSON.stringify({ type: "ready" }));
+    extinguisher.ws.send(JSON.stringify({ type: "ready" }));
+    backup.ws.send(JSON.stringify({ type: "ready" }));
+    await nextMessage(alarm.ws, "phase");
+
+    alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
+    await nextMessage(extinguisher.ws, "state_changed");
+
+    // alarm role tries to set extinguisher_selected
+    alarm.ws.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "abc_powder" }));
+    const errAlarm = await nextMessage(alarm.ws, "error");
+    assert.strictEqual(errAlarm.message, "alarm cannot set extinguisher_selected");
+
+    // backup role tries to set extinguisher_selected
+    backup.ws.send(JSON.stringify({ type: "state_update", state: { extinguisher_selected: true }, media: "abc_powder" }));
+    const errBackup = await nextMessage(backup.ws, "error");
+    assert.strictEqual(errBackup.message, "backup_coordinator cannot set extinguisher_selected");
+
+    await Promise.all([closeSocket(alarm.ws), closeSocket(extinguisher.ws), closeSocket(backup.ws)]);
   });
 
   await t.test("teardown state machine server", () => {
