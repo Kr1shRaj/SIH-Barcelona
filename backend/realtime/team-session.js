@@ -535,6 +535,14 @@ function initRealtimeServer(server, config, logger, optionsOrClock) {
                             kind: "selection_single",
                             selected: evacEv ? "evac_checked" : "skipped"
                           }
+                        },
+                        {
+                          checkpointId: "team_drill_outcome",
+                          observedAt: nowIso,
+                          observation: {
+                            kind: "selection_single",
+                            selected: scored.passed ? "drill_passed" : "drill_failed"
+                          }
                         }
                       ],
                       clientClaimedPercentage: scored.teamScore,

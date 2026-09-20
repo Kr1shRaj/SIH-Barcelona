@@ -2736,8 +2736,9 @@ function _updateTeamFlow(role, container, tierInfo, ui) {
 
   if (phase === "unguided") {
     // COLD START: no hint timer on entry, neutral prompt, no order reveal
-    const oldCard = document.getElementById("fire-hud-card");
-    if (oldCard) oldCard.remove();
+    // the guided card is cleared on the phase transition itself, not here:
+    // _updateTeamFlow re-runs on every peer state change and must not nuke
+    // the current step's card
     instr.textContent = t("fire.team_unguided_prompt", "Emergency scenario active: Take proper action for your role.");
 
     const isCoveringEvac = _teamRoleDoubling === "backup_coordinator" || (_teamRoleDoubling && _teamRoleDoubling.backup_coordinator === role);

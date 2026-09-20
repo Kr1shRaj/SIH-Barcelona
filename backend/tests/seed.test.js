@@ -87,6 +87,7 @@ describe("Deterministic seed data", () => {
       { module_id: "fire-response", checkpoint_id: "fire_exit_identification", checkpoint_type: "proximity" },
       { module_id: "fire-response", checkpoint_id: "fire_extinguisher_aim", checkpoint_type: "aim" },
       { module_id: "fire-response-team", checkpoint_id: "team_alarm_pull", checkpoint_type: "select" },
+      { module_id: "fire-response-team", checkpoint_id: "team_drill_outcome", checkpoint_type: "select" },
       { module_id: "fire-response-team", checkpoint_id: "team_evac_coordinate", checkpoint_type: "select" },
       { module_id: "fire-response-team", checkpoint_id: "team_fire_extinguish", checkpoint_type: "select" },
       { module_id: "gas-leak", checkpoint_id: "gas_buddy_procedure", checkpoint_type: "select" },
@@ -158,6 +159,7 @@ describe("Deterministic seed data", () => {
       { checkpoint_id: "gas_buddy_procedure", expected: "standby_outside_with_lifeline" },
       { checkpoint_id: "gas_ppe_selection", expected: ["scba_respirator", "multi_gas_detector", "safety_harness"] },
       { checkpoint_id: "team_alarm_pull", expected: "alarm_pulled" },
+      { checkpoint_id: "team_drill_outcome", expected: "drill_passed" },
       { checkpoint_id: "team_evac_coordinate", expected: "evac_checked" },
       { checkpoint_id: "team_fire_extinguish", expected: "fire_extinguished" }
     ]);
@@ -172,12 +174,13 @@ describe("Deterministic seed data", () => {
     });
   });
 
-  it("leaves critical at 0, the safety ruling has not been made yet", () => {
+  it("leaves critical at 0 everywhere except team_drill_outcome", () => {
     seedDatabase(db);
     assert.strictEqual(CRITICAL_PENDING, 0);
 
     db.prepare("SELECT checkpoint_id, critical FROM checkpoint_definition").all().forEach((row) => {
-      assert.strictEqual(row.critical, 0, `${row.checkpoint_id} must not claim a safety ruling`);
+      const expected = row.checkpoint_id === "team_drill_outcome" ? 1 : 0;
+      assert.strictEqual(row.critical, expected, `${row.checkpoint_id} critical flag is wrong`);
     });
   });
 

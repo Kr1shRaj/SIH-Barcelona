@@ -508,8 +508,9 @@ describe("Phase 3 Fire Team Session", () => {
         position: { x: 3.0, z: -1.0, headingDeg: 180 }
       });
 
-      assert.strictEqual(avatar.getAttribute("position"), "3 0 -1");
-      assert.strictEqual(avatar.getAttribute("rotation"), "0 180 0");
+      // M7: avatar eases toward the target at alpha 0.5 instead of snapping
+      assert.strictEqual(avatar.getAttribute("position"), "2.125 0 -1.75");
+      assert.strictEqual(avatar.getAttribute("rotation"), "0 127.5 0");
 
       const avatars = marker.children.filter((c) => c.children.some((ch) => ch.getAttribute("value") === "ALARM"));
       assert.strictEqual(avatars.length, 1, "reuses same avatar entity without creating duplicates");
@@ -929,28 +930,31 @@ describe("Phase 3 Fire Team Session", () => {
     });
 
     // guided to unguided resets flags and mounts interaction for role (M1 regression)
-    it("guided to unguided phase transition resets setup flags and mounts interactions", async () => {
+    it("guided to unguided phase transition resets setup flags and remounts interactions", async () => {
       await setupTeamScenario("alarm", { phase: "guided" });
       const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
-      assert.ok(document.getElementById("btn-pull-alarm"), "alarm pull button mounted in guided");
+      const guidedBtn = document.getElementById("btn-pull-alarm");
+      assert.ok(guidedBtn, "alarm pull button mounted in guided");
+      assert.strictEqual(guidedBtn.disabled, false, "guided button starts enabled");
 
-      // complete guided alarm step
-      document.getElementById("btn-pull-alarm").click();
-      assert.strictEqual(document.getElementById("btn-pull-alarm"), null, "alarm station removed on pull");
+      // complete guided alarm step: the spent button deactivates but stays mounted
+      guidedBtn.click();
+      assert.strictEqual(guidedBtn.disabled, true, "guided button deactivates after pull");
 
-      // simulate server transitioning phase to unguided
-      ws.receive({
-        type: "phase",
-        phase: "unguided",
-        startedAtMs: Date.now()
-      });
+      // server resets room state and moves to unguided, like the real drill flow
+      ws.receive({ type: "phase", phase: "unguided", startedAtMs: Date.now() });
+      ws.receive({ type: "state_changed", state: {} });
 
-      // in unguided, setup flags must have been reset and interaction re-mounted (M1 fix)
-      assert.ok(document.getElementById("btn-pull-alarm"), "alarm pull button mounted again in unguided phase (M1 fix)");
+      // M1 fix: setup flags reset so the interaction remounts fresh for unguided.
+      // without the fix no remount happens and the spent guided button stays.
+      const unguidedBtn = document.getElementById("btn-pull-alarm");
+      assert.ok(unguidedBtn, "alarm pull button mounted again in unguided phase (M1 fix)");
+      assert.notStrictEqual(unguidedBtn, guidedBtn, "unguided mounts a fresh button, not the spent guided one");
+      assert.strictEqual(unguidedBtn.disabled, false, "remounted button is enabled");
       assert.ok(document.getElementById("fire-alarm-station"), "alarm station mounted in unguided phase");
 
       // pull alarm in unguided
-      document.getElementById("btn-pull-alarm").click();
+      unguidedBtn.click();
 
       // simulate server sending drill_result
       ws.receive({
