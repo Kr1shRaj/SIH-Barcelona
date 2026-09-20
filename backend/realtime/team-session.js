@@ -1,5 +1,5 @@
 const { WebSocketServer } = require("ws");
-const { getLogger, createChildLogger } = require("../logger");
+const { createChildLogger } = require("../logger");
 
 // simple memory store for rooms and connections
 const rooms = new Map(); // roomId -> { users: Map<ws, role>, state: {} }

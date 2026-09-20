@@ -535,8 +535,8 @@ function _renderDebriefCard(overlay) {
     </div>
     <div style="font-size:0.8rem;color:#cbd5e1;line-height:1.4;margin-top:0.35rem;">
       ${isExplosive
-        ? "Mines Act Compliance: Trainee correctly recognized explosive atmosphere above 5.0% LEL and executed immediate evacuation without risking secondary blast."
-        : "Standard Safety Drill: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit."
+        ? t("fire.training_feedback_explosive", "Training feedback: Trainee recognized explosive atmosphere above 5.0% LEL and executed immediate evacuation without risking secondary blast.")
+        : t("fire.training_feedback_standard", "Training feedback: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit.")
       }
     </div>
   `;
@@ -2262,12 +2262,16 @@ async function startTeamScenario(container, tierInfo) {
 
   onStateChange((newState) => {
     _teamState = newState;
-    _updateTeamFlow(role, container, tierInfo, ui, updateRoomState);
+    _updateTeamFlow(role, container, tierInfo, ui);
   });
 
   // listen for AR interactions to update shared state
   _teamCheckpointHandler = (e) => {
     const detail = e.detail || {};
+    if (_hintShown) {
+      logger.info({ event: "team_hint_used", role }, "Team hint was visible before action");
+      _hintShown = false;
+    }
     if (detail.checkpointId === CP_ALARM_ID && role === "alarm" && detail.passed) {
       updateRoomState({ alarm_pulled: true });
     }
@@ -2281,10 +2285,10 @@ async function startTeamScenario(container, tierInfo) {
   window.addEventListener("safear:checkpoint", _teamCheckpointHandler);
   addCleanup(() => window.removeEventListener("safear:checkpoint", _teamCheckpointHandler));
 
-  _updateTeamFlow(role, container, tierInfo, ui, updateRoomState);
+  _updateTeamFlow(role, container, tierInfo, ui);
 }
 
-function _updateTeamFlow(role, container, tierInfo, ui, updateRoomState) {
+function _updateTeamFlow(role, container, tierInfo, ui) {
   const instr = ui.querySelector("#team-instruction");
   if (!instr) return;
   

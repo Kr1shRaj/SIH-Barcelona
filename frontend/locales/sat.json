@@ -108,7 +108,9 @@
     "team_backend_unconfigured": "ᱱᱚᱶᱟ ᱥᱟᱫᱷᱚᱱ ᱞᱟᱹᱜᱤᱫ backend ᱴᱷᱟᱶ ᱵᱟᱝ ᱥᱮᱴ ᱟᱠᱟᱱᱟ᱾",
     "team_state_rejected": "ᱥᱟᱨᱵᱷᱟᱨ ᱫᱚᱞ ᱠᱟᱹᱢᱤ ᱵᱟᱝ ᱦᱟᱹᱛᱟᱣ ᱮᱱᱟ᱾",
     "team_connection_error": "WebSocket ᱡᱩᱲᱟᱹᱣ ᱵᱷᱩᱞ",
-    "team_connection_lost": "ᱫᱚᱞ ᱡᱩᱲᱟᱹᱣ ᱪᱷᱩᱴ ᱮᱱᱟ᱾"
+    "team_connection_lost": "ᱫᱚᱞ ᱡᱩᱲᱟᱹᱣ ᱪᱷᱩᱴ ᱮᱱᱟ᱾",
+    "training_feedback_explosive": "ᱥᱮᱪᱮᱫ ᱯᱷᱤᱰᱵᱮᱠ: ᱥᱮᱪᱮᱫᱟᱹᱣ 5.0% LEL ᱪᱮᱛᱟᱱ ᱵᱚᱢ ᱦᱟᱣᱟ ᱧᱮᱞ ᱠᱟᱛᱮ ᱡᱟᱞᱟ ᱵᱟᱝ ᱵᱟᱲᱟᱣ ᱠᱟᱛᱮ ᱟᱡᱟᱹᱲ ᱩᱰᱩᱠᱚᱜ ᱮᱱᱟ᱾",
+    "training_feedback_standard": "ᱥᱮᱪᱮᱫ ᱯᱷᱤᱰᱵᱮᱠ: ᱥᱮᱪᱮᱫᱟᱹᱣ ᱟᱞᱟᱨᱢ ᱴᱷᱟᱶ ᱪᱟᱹᱞᱩ ᱠᱟᱛᱮ PASS ᱛᱮ ᱡᱟᱞᱟ ᱵᱩᱡᱦᱟᱹᱣ ᱟᱨ ᱵᱟᱦᱨᱮ ᱩᱰᱩᱠᱚᱜ ᱮᱱᱟ᱾"
   },
   "gas": {
     "step1_badge_1": "☣ ᱦᱟᱹᱴᱤᱧ 1 / 3 — ᱵᱚᱛᱚᱨ ᱡᱟᱭᱜᱟ (1/3)",

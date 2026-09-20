@@ -146,7 +146,9 @@
     "team_backend_unconfigured": "Backend address is not configured for this device.",
     "team_state_rejected": "Team action rejected by server.",
     "team_connection_error": "WebSocket connection error",
-    "team_connection_lost": "Team connection lost."
+    "team_connection_lost": "Team connection lost.",
+    "training_feedback_explosive": "Training feedback: Trainee recognized explosive atmosphere above 5.0% LEL and executed immediate evacuation without risking secondary blast.",
+    "training_feedback_standard": "Training feedback: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit."
   },
   "gas": {
     "step1_badge_1": "☣ STEP 1 / 3 — HAZARD ZONE RECOGNITION (1/3)",

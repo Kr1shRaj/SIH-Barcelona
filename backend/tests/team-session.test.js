@@ -7,14 +7,14 @@ const { initRealtimeServer } = require("../realtime/team-session");
 // wait for one websocket message of the requested type
 function nextMessage(ws, type) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
+    const timer = global.setTimeout(() => {
       ws.off("message", onMessage);
       reject(new Error(`timed out waiting for ${type}`));
     }, 1000);
     function onMessage(data) {
       const message = JSON.parse(data);
       if (message.type !== type) return;
-      clearTimeout(timer);
+      global.clearTimeout(timer);
       ws.off("message", onMessage);
       resolve(message);
     }
