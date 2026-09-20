@@ -2180,6 +2180,19 @@ let _teamEvacSetup = false;
 let _teamSessionMod = null;
 let _teamCheckpointHandler = null;
 
+// dim avatar when peer signal weak, restore when fresh
+function _setAvatarStale(peerRole, isStale) {
+  const avatar = _peerAvatars[peerRole];
+  if (!avatar) return;
+  const elements = avatar.querySelectorAll ? avatar.querySelectorAll("a-sphere, a-cone, a-text") : [];
+  for (const el of elements) {
+    if (el.setAttribute) {
+      const isCone = el.tagName === "A-CONE";
+      el.setAttribute("opacity", isStale ? "0.2" : (isCone ? "0.5" : "0.7"));
+    }
+  }
+}
+
 async function startTeamScenario(container, tierInfo) {
   logger.info({ tier: tierInfo.tier }, "Starting Fire-Response Team Scenario");
 
@@ -2196,7 +2209,19 @@ async function startTeamScenario(container, tierInfo) {
 
   // dynamic import so solo play never loads ws client
   _teamSessionMod = await import("./team-session.js");
-  const { promptJoinTeamSession, sendPositionUpdate, sendHeartbeat, updateRoomState, getRoomState, onStateChange, onPeerPosition, onPeerJoinLeave, onSessionError } = _teamSessionMod;
+  const {
+    promptJoinTeamSession,
+    sendPositionUpdate,
+    sendHeartbeat,
+    updateRoomState,
+    getRoomState,
+    onStateChange,
+    onPeerPosition,
+    onPeerJoinLeave,
+    onSessionError,
+    onPeerStale,
+    onDrillAborted
+  } = _teamSessionMod;
 
   const role = await promptJoinTeamSession(container);
   logger.info({ role }, "Team session joined");
@@ -2225,6 +2250,30 @@ async function startTeamScenario(container, tierInfo) {
   onSessionError((message) => {
     const errorEl = ui.querySelector("#team-error");
     if (errorEl) errorEl.textContent = message;
+  });
+
+  // dim avatar and warn when peer connection weak
+  onPeerStale((peerRole) => {
+    _setAvatarStale(peerRole, true);
+    const errorEl = ui.querySelector("#team-error");
+    if (errorEl) {
+      const roleName = t(`modules.fire_response.role_${peerRole}`, {}, peerRole.replace("_", " "));
+      errorEl.textContent = t("fire.team_peer_weak", { role: roleName }, `${roleName} connection weak`);
+    }
+  });
+
+  // reset scene and return to lobby on abort
+  onDrillAborted((reason) => {
+    const errorEl = ui.querySelector("#team-error");
+    if (errorEl) {
+      errorEl.textContent = t("fire.team_drill_aborted", { reason }, `Drill aborted: ${reason}`);
+    }
+    _teamAlarmSetup = false;
+    _teamExtSetup = false;
+    _teamEvacSetup = false;
+    _clearHintTimer();
+    const instr = ui.querySelector("#team-instruction");
+    if (instr) instr.textContent = t("fire.team_wait", "Waiting for team...");
   });
 
   // broadcast position in marker-local space, only when marker tracked
@@ -2256,6 +2305,11 @@ async function startTeamScenario(container, tierInfo) {
   addCleanup(() => clearInterval(heartbeatInterval));
 
   onPeerPosition((peerRole, pos) => {
+    _setAvatarStale(peerRole, false);
+    const errorEl = ui.querySelector("#team-error");
+    if (errorEl && errorEl.textContent && errorEl.textContent.includes("connection weak")) {
+      errorEl.textContent = "";
+    }
     if (!_peerAvatars[peerRole]) {
       const avatar = buildPeerAvatarEntity(peerRole);
       marker.appendChild(avatar);

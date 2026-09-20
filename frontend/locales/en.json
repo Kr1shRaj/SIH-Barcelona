@@ -147,6 +147,8 @@
     "team_state_rejected": "Team action rejected by server.",
     "team_connection_error": "WebSocket connection error",
     "team_connection_lost": "Team connection lost.",
+    "team_peer_weak": "{role} connection weak",
+    "team_drill_aborted": "Drill aborted: {reason}",
     "training_feedback_explosive": "Training feedback: Trainee recognized explosive atmosphere above 5.0% LEL and executed immediate evacuation without risking secondary blast.",
     "training_feedback_standard": "Training feedback: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit."
   },

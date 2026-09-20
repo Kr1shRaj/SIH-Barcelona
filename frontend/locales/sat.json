@@ -109,6 +109,8 @@
     "team_state_rejected": "ᱥᱟᱨᱵᱷᱟᱨ ᱫᱚᱞ ᱠᱟᱹᱢᱤ ᱵᱟᱝ ᱦᱟᱹᱛᱟᱣ ᱮᱱᱟ᱾",
     "team_connection_error": "WebSocket ᱡᱩᱲᱟᱹᱣ ᱵᱷᱩᱞ",
     "team_connection_lost": "ᱫᱚᱞ ᱡᱩᱲᱟᱹᱣ ᱪᱷᱩᱴ ᱮᱱᱟ᱾",
+    "team_peer_weak": "{role} connection weak",
+    "team_drill_aborted": "Drill aborted: {reason}",
     "training_feedback_explosive": "ᱥᱮᱪᱮᱫ ᱯᱷᱤᱰᱵᱮᱠ: ᱥᱮᱪᱮᱫᱟᱹᱣ 5.0% LEL ᱪᱮᱛᱟᱱ ᱵᱚᱢ ᱦᱟᱣᱟ ᱧᱮᱞ ᱠᱟᱛᱮ ᱡᱟᱞᱟ ᱵᱟᱝ ᱵᱟᱲᱟᱣ ᱠᱟᱛᱮ ᱟᱡᱟᱹᱲ ᱩᱰᱩᱠᱚᱜ ᱮᱱᱟ᱾",
     "training_feedback_standard": "ᱥᱮᱪᱮᱫ ᱯᱷᱤᱰᱵᱮᱠ: ᱥᱮᱪᱮᱫᱟᱹᱣ ᱟᱞᱟᱨᱢ ᱴᱷᱟᱶ ᱪᱟᱹᱞᱩ ᱠᱟᱛᱮ PASS ᱛᱮ ᱡᱟᱞᱟ ᱵᱩᱡᱦᱟᱹᱣ ᱟᱨ ᱵᱟᱦᱨᱮ ᱩᱰᱩᱠᱚᱜ ᱮᱱᱟ᱾"
   },

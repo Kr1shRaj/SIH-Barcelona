@@ -169,3 +169,124 @@ test("Team Session Realtime Server", async (t) => {
     });
   });
 });
+
+test("Team Session Presence with Fake Clock", async (t) => {
+  let server;
+  let wss;
+  let port;
+  let fakeNow = 1000;
+  let presenceCheckFn = null;
+
+  const fakeClock = {
+    now: () => fakeNow,
+    setInterval: (fn) => {
+      presenceCheckFn = fn;
+      return 101;
+    },
+    clearInterval: () => {
+      presenceCheckFn = null;
+    },
+    setTimeout: (fn, ms) => global.setTimeout(fn, ms),
+    clearTimeout: (id) => global.clearTimeout(id)
+  };
+
+  await t.test("setup fake clock server", () => {
+    return new Promise((resolve) => {
+      server = http.createServer((req, res) => res.end());
+      wss = initRealtimeServer(server, {}, null, fakeClock);
+      server.listen(0, () => {
+        port = server.address().port;
+        resolve();
+      });
+    });
+  });
+
+  // mark peer stale after 5s silence
+  await t.test("marks peer stale after 5s silent", async () => {
+    const roomId = `stale-room-${Date.now()}`;
+    const alarm = await joinRoom(port, roomId, "alarm");
+    const extinguisher = await joinRoom(port, roomId, "extinguisher_operator");
+
+    const stalePromise = nextMessage(extinguisher.ws, "peer_stale");
+    fakeNow += 5000;
+    presenceCheckFn();
+
+    const staleMsg = await stalePromise;
+    assert.strictEqual(staleMsg.role, "alarm");
+
+    await Promise.all([closeSocket(alarm.ws), closeSocket(extinguisher.ws)]);
+  });
+
+  // kick dead peer after 20s and free role
+  await t.test("removes user after 20s silent and frees role", async () => {
+    const roomId = `dead-room-${Date.now()}`;
+    const alarm = await joinRoom(port, roomId, "alarm");
+    const extinguisher = await joinRoom(port, roomId, "extinguisher_operator");
+
+    const leftPromise = nextMessage(extinguisher.ws, "peer_left");
+    fakeNow += 20000;
+    presenceCheckFn();
+
+    const leftMsg = await leftPromise;
+    assert.strictEqual(leftMsg.role, "alarm");
+
+    await Promise.all([closeSocket(alarm.ws), closeSocket(extinguisher.ws)]);
+  });
+
+  // only let newcomer steal seat if old player went dead or stale
+  await t.test("allows reclaim only when old socket is dead or stale", async () => {
+    const roomId = `reclaim-room-${Date.now()}`;
+    const alarm1 = await joinRoom(port, roomId, "alarm");
+    const extinguisher = await joinRoom(port, roomId, "extinguisher_operator");
+
+    // while alarm1 is fresh, reclaim refused
+    const wsFail = new WebSocket(`ws://localhost:${port}`);
+    await new Promise((resolve) => wsFail.once("open", resolve));
+    wsFail.send(JSON.stringify({ type: "join", roomId, role: "alarm" }));
+    const err = await nextMessage(wsFail, "error");
+    assert.strictEqual(err.message, "role already claimed");
+    await closeSocket(wsFail);
+
+    // make alarm1 stale
+    fakeNow += 5000;
+    presenceCheckFn();
+
+    // now reclaim allowed
+    const wsSuccess = new WebSocket(`ws://localhost:${port}`);
+    await new Promise((resolve) => wsSuccess.once("open", resolve));
+    wsSuccess.send(JSON.stringify({ type: "join", roomId, role: "alarm" }));
+    const joined = await nextMessage(wsSuccess, "joined");
+    assert.strictEqual(joined.role, "alarm");
+
+    await Promise.all([closeSocket(alarm1.ws), closeSocket(wsSuccess), closeSocket(extinguisher.ws)]);
+  });
+
+  // drop mid drill aborts run and kicks back to lobby
+  await t.test("aborts active drill back to lobby when role is lost", async () => {
+    const roomId = `abort-room-${Date.now()}`;
+    const alarm = await joinRoom(port, roomId, "alarm");
+    const extinguisher = await joinRoom(port, roomId, "extinguisher_operator");
+    const backup = await joinRoom(port, roomId, "backup_coordinator");
+
+    // alarm starts drill
+    const statePromise = nextMessage(extinguisher.ws, "state_changed");
+    alarm.ws.send(JSON.stringify({ type: "state_update", state: { alarm_pulled: true } }));
+    await statePromise;
+
+    // extinguisher drops mid-drill
+    const abortPromise = nextMessage(backup.ws, "drill_aborted");
+    await closeSocket(extinguisher.ws);
+
+    const abortMsg = await abortPromise;
+    assert.ok(abortMsg.reason.includes("extinguisher_operator"));
+
+    await Promise.all([closeSocket(alarm.ws), closeSocket(backup.ws)]);
+  });
+
+  await t.test("teardown fake clock server", () => {
+    return new Promise((resolve) => {
+      wss.close();
+      server.close(resolve);
+    });
+  });
+});

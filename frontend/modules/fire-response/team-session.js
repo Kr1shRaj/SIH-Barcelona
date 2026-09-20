@@ -15,6 +15,8 @@ const stateChangeListeners = [];
 const peerPositionListeners = [];
 const peerJoinLeaveListeners = [];
 const sessionErrorListeners = [];
+const peerStaleListeners = [];
+const drillAbortedListeners = [];
 
 // prompt user to join a room
 export function promptJoinTeamSession(container, joinOptions = {}) {
@@ -116,8 +118,16 @@ function _connectWebSocket(roomId, role, joinOptions = {}) {
             sessionErrorListeners.forEach((cb) => cb(message));
           }
         } else if (msg.type === "peer_position") {
-          peers.set(msg.role, { position: msg.position, rotation: msg.rotation });
+          peers.set(msg.role, { position: msg.position, rotation: msg.rotation, stale: false });
           peerPositionListeners.forEach(cb => cb(msg.role, msg.position, msg.rotation));
+        } else if (msg.type === "peer_stale") {
+          logger.info(`peer ${msg.role} stale`);
+          const existing = peers.get(msg.role) || {};
+          peers.set(msg.role, { ...existing, stale: true });
+          peerStaleListeners.forEach(cb => cb(msg.role));
+        } else if (msg.type === "drill_aborted") {
+          logger.warn({ reason: msg.reason }, "drill aborted");
+          drillAbortedListeners.forEach(cb => cb(msg.reason));
         } else if (msg.type === "state_changed") {
           roomState = msg.state;
           stateChangeListeners.forEach(cb => cb(roomState));
@@ -197,6 +207,16 @@ export function onSessionError(cb) {
   if (typeof cb === "function") sessionErrorListeners.push(cb);
 }
 
+// listen when peer drops off radar
+export function onPeerStale(cb) {
+  if (typeof cb === "function") peerStaleListeners.push(cb);
+}
+
+// listen when drill gets cancelled
+export function onDrillAborted(cb) {
+  if (typeof cb === "function") drillAbortedListeners.push(cb);
+}
+
 export function getPeers() {
   return Array.from(peers.keys());
 }
@@ -215,4 +235,6 @@ export function resetTeamSession() {
   peerPositionListeners.length = 0;
   peerJoinLeaveListeners.length = 0;
   sessionErrorListeners.length = 0;
+  peerStaleListeners.length = 0;
+  drillAbortedListeners.length = 0;
 }
