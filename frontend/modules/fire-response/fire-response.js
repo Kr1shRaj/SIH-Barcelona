@@ -2193,7 +2193,7 @@ async function startTeamScenario(container, tierInfo) {
 
   // dynamic import so solo play never loads ws client
   _teamSessionMod = await import("./team-session.js");
-  const { promptJoinTeamSession, sendPositionUpdate, updateRoomState, getRoomState, onStateChange, onPeerPosition, onPeerJoinLeave } = _teamSessionMod;
+  const { promptJoinTeamSession, sendPositionUpdate, updateRoomState, getRoomState, onStateChange, onPeerPosition, onPeerJoinLeave, onSessionError } = _teamSessionMod;
 
   const role = await promptJoinTeamSession(container);
   logger.info({ role }, "Team session joined");
@@ -2213,10 +2213,16 @@ async function startTeamScenario(container, tierInfo) {
       <div style="margin-bottom:0.4rem;padding:0.4rem 0.6rem;background:rgba(245,158,11,0.15);border-left:3px solid #f59e0b;border-radius:4px;font-size:0.8rem;color:#fcd34d;">${t("fire.team_wifi_notice", "⚠ Phase 3 needs all devices on the same WiFi")}</div>
       <h3 style="margin-top:0;margin-bottom:0.5rem;color:#fff;">${t("fire.team_role", "Role")}: <span style="color:#60a5fa;text-transform:uppercase;">${role.replace("_", " ")}</span></h3>
       <div id="team-instruction" style="font-size:1.1rem;color:#e5e7eb;margin-bottom:0.5rem;">${t("fire.team_wait", "Waiting for team...")}</div>
+      <div id="team-error" role="status" style="min-height:1.2rem;color:#fca5a5;font-size:0.85rem;"></div>
     </div>
   `;
   container.appendChild(ui);
   addCleanup(() => { if (ui.parentNode) ui.remove(); });
+
+  onSessionError((message) => {
+    const errorEl = ui.querySelector("#team-error");
+    if (errorEl) errorEl.textContent = message;
+  });
 
   // broadcast position as minimal {x, z, headingDeg} at 250ms
   const camera = document.querySelector("[camera]");

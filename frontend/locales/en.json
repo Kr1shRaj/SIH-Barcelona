@@ -139,7 +139,14 @@
     "evac_title_3": "Choose Safest Evacuation Path",
     "evac_desc_3": "After using the extinguisher, you must evacuate. Select the safest option:",
     "team_locked_title": "Team Drill Locked",
-    "team_locked_desc": "Pass the solo fire drill with 80% or higher before joining a team drill."
+    "team_locked_desc": "Pass the solo fire drill with 80% or higher before joining a team drill.",
+    "team_room_required": "Please enter a room code.",
+    "team_connecting": "Connecting...",
+    "team_join_failed": "Failed to join room",
+    "team_backend_unconfigured": "Backend address is not configured for this device.",
+    "team_state_rejected": "Team action rejected by server.",
+    "team_connection_error": "WebSocket connection error",
+    "team_connection_lost": "Team connection lost."
   },
   "gas": {
     "step1_badge_1": "☣ STEP 1 / 3 — HAZARD ZONE RECOGNITION (1/3)",

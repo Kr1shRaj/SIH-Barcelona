@@ -1,5 +1,7 @@
+/* global WebSocket */
 import { createLogger } from "../../js/logger.js";
 import { t } from "../../js/i18n.js";
+import { resolveWebSocketUrl } from "../../js/api.js";
 
 const logger = createLogger("TeamSession");
 
@@ -12,6 +14,7 @@ let roomState = {};
 const stateChangeListeners = [];
 const peerPositionListeners = [];
 const peerJoinLeaveListeners = [];
+const sessionErrorListeners = [];
 
 // prompt user to join a room
 export function promptJoinTeamSession(container) {
@@ -49,10 +52,10 @@ export function promptJoinTeamSession(container) {
       const roomId = roomInput.value.trim().toUpperCase();
       const role = roleSelect.value;
       if (!roomId) {
-        errorEl.textContent = "Please enter a room code.";
+        errorEl.textContent = t("fire.team_room_required", "Please enter a room code.");
         return;
       }
-      errorEl.textContent = "Connecting...";
+      errorEl.textContent = t("fire.team_connecting", "Connecting...");
       joinBtn.disabled = true;
 
       _connectWebSocket(roomId, role)
@@ -61,7 +64,7 @@ export function promptJoinTeamSession(container) {
           resolve(role);
         })
         .catch((err) => {
-          errorEl.textContent = err.message || "Failed to join room";
+          errorEl.textContent = err.message || t("fire.team_join_failed", "Failed to join room");
           joinBtn.disabled = false;
         });
     });
@@ -70,8 +73,13 @@ export function promptJoinTeamSession(container) {
 
 function _connectWebSocket(roomId, role) {
   return new Promise((resolve, reject) => {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}`;
+    const wsUrl = resolveWebSocketUrl();
+    if (!wsUrl) {
+      reject(new Error(t("fire.team_backend_unconfigured", "Backend address is not configured for this device.")));
+      return;
+    }
+
+    let joined = false;
     
     try {
       ws = new WebSocket(wsUrl);
@@ -88,14 +96,21 @@ function _connectWebSocket(roomId, role) {
       try {
         const msg = JSON.parse(event.data);
         if (msg.type === "joined") {
+          joined = true;
           currentRoomId = msg.roomId;
           currentRole = msg.role;
           roomState = msg.state || {};
           logger.info(`joined team session as ${currentRole}`);
           resolve(); // successful join
         } else if (msg.type === "error") {
-          ws.close();
-          reject(new Error(msg.message));
+          if (!joined) {
+            ws.close();
+            reject(new Error(msg.message));
+          } else {
+            const message = msg.message || t("fire.team_state_rejected", "Team action rejected by server.");
+            logger.warn({ event: "team_state_update_rejected", message }, "Team server rejected state update");
+            sessionErrorListeners.forEach((cb) => cb(message));
+          }
         } else if (msg.type === "peer_position") {
           peers.set(msg.role, { position: msg.position, rotation: msg.rotation });
           peerPositionListeners.forEach(cb => cb(msg.role, msg.position, msg.rotation));
@@ -116,7 +131,13 @@ function _connectWebSocket(roomId, role) {
     };
 
     ws.onerror = () => {
-      reject(new Error("WebSocket connection error"));
+      if (!joined) {
+        reject(new Error(t("fire.team_connection_error", "WebSocket connection error")));
+      } else {
+        const message = t("fire.team_connection_lost", "Team connection lost.");
+        logger.warn({ event: "team_connection_error" }, message);
+        sessionErrorListeners.forEach((cb) => cb(message));
+      }
     };
     
     ws.onclose = () => {
@@ -129,13 +150,13 @@ function _connectWebSocket(roomId, role) {
 
 // send minimal marker-relative position
 export function sendPositionUpdate(position) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
+  if (currentRoomId && ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "update_position", position }));
   }
 }
 
 export function updateRoomState(newStateProps) {
-  if (ws && ws.readyState === WebSocket.OPEN) {
+  if (currentRoomId && ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: "state_update", state: newStateProps }));
   }
 }
@@ -160,6 +181,11 @@ export function onPeerJoinLeave(cb) {
   peerJoinLeaveListeners.push(cb);
 }
 
+// let the module show non-fatal server rejections without ending the session
+export function onSessionError(cb) {
+  if (typeof cb === "function") sessionErrorListeners.push(cb);
+}
+
 export function getPeers() {
   return Array.from(peers.keys());
 }
@@ -177,4 +203,5 @@ export function resetTeamSession() {
   stateChangeListeners.length = 0;
   peerPositionListeners.length = 0;
   peerJoinLeaveListeners.length = 0;
+  sessionErrorListeners.length = 0;
 }

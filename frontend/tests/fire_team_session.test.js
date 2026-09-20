@@ -408,6 +408,22 @@ describe("Phase 3 Fire Team Session", () => {
       assert.strictEqual(chosenRole, "extinguisher_operator", "resolves with newly selected available role");
       assert.ok(!container.children.includes(overlay), "overlay removed on successful join");
     });
+
+    it("surfaces missing Capacitor backend config in join error", async () => {
+      const previousLocation = window.location;
+      window.location = { protocol: "capacitor:", host: "localhost", search: "" };
+      try {
+        const container = _makeEl("capacitor-join");
+        promptJoinTeamSession(container);
+        const overlay = container.querySelector("#team-session-join");
+        overlay.querySelector("#ts-room-id").value = "MINE-99";
+        overlay.querySelector("#ts-join-btn").click();
+        for (let i = 0; i < 5; i += 1) await Promise.resolve();
+        assert.match(overlay.querySelector("#ts-error").textContent, /Backend address is not configured/);
+      } finally {
+        window.location = previousLocation;
+      }
+    });
   });
 
   it("production marker route starts team scenario, not solo fire module", async () => {
@@ -498,6 +514,14 @@ describe("Phase 3 Fire Team Session", () => {
       });
       assert.strictEqual(marker.children.length, 0, "avatar removed from marker when peer leaves");
     });
+  });
+
+  it("keeps team session alive when server rejects a state update", async () => {
+    await setupTeamScenario("alarm");
+    const ws = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+    ws.receive({ type: "error", message: "only alarm role may set alarm_pulled" });
+    assert.strictEqual(getCurrentRole(), "alarm", "state rejection must not close joined session");
+    assert.strictEqual(document.getElementById("team-error").textContent, "only alarm role may set alarm_pulled");
   });
 
   describe("3. cleanupFireModule resets team state and permits double-session (Bug 3 regression)", () => {

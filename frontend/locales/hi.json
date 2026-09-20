@@ -139,7 +139,14 @@
     "evac_title_3": "सबसे सुरक्षित निकासी मार्ग चुनें",
     "evac_desc_3": "अग्निशामक का उपयोग करने के बाद सुरक्षित बाहर निकलें। सबसे सुरक्षित विकल्प चुनें:",
     "team_locked_title": "टीम अभ्यास बंद है",
-    "team_locked_desc": "टीम अभ्यास में जाने से पहले solo fire drill में 80% या अधिक अंक पाएं।"
+    "team_locked_desc": "टीम अभ्यास में जाने से पहले solo fire drill में 80% या अधिक अंक पाएं।",
+    "team_room_required": "कृपया रूम कोड दर्ज करें।",
+    "team_connecting": "कनेक्ट हो रहा है...",
+    "team_join_failed": "रूम में शामिल नहीं हो सके",
+    "team_backend_unconfigured": "इस डिवाइस के लिए बैकएंड पता सेट नहीं है।",
+    "team_state_rejected": "सर्वर ने टीम कार्रवाई अस्वीकार की।",
+    "team_connection_error": "WebSocket कनेक्शन त्रुटि",
+    "team_connection_lost": "टीम कनेक्शन टूट गया।"
   },
   "gas": {
     "step1_badge_1": "☣ चरण 1 / 3 — खतरा क्षेत्र पहचान (1/3)",

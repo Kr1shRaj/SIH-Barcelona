@@ -101,7 +101,14 @@
     "evac_title_3": "ᱥᱟᱱᱟᱢ ᱠᱷᱚᱱ ᱨᱩᱠᱷᱤᱭᱟᱹ ᱰᱟᱦᱟᱨ ᱵᱟᱪᱷᱟᱣ ᱢᱮ",
     "evac_desc_3": "ᱥᱮᱸᱜᱮᱞ ᱤᱬᱤᱡ ᱛᱟᱭᱚᱢ ᱵᱟᱦᱨᱮ ᱩᱰᱩᱠᱚᱜ ᱢᱮ:",
     "team_locked_title": "ᱫᱚᱞ ᱥᱮᱪᱮᱫ ᱵᱚᱱᱫ",
-    "team_locked_desc": "ᱫᱚᱞ ᱥᱮᱪᱮᱫ ᱨᱮ ᱵᱚᱞᱚ ᱞᱟᱹᱜᱤᱫ solo fire drill ᱨᱮ 80% ᱥᱮ ᱪᱮᱛᱟᱱ ᱮᱞ ᱦᱟᱹᱛᱟᱣ ᱢᱮ᱾"
+    "team_locked_desc": "ᱫᱚᱞ ᱥᱮᱪᱮᱫ ᱨᱮ ᱵᱚᱞᱚ ᱞᱟᱹᱜᱤᱫ solo fire drill ᱨᱮ 80% ᱥᱮ ᱪᱮᱛᱟᱱ ᱮᱞ ᱦᱟᱹᱛᱟᱣ ᱢᱮ᱾",
+    "team_room_required": "ᱫᱚᱭᱟ ᱠᱟᱛᱮ ᱨᱩᱢ ᱠᱚᱰ ᱮᱢ ᱢᱮ᱾",
+    "team_connecting": "ᱡᱩᱲᱟᱹᱣ ᱠᱟᱱᱟ...",
+    "team_join_failed": "ᱨᱩᱢ ᱨᱮ ᱵᱚᱞᱚ ᱵᱟᱝ ᱦᱩᱭᱞᱮᱱᱟ",
+    "team_backend_unconfigured": "ᱱᱚᱶᱟ ᱥᱟᱫᱷᱚᱱ ᱞᱟᱹᱜᱤᱫ backend ᱴᱷᱟᱶ ᱵᱟᱝ ᱥᱮᱴ ᱟᱠᱟᱱᱟ᱾",
+    "team_state_rejected": "ᱥᱟᱨᱵᱷᱟᱨ ᱫᱚᱞ ᱠᱟᱹᱢᱤ ᱵᱟᱝ ᱦᱟᱹᱛᱟᱣ ᱮᱱᱟ᱾",
+    "team_connection_error": "WebSocket ᱡᱩᱲᱟᱹᱣ ᱵᱷᱩᱞ",
+    "team_connection_lost": "ᱫᱚᱞ ᱡᱩᱲᱟᱹᱣ ᱪᱷᱩᱴ ᱮᱱᱟ᱾"
   },
   "gas": {
     "step1_badge_1": "☣ ᱦᱟᱹᱴᱤᱧ 1 / 3 — ᱵᱚᱛᱚᱨ ᱡᱟᱭᱜᱟ (1/3)",
