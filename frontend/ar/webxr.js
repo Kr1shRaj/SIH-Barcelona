@@ -292,7 +292,20 @@ class WebXRPlacementController {
   getScene() { return this._scene; }
 
   // get three.js camera
-  getCamera() { return this._camera; }
+  // get three.js camera synced to latest xr viewer pose
+  getCamera() {
+    if (this._lastViewerPose && this._lastViewerPose.transform && this._camera) {
+      const p = this._lastViewerPose.transform.position;
+      const o = this._lastViewerPose.transform.orientation;
+      if (p && this._camera.position) {
+        this._camera.position.set(p.x, p.y, p.z);
+      }
+      if (o && this._camera.quaternion) {
+        this._camera.quaternion.set(o.x, o.y, o.z, o.w);
+      }
+    }
+    return this._camera;
+  }
 
   // start the xr frame loop
   start() {
@@ -305,6 +318,19 @@ class WebXRPlacementController {
       if (!pose) return;
 
       this._lastViewerPose = pose;
+
+      // sync camera position and quaternion with physical device pose
+      if (this._camera && pose.transform) {
+        const p = pose.transform.position;
+        const o = pose.transform.orientation;
+        if (p && this._camera.position) {
+          this._camera.position.set(p.x, p.y, p.z);
+        }
+        if (o && this._camera.quaternion) {
+          this._camera.quaternion.set(o.x, o.y, o.z, o.w);
+        }
+      }
+
       const deltaMs = this._lastTime ? (time - this._lastTime) : 16;
       this._lastTime = time;
 

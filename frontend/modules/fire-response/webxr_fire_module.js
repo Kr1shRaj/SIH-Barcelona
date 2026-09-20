@@ -112,13 +112,21 @@ function _raycastMesh(event, targetMesh) {
 }
 
 // find wall or floor spot and normal from xr hit test or look straight ahead
-function _computePlacementPose(frame, referenceSpace, defaultDist, elevateIfFloor, floorElevateY, camYOffset = 0) {
+function _computePlacementPose(frame, referenceSpace, defaultDist = 2.0, elevateIfFloor = false, floorElevateY = 0, camYOffset = 0) {
   const THREE = typeof window !== "undefined" && window.THREE;
   let hitPos = null;
   let isVertical = false;
   let normal = null;
   const camera = _controller && _controller.getCamera ? _controller.getCamera() : null;
   const camPos = camera && camera.position ? camera.position : { x: 0, y: 1.5, z: 0 };
+
+  let fwd = null;
+  if (camera && THREE && THREE.Vector3) {
+    fwd = new THREE.Vector3(0, 0, -1);
+    if (camera.quaternion && fwd.applyQuaternion) {
+      fwd.applyQuaternion(camera.quaternion);
+    }
+  }
 
   if (frame && _controller && _controller.hitTestSource && referenceSpace) {
     try {
@@ -144,7 +152,10 @@ function _computePlacementPose(frame, referenceSpace, defaultDist, elevateIfFloo
 
           if (surfaceNormal) {
             const ny = surfaceNormal.y !== undefined ? surfaceNormal.y : 1;
-            if (Math.abs(ny) < 0.70) {
+            const isVert = Math.abs(ny) < 0.70;
+            const hitDist = Math.hypot(hp.x - camPos.x, hp.z - camPos.z);
+
+            if (isVert && (hitDist <= 3.5 || !frame)) {
               isVertical = true;
               hitPos = { x: hp.x, y: hp.y, z: hp.z };
               const len = Math.hypot(surfaceNormal.x, surfaceNormal.z) || 1;
@@ -157,15 +168,12 @@ function _computePlacementPose(frame, referenceSpace, defaultDist, elevateIfFloo
                 wallNz = -wallNz;
               }
               normal = { x: wallNx, y: 0, z: wallNz };
-            } else if (elevateIfFloor) {
+            } else if (elevateIfFloor && hitDist <= 3.5) {
               hitPos = { x: hp.x, y: hp.y + floorElevateY, z: hp.z };
               const toCamX = camPos.x - hp.x;
               const toCamZ = camPos.z - hp.z;
               const len = Math.hypot(toCamX, toCamZ) || 1;
               normal = { x: toCamX / len, y: 0, z: toCamZ / len };
-            } else {
-              hitPos = { x: hp.x, y: hp.y, z: hp.z };
-              normal = { x: 0, y: 1, z: 0 };
             }
           }
         }
@@ -176,22 +184,18 @@ function _computePlacementPose(frame, referenceSpace, defaultDist, elevateIfFloo
   }
 
   if (!hitPos) {
-    if (camera && THREE && THREE.Vector3) {
-      const fwd = new THREE.Vector3(0, 0, -1);
-      if (camera.quaternion && fwd.applyQuaternion) {
-        fwd.applyQuaternion(camera.quaternion);
-      }
-      const dist = defaultDist || 2.5;
-      const camY = camera.position ? camera.position.y : 1.5;
+    if (fwd) {
+      const dist = defaultDist || 2.0;
+      const camY = camPos.y !== undefined ? camPos.y : 1.5;
       hitPos = {
-        x: (camera.position ? camera.position.x : 0) + fwd.x * dist,
+        x: (camPos.x || 0) + fwd.x * dist,
         y: camY + fwd.y * dist + camYOffset,
-        z: (camera.position ? camera.position.z : 0) + fwd.z * dist
+        z: (camPos.z || 0) + fwd.z * dist
       };
       const lenH = Math.hypot(fwd.x, fwd.z) || 1;
       normal = { x: -fwd.x / lenH, y: 0, z: -fwd.z / lenH };
     } else {
-      hitPos = { x: 0, y: floorElevateY || 0, z: -(defaultDist || 2.5) };
+      hitPos = { x: 0, y: floorElevateY || 0, z: -(defaultDist || 2.0) };
       normal = { x: 0, y: 0, z: 1 };
     }
   }
@@ -1210,16 +1214,38 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
     }
   }
 
+  let _lastSmoothedExitPos = null;
+  let _lastSmoothedExitNormal = null;
+
   // live preview frame handler: detect door/wall or project forward
   if (_controller && typeof _controller.onFrame === "function") {
     _exitPlacementFrameHandler = ({ frame, referenceSpace }) => {
       if (exitPlaced || !_exitMesh) return;
-      const { pos, isVertical, normal } = _computePlacementPose(frame, referenceSpace, 2.5, true, 1.80, 0.0);
+      const { pos, isVertical, normal } = _computePlacementPose(frame, referenceSpace, 2.0, false, 0, 0.0);
       if (normal) lastNormal = normal;
       if (pos && _exitMesh.position && _exitMesh.position.set) {
-        _exitMesh.position.set(pos.x, pos.y, pos.z);
-        if (normal && typeof _exitMesh.lookAt === "function") {
-          _exitMesh.lookAt(pos.x + normal.x, pos.y + (normal.y || 0), pos.z + normal.z);
+        if (!_lastSmoothedExitPos) {
+          _lastSmoothedExitPos = { x: pos.x, y: pos.y, z: pos.z };
+        } else {
+          _lastSmoothedExitPos.x += (pos.x - _lastSmoothedExitPos.x) * 0.45;
+          _lastSmoothedExitPos.y += (pos.y - _lastSmoothedExitPos.y) * 0.45;
+          _lastSmoothedExitPos.z += (pos.z - _lastSmoothedExitPos.z) * 0.45;
+        }
+        _exitMesh.position.set(_lastSmoothedExitPos.x, _lastSmoothedExitPos.y, _lastSmoothedExitPos.z);
+
+        if (normal) {
+          if (!_lastSmoothedExitNormal) {
+            _lastSmoothedExitNormal = { x: normal.x, y: 0, z: normal.z };
+          } else {
+            _lastSmoothedExitNormal.x += (normal.x - _lastSmoothedExitNormal.x) * 0.45;
+            _lastSmoothedExitNormal.z += (normal.z - _lastSmoothedExitNormal.z) * 0.45;
+          }
+          const nLen = Math.hypot(_lastSmoothedExitNormal.x, _lastSmoothedExitNormal.z) || 1;
+          const nx = _lastSmoothedExitNormal.x / nLen;
+          const nz = _lastSmoothedExitNormal.z / nLen;
+          if (typeof _exitMesh.lookAt === "function") {
+            _exitMesh.lookAt(_lastSmoothedExitPos.x + nx, _lastSmoothedExitPos.y, _lastSmoothedExitPos.z + nz);
+          }
         } else {
           const camera = _controller.getCamera ? _controller.getCamera() : null;
           if (camera && camera.position && typeof _exitMesh.lookAt === "function") {
@@ -1288,6 +1314,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
   const lockPlacementAndStartWalk = () => {
     if (exitPlaced) return;
     exitPlaced = true;
+    _hideAimCrosshair();
     if (_exitPlacementFrameHandler && _controller && typeof _controller.offFrame === "function") {
       _controller.offFrame(_exitPlacementFrameHandler);
       _exitPlacementFrameHandler = null;
@@ -1296,7 +1323,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
     _placedSignPos = {
       x: _exitMesh ? _exitMesh.position.x : 0,
       y: _exitMesh ? _exitMesh.position.y : 1.8,
-      z: _exitMesh ? _exitMesh.position.z : -2.5
+      z: _exitMesh ? _exitMesh.position.z : -2.0
     };
     _placedWallNormal = lastNormal || { x: 0, y: 0, z: 1 };
 
@@ -1304,7 +1331,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
     const camPos = (camera && camera.position) ? camera.position : { x: 0, y: 1.5, z: 0 };
     const initDx = camPos.x - _placedSignPos.x;
     const initDz = camPos.z - _placedSignPos.z;
-    _initialWalkDist = Math.max(0.81, Math.hypot(initDx, initDz));
+    _initialWalkDist = Math.max(0.81, Math.min(3.5, Math.hypot(initDx, initDz)));
 
     _setupZoomControls({ target: "exit" });
 
