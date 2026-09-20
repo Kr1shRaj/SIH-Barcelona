@@ -5,6 +5,42 @@ const { getLogger, createChildLogger } = require("../logger");
 const rooms = new Map(); // roomId -> { users: Map<ws, role>, state: {} }
 
 const ALLOWED_ROLES = ["alarm", "extinguisher_operator", "backup_coordinator"];
+const STATE_RULES = Object.freeze({
+  alarm_pulled: { role: "alarm" },
+  fire_extinguished: { role: "extinguisher_operator", requires: "alarm_pulled" },
+  evac_checked: { role: "backup_coordinator", requires: "fire_extinguished" }
+});
+
+// send one private websocket error to the client that made the bad request
+function sendError(ws, message) {
+  ws.send(JSON.stringify({ type: "error", message }));
+}
+
+// validate every state flag before changing room state
+function validateStateUpdate(state, role, currentState) {
+  if (!state || typeof state !== "object" || Array.isArray(state)) {
+    return { ok: false, reason: "state update must be an object" };
+  }
+
+  const keys = Object.keys(state);
+  if (keys.length === 0) {
+    return { ok: false, reason: "state update cannot be empty" };
+  }
+
+  const nextState = { ...currentState };
+  for (const key of keys) {
+    const rule = STATE_RULES[key];
+    if (!rule) return { ok: false, reason: "unknown team state" };
+    if (state[key] !== true) return { ok: false, reason: `${key} must be true` };
+    if (rule.role !== role) return { ok: false, reason: `${role} cannot set ${key}` };
+    if (rule.requires && nextState[rule.requires] !== true) {
+      return { ok: false, reason: `${key} requires ${rule.requires}` };
+    }
+    nextState[key] = true;
+  }
+
+  return { ok: true, state: nextState };
+}
 
 function initRealtimeServer(server, config, logger) {
   const wss = new WebSocketServer({ server });
@@ -17,6 +53,10 @@ function initRealtimeServer(server, config, logger) {
     ws.on("message", (message) => {
       try {
         const data = JSON.parse(message);
+        if (!data || typeof data !== "object" || Array.isArray(data)) {
+          sendError(ws, "message must be an object");
+          return;
+        }
         
         if (data.type === "join") {
           const { roomId, role } = data;
@@ -60,7 +100,22 @@ function initRealtimeServer(server, config, logger) {
         } else if (data.type === "state_update") {
           if (currentRoomId) {
             const room = rooms.get(currentRoomId);
-            room.state = { ...room.state, ...data.state };
+            if (!room) {
+              sendError(ws, "room not found");
+              return;
+            }
+            const result = validateStateUpdate(data.state, currentRole, room.state);
+            if (!result.ok) {
+              log.warn({
+                event: "team_state_update_rejected",
+                roomId: currentRoomId,
+                role: currentRole,
+                reason: result.reason
+              }, "Team state update rejected");
+              sendError(ws, result.reason);
+              return;
+            }
+            room.state = result.state;
             broadcastToRoom(currentRoomId, { type: "state_changed", state: room.state }, ws);
           }
         }
