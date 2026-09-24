@@ -791,6 +791,29 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     assert.strictEqual(result.normal.y, 0);
   });
 
+  it("_computePlacementPose accepts 4m door when caller raises wall cap, rejects it at default 3.5m", () => {
+    const container = _makeEl("container");
+    const mockHitPose = {
+      transform: {
+        position: { x: 0, y: 2.0, z: -4.0 },
+        orientation: { x: Math.SQRT1_2, y: 0, z: 0, w: Math.SQRT1_2 }
+      }
+    };
+    const mockFrame = { getHitTestResults() { return [{ getPose() { return mockHitPose; } }]; } };
+    const mockController = {
+      hitTestSource: {},
+      getCamera() { return { position: new MockVector3(0, 1.5, 0), quaternion: new MockQuaternion() }; }
+    };
+    startFireModuleWebXR(container, mockController);
+
+    const capped = _computePlacementPose(mockFrame, {}, 2.0, false, 0, 0);
+    assert.strictEqual(capped.isVertical, false, "default cap must still drop far wall hits");
+
+    const far = _computePlacementPose(mockFrame, {}, 2.0, false, 0, 0, 8.0);
+    assert.strictEqual(far.isVertical, true);
+    assert.strictEqual(far.pos.z, -4.0, "sign must land on the door, not 2m ahead");
+  });
+
   it("_computePlacementPose elevates position when horizontal floor hit detected", () => {
     const container = _makeEl("container");
     const mockHitPose = {

@@ -112,7 +112,7 @@ function _raycastMesh(event, targetMesh) {
 }
 
 // find wall or floor spot and normal from xr hit test or look straight ahead
-function _computePlacementPose(frame, referenceSpace, defaultDist = 2.0, elevateIfFloor = false, floorElevateY = 0, camYOffset = 0) {
+function _computePlacementPose(frame, referenceSpace, defaultDist = 2.0, elevateIfFloor = false, floorElevateY = 0, camYOffset = 0, maxWallDist = 3.5) {
   const THREE = typeof window !== "undefined" && window.THREE;
   let hitPos = null;
   let isVertical = false;
@@ -177,7 +177,7 @@ function _computePlacementPose(frame, referenceSpace, defaultDist = 2.0, elevate
             const isVert = Math.abs(ny) < 0.70;
             const hitDist = Math.hypot(hp.x - camPos.x, hp.z - camPos.z);
 
-            if (isVert && (hitDist <= 3.5 || !frame)) {
+            if (isVert && (hitDist <= maxWallDist || !frame)) {
               isVertical = true;
               hitPos = { x: hp.x, y: hp.y, z: hp.z };
               const len = Math.hypot(surfaceNormal.x, surfaceNormal.z) || 1;
@@ -362,6 +362,8 @@ function _initDiagErrorTraps() {
 // zoom state
 let _zoomScale = 1.0;
 let _exitSignScale = 1.0;
+// door can be far down corridor, accept wall hit this far for exit sign
+const EXIT_MAX_WALL_DIST_M = 8.0;
 const MIN_EXIT_SCALE = 0.5;
 const MAX_EXIT_SCALE = 2.0;
 const BASE_EXT_SCALE = 0.35;
@@ -1238,13 +1240,20 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
 
   let _lastSmoothedExitPos = null;
   let _lastSmoothedExitNormal = null;
+  // hit test drop a frame, keep sign at last wall depth, not snap to 2m
+  let _lastWallDist = 2.0;
 
   // live preview frame handler: detect door/wall or project forward
   if (_controller && typeof _controller.onFrame === "function") {
     _exitPlacementFrameHandler = ({ frame, referenceSpace }) => {
       if (exitPlaced || !_exitMesh) return;
-      const { pos, isVertical, normal } = _computePlacementPose(frame, referenceSpace, 2.0, false, 0, 0.0);
+      const { pos, isVertical, normal } = _computePlacementPose(frame, referenceSpace, _lastWallDist, false, 0, 0.0, EXIT_MAX_WALL_DIST_M);
       if (normal) lastNormal = normal;
+      if (isVertical && pos) {
+        const vp = _controller.getViewerPosition ? _controller.getViewerPosition() : null;
+        const d = vp ? Math.hypot(pos.x - vp.x, pos.z - vp.z) : 0;
+        if (d > 0.3) _lastWallDist = d;
+      }
       if (pos && _exitMesh.position && _exitMesh.position.set) {
         if (!_lastSmoothedExitPos) {
           _lastSmoothedExitPos = { x: pos.x, y: pos.y, z: pos.z };
@@ -1364,7 +1373,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
     }
     const initDx = camPos.x - _placedSignPos.x;
     const initDz = camPos.z - _placedSignPos.z;
-    _initialWalkDist = Math.max(0.81, Math.min(3.5, Math.hypot(initDx, initDz)));
+    _initialWalkDist = Math.max(0.81, Math.min(EXIT_MAX_WALL_DIST_M, Math.hypot(initDx, initDz)));
 
     _setupZoomControls({ target: "exit" });
 
