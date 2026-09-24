@@ -77,6 +77,7 @@ import {
   clearCheckpoints,
   getRegisteredCheckpoints
 } from "../ar/interactions.js";
+import { startAssessmentSession, abortAssessmentSession } from "../assessment/engine.js";
 
 import {
   startFireModule,
@@ -127,11 +128,14 @@ function clickThroughSubscreens(maxSteps = 10) {
   }
 }
 
-// helper: advance through step 1 and set up for step 2 testing
+// helper: advance through step 1 and set up for step 2 testing.
+// the session attemptId rolls 0.88% CH4, so fighting the fire is the right call
 function advanceToStep2() {
   startFireModule(document.getElementById("ar-viewport"));
   clickThroughSubscreens();
   _elements["btn-exit-found"]?.click();
+  _elements["btn-decision-extinguish"]?.click();
+  _elements["btn-pull-alarm"]?.click();
   clickThroughSubscreens();
 }
 
@@ -187,6 +191,9 @@ describe("Fire & Explosion Response module", () => {
     Object.keys(_elements).forEach((k) => delete _elements[k]);
     // create the ar-viewport container the module expects
     _makeEl("ar-viewport");
+    // the loader opens the session before the module starts; the gas reading is rolled from its attemptId
+    abortAssessmentSession();
+    startAssessmentSession({ moduleId: "fire-response", attemptId: "0b5e1a2c-3d4e-4f56-8a7b-9c0d1e2f3a4b" });
   });
 
   it("startFireModule registers step 1 (exit identification) checkpoint immediately", () => {
@@ -200,14 +207,29 @@ describe("Fire & Explosion Response module", () => {
     assert.ok(!cps.some((c) => c.id === CP_EVACUATION_ID), "evacuation CP must not register before step 2");
   });
 
-  it("completing step 1 registers step 2 (extinguisher aim) checkpoint", () => {
+  it("finding the exit alone never opens the extinguisher drill, the gas decision must come first", () => {
     startFireModule(document.getElementById("ar-viewport"));
     clickThroughSubscreens();
 
-    // simulate user clicking the exit button
     const btn = _elements["btn-exit-found"];
     assert.ok(btn, "exit button must exist after step 1 starts");
     btn.click();
+
+    assert.ok(!getRegisteredCheckpoints().some((c) => c.id === CP_EXTINGUISHER_ID),
+      "extinguisher checkpoint must wait for the decision gate");
+    assert.strictEqual(btn.disabled, true, "exit button is spent once the sighting is recorded");
+  });
+
+  it("completing step 1 and the decision gate registers step 2 (extinguisher aim) checkpoint", () => {
+    startFireModule(document.getElementById("ar-viewport"));
+    clickThroughSubscreens();
+
+    // simulate user clicking the exit button, choosing to fight the fire, pulling the alarm
+    const btn = _elements["btn-exit-found"];
+    assert.ok(btn, "exit button must exist after step 1 starts");
+    btn.click();
+    _elements["btn-decision-extinguish"].click();
+    _elements["btn-pull-alarm"].click();
 
     const cps = getRegisteredCheckpoints();
     assert.ok(cps.some((c) => c.id === CP_EXTINGUISHER_ID && c.type === "aim"),

@@ -26,13 +26,13 @@ import { selectionSingle, aimDwell, spatialAlignment } from "../../assessment/ob
 import {
   renderAlertFlash,
   renderGasGaugeSvg,
-  generateMethaneReading,
+  methaneReadingForRun,
   isCorrectDecision,
   getDecisionExplanation,
   renderDecisionWheel,
   CP_DECISION_ID,
   DECISION_CHOICES,
-  METHANE_EXPLOSIVE_THRESHOLD,
+  METHANE_WITHDRAWAL_THRESHOLD,
   initOrientationNudge
 } from "./decision.js";
 
@@ -57,7 +57,6 @@ let _exitPlacementFrameHandler = null;
 let _exitWalkFrameHandler = null;
 let _alarmPointerTapHandler = null;
 let _exitPointerTapHandler = null;
-let _step3ExitTapHandler = null;
 let _interactionState = null;
 let _routeStrip = null;
 let _confetti = null;
@@ -669,11 +668,6 @@ function cleanupWebXRFireModule() {
     window.removeEventListener("click", _exitPointerTapHandler);
     _exitPointerTapHandler = null;
   }
-  if (_step3ExitTapHandler && typeof window !== "undefined") {
-    window.removeEventListener("pointerdown", _step3ExitTapHandler);
-    window.removeEventListener("click", _step3ExitTapHandler);
-    _step3ExitTapHandler = null;
-  }
   _teardownZoomControls();
   _zoomScale = 1.0;
   _exitSignScale = 1.0;
@@ -1087,7 +1081,7 @@ function _showDecisionWheelStep(container, overlay, onExtinguishProceed) {
     if (overlay) overlay.innerHTML = "";
 
     if (_methaneReading === null || typeof _methaneReading !== "number") {
-      _methaneReading = generateMethaneReading();
+      _methaneReading = methaneReadingForRun();
     }
 
     // append to viewport container rather than overlay to avoid transform clipping
@@ -1286,7 +1280,7 @@ function _showAlarmPullStationWebXR(container, overlay, onDone) {
     hudCard.innerHTML = `
       <div class="hud-badge">🔔 STEP 1 / 3 — SOUND ALARM (BRANCH B)</div>
       <div class="hud-title">Pull Fire Alarm Station</div>
-      <div class="hud-desc">Methane is below 5.0% LEL. Before attacking the fire with an extinguisher, sound the mine section alarm to alert all miners!</div>
+      <div class="hud-desc">${t("fire.alarm_desc_low", "Methane is below the 1.25% withdrawal limit. Before attacking the fire with an extinguisher, sound the mine section alarm to alert all miners!")}</div>
       <div id="alarm-status-hint" style="margin:0.4rem 0 0.5rem 0;font-size:0.92rem;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">
         ${t("fire.alarm_wall_hint", "Aim at wall/door and tap screen to mount alarm, or tap 3D model directly to pull.")}
       </div>
@@ -1474,13 +1468,8 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
         trackingSource: "webxr_pose"
       })
     );
-    fireCheckpointResult(
-      CP_EVACUATION_WEBXR_ID,
-      true,
-      { selected: "wind_based_upwind", branch: "evacuate", reading },
-      typeof selectionSingle === "function" ? selectionSingle("wind_based_upwind") : null
-    );
-    _showCompletionWebXR(overlay, container, true);
+    // the worker still answers the evacuation question — never record an answer they did not give
+    _setupStep3WebXR(container, true, { afterSuppression: false });
   };
 
   const lockPlacementAndStartWalk = () => {
@@ -1658,15 +1647,15 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
     window.addEventListener("click", _exitPointerTapHandler);
   }
 
-  const isHigh = reading >= METHANE_EXPLOSIVE_THRESHOLD;
+  const isHigh = reading >= METHANE_WITHDRAWAL_THRESHOLD;
   overlay.innerHTML = "";
   const hudCard = document.createElement("div");
   hudCard.id = "fire-hud-card";
   hudCard.className = "fire-hud-card";
   hudCard.innerHTML = `
-    <div class="hud-badge">🚨 BRANCH A — IMMEDIATE EVACUATION</div>
-    <div class="hud-title">${isHigh ? "CRITICAL METHANE LEVEL (>= 5.0%)" : "PRECAUTIONARY EVACUATION"}</div>
-    <div class="hud-desc">${isHigh ? "Atmosphere is explosive. Fire suppression is strictly forbidden under mining regulations. Follow emergency route immediately." : "Evacuation selected. Move promptly along marked emergency path to the nearest safe surface exit."}</div>
+    <div class="hud-badge">${t("fire.branch_a_badge", "🚨 BRANCH A — IMMEDIATE EVACUATION")}</div>
+    <div class="hud-title">${isHigh ? t("fire.branch_a_title_high", "METHANE AT WITHDRAWAL LIMIT (>= 1.25%)") : t("fire.branch_a_title_low", "PRECAUTIONARY EVACUATION")}</div>
+    <div class="hud-desc">${isHigh ? t("fire.branch_a_desc_high", "Methane is at or above the 1.25% withdrawal limit. Power is cut and firefighting is forbidden. Follow the emergency route immediately.") : t("fire.branch_a_desc_low", "Evacuation selected. Move promptly along marked emergency path to the nearest safe surface exit.")}</div>
     <div id="exit-status-hint" style="margin:0.4rem 0 0.5rem 0;font-size:0.92rem;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">
       ${t("fire.exit_door_hint", "Aim crosshair at exit door / frame and tap button or screen to anchor.")}
     </div>
@@ -2216,8 +2205,9 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
   overlay.appendChild(btn);
 }
 
-// step 3: evacuation route selection with 3d exit sign
-function _setupStep3WebXR(container, _step2Passed) {
+// step 3: evacuation route selection with 3d exit sign.
+// branch A reaches here without fighting the fire, so the prompt says so
+function _setupStep3WebXR(container, _step2Passed, { afterSuppression = true } = {}) {
   _currentStep = 3;
   logger.info({ event: "webxr_fire_step_start", step: 3 }, "Evacuation (WebXR)");
   _showAimCrosshair(container);
@@ -2262,7 +2252,9 @@ function _setupStep3WebXR(container, _step2Passed) {
     <div class="fire-hud-card">
       <div class="hud-badge">${t("fire.evac_badge_3", "🔥 STEP 3 / 3 — EVACUATION ROUTE")}</div>
       <div class="hud-title">${t("fire.evac_title_3", "Choose Safest Evacuation Path")}</div>
-      <div class="hud-desc">${t("fire.evac_desc_3", "After using the extinguisher, you must evacuate. Select the safest option:")}</div>
+      <div class="hud-desc">${afterSuppression
+        ? t("fire.evac_desc_3", "After using the extinguisher, you must evacuate. Select the safest option:")
+        : t("fire.evac_desc_3_withdraw", "Gas is at the withdrawal limit, so you do not fight the fire. Select the safest way out:")}</div>
       <div id="webxr-evac-options" style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.4rem;width:100%;"></div>
     </div>
   `;
@@ -2279,7 +2271,7 @@ function _setupStep3WebXR(container, _step2Passed) {
     fireCheckpointResult(
       CP_EVACUATION_WEBXR_ID,
       correct,
-      { selected: id, correct: CORRECT, tier: 1 },
+      { selected: id, correct: CORRECT, tier: 1, branch: _currentBranch },
       selectionSingle(id)
     );
     const allPassed = Boolean(_step2Passed && correct);
@@ -2302,24 +2294,7 @@ function _setupStep3WebXR(container, _step2Passed) {
     wrapper.appendChild(btn);
   });
 
-  const handleStep3ExitTap = (e) => {
-    if (e && e.target && e.target.closest && e.target.closest("button")) return;
-    const hitExit = _raycastMesh(e, _exitMesh);
-    if (hitExit) {
-      if (_step3ExitTapHandler && typeof window !== "undefined") {
-        window.removeEventListener("pointerdown", _step3ExitTapHandler);
-        window.removeEventListener("click", _step3ExitTapHandler);
-        _step3ExitTapHandler = null;
-      }
-      onSelect(CORRECT, true);
-    }
-  };
-
-  _step3ExitTapHandler = handleStep3ExitTap;
-  if (typeof window !== "undefined") {
-    window.addEventListener("pointerdown", _step3ExitTapHandler);
-    window.addEventListener("click", _step3ExitTapHandler);
-  }
+  // no tap-the-sign shortcut: tapping the exit is not choosing a route, the worker must answer
 
   overlay.appendChild(wrapper);
 }
@@ -2331,7 +2306,7 @@ function _renderDebriefCardWebXR(overlay, passed = true) {
   if (existing && existing.remove) existing.remove();
 
   const reading = typeof _methaneReading === "number" ? _methaneReading : 0;
-  const isExplosive = reading >= METHANE_EXPLOSIVE_THRESHOLD;
+  const isExplosive = reading >= METHANE_WITHDRAWAL_THRESHOLD;
   const card = document.createElement("div");
   card.id = "debrief-summary-card";
   card.className = "debrief-enter";
@@ -2359,7 +2334,7 @@ function _renderDebriefCardWebXR(overlay, passed = true) {
     <div class="debrief-kpi-grid" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0.35rem;margin:0.3rem 0;font-size:0.76rem;width:100%;box-sizing:border-box;">
       <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;min-width:0;overflow:hidden;box-sizing:border-box;">
         <span style="color:#94a3b8;display:block;font-size:0.68rem;">Methane Level:</span>
-        <strong style="color:${isExplosive ? "#ef4444" : "#10b981"};display:block;word-break:break-word;overflow-wrap:break-word;">${reading.toFixed(1)}% CH₄ (${isExplosive ? "EXPLOSIVE" : "SAFE/INCIPIENT"})</strong>
+        <strong style="color:${isExplosive ? "#ef4444" : "#10b981"};display:block;word-break:break-word;overflow-wrap:break-word;">${reading.toFixed(1)}% CH₄ (${isExplosive ? t("fire.debrief_level_high", "WITHDRAW") : t("fire.debrief_level_low", "BELOW LIMIT")})</strong>
       </div>
       <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;min-width:0;overflow:hidden;box-sizing:border-box;">
         <span style="color:#94a3b8;display:block;font-size:0.68rem;">Action Taken:</span>
@@ -2376,7 +2351,7 @@ function _renderDebriefCardWebXR(overlay, passed = true) {
     </div>
     <div style="font-size:0.71rem;color:#cbd5e1;line-height:1.3;margin:0.25rem 0 0.35rem 0;word-break:break-word;overflow-wrap:break-word;">
       ${isExplosive
-        ? t("fire.training_feedback_explosive", "Training feedback: Trainee recognized explosive atmosphere above 5.0% LEL and executed immediate evacuation without risking secondary blast.")
+        ? t("fire.training_feedback_explosive", "Training feedback: Trainee recognized methane at or above the 1.25% withdrawal limit and evacuated immediately without fighting the fire.")
         : t("fire.training_feedback_standard", "Training feedback: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit.")
       }
     </div>
@@ -2486,11 +2461,8 @@ function startFireModuleWebXR(container, controller, options = {}) {
   cleanupWebXRFireModule();
   _controller = controller;
 
-  if (options && typeof options.reading === "number" && !isNaN(options.reading)) {
-    _methaneReading = options.reading;
-  } else {
-    _methaneReading = generateMethaneReading();
-  }
+  // rolled from this run's attemptId so the server grades against the same gas reading
+  _methaneReading = methaneReadingForRun(options);
 
   _initDiagErrorTraps();
   _updateWebXRDiag(`Module Start (Tier 1 WebXR) | Reading: ${_methaneReading}%`);
@@ -2555,12 +2527,12 @@ export {
   renderDecisionWheel,
   renderAlertFlash,
   renderGasGaugeSvg,
-  generateMethaneReading,
+  methaneReadingForRun,
   isCorrectDecision,
   getDecisionExplanation,
   CP_DECISION_ID,
   DECISION_CHOICES,
-  METHANE_EXPLOSIVE_THRESHOLD,
+  METHANE_WITHDRAWAL_THRESHOLD,
   _computePlacementPose,
   _raycastMesh,
   checkEvacuationPhysicalExit,

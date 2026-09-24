@@ -93,4 +93,58 @@ function gradeSelectionMulti(observation, definition) {
   };
 }
 
-module.exports = { gradeSelectionSingle, gradeSelectionMulti };
+// what one wrong try cost. two slips or one fatal wipe the gate
+const TRY_PENALTY = Object.freeze({ procedural: 0.5, fatal: 1 });
+
+// every pick on a fail-to-learn gate, in order. the ui block until the key is picked,
+// so a sequence that repeats a pick or does not end on the key never came from it.
+// score = 1 - penalties, passed = no fatal pick along the way.
+function gradeSelectionSequence(observation, definition, { scenario } = {}) {
+  const picks = observation.tries.map((attempt) => attempt.selected);
+  picks.forEach((item) => _assertInVocabulary(item, definition));
+
+  if (new Set(picks).size !== picks.length) {
+    throw new GradingError(
+      GRADING_ERRORS.DUPLICATE_SELECTION,
+      `checkpoint "${definition.checkpointId}" picked the same option twice`,
+      definition.checkpointId
+    );
+  }
+
+  if (!definition.gradeable) {
+    return { score: 0, passed: false, reason: "not_gradeable", gradeable: false, tryCount: picks.length, fatalCount: 0 };
+  }
+
+  const key = definition.answerKey;
+  const rule = key && key.cases && scenario ? key.cases[scenario[key.by]] : null;
+  if (!rule || typeof rule.expected !== "string") {
+    throw new GradingError(
+      GRADING_ERRORS.DEFINITION_INVALID,
+      `checkpoint "${definition.checkpointId}" has no answer key for this scenario`,
+      definition.checkpointId
+    );
+  }
+
+  if (picks[picks.length - 1] !== rule.expected) {
+    throw new GradingError(
+      GRADING_ERRORS.IMPLAUSIBLE_OBSERVATION,
+      `checkpoint "${definition.checkpointId}" sequence does not end on the correct option`,
+      definition.checkpointId
+    );
+  }
+
+  // an option the key forgot to rate costs the procedural price, never nothing
+  const severity = rule.severity || {};
+  const wrong = picks.slice(0, -1);
+  const fatalCount = wrong.filter((item) => severity[item] === "fatal").length;
+  const penalty = wrong.reduce((sum, item) => sum + (severity[item] === "fatal" ? TRY_PENALTY.fatal : TRY_PENALTY.procedural), 0);
+  const score = _clamp01(Math.round((1 - penalty) * 100) / 100);
+
+  let reason = "first_try";
+  if (fatalCount > 0) reason = "fatal_then_corrected";
+  else if (wrong.length > 0) reason = "corrected";
+
+  return { score, passed: fatalCount === 0, reason, gradeable: true, tryCount: picks.length, fatalCount };
+}
+
+module.exports = { gradeSelectionSingle, gradeSelectionMulti, gradeSelectionSequence, TRY_PENALTY };

@@ -203,11 +203,12 @@ describe("fire vfx scene", () => {
 
 describe("gas gauge motion", () => {
   it("needle sweeps from zero while final angle stays in the markup; active arc glows", () => {
-    const high = renderGasGaugeSvg(7.2);
+    // 0-5% dial over 240 deg: 1.8% sits at -33.6 deg, so the sweep starts 86.4 deg back at 0%
+    const high = renderGasGaugeSvg(1.8);
     assert.ok(high.includes("gauge-needle-sweep"));
-    assert.ok(high.includes("--needle-from:-172.8deg"), "sweep starts at 0% position");
-    assert.ok(high.includes("gauge-arc-danger-pulse"), "danger arc pulses above 5% LEL");
-    const low = renderGasGaugeSvg(2.0);
+    assert.ok(high.includes("--needle-from:-86.4deg"), "sweep starts at 0% position");
+    assert.ok(high.includes("gauge-arc-danger-pulse"), "danger arc pulses at or above the 1.25% withdrawal limit");
+    const low = renderGasGaugeSvg(0.6);
     assert.ok(!low.includes("gauge-arc-danger-pulse"));
     assert.strictEqual((low.match(/url\(#gauge-arc-glow\)/g) || []).length, 1, "only the active arc glows");
   });

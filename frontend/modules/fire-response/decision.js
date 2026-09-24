@@ -1,7 +1,12 @@
 import { registerCheckpoint, fireCheckpointResult } from "../../ar/interactions.js";
-import { selectionSingle } from "../../assessment/observations.js";
+import { selectionSequence } from "../../assessment/observations.js";
+import { getActiveSession } from "../../assessment/engine.js";
+import { createLogger } from "../../js/logger.js";
 import { t } from "../../js/i18n.js";
 import { vibrate, playGasChirp } from "../../js/sfx.js";
+import { scenarioFor, METHANE_WITHDRAWAL_PCT, DECISION_ANSWER_KEY } from "./scenario.js";
+
+const logger = createLogger("FireDecision");
 
 // escape translated text before it go into innerHTML
 function _esc(text) {
@@ -18,13 +23,20 @@ export const DECISION_CHOICES = Object.freeze({
   WAIT: "wait"
 });
 
-// explosive methane limit threshold percentage
-export const METHANE_EXPLOSIVE_THRESHOLD = 5.0;
+// at or above this % CH4 the worker withdraws. lives in scenario.js so the server copy can match it
+export const METHANE_WITHDRAWAL_THRESHOLD = METHANE_WITHDRAWAL_PCT;
 
-// generate random methane concentration reading between 0.5% and 9.5%
-export function generateMethaneReading(randomFn = Math.random) {
-  const val = 0.5 + randomFn() * 9.0;
-  return Math.round(val * 10) / 10;
+// what one wrong try cost locally, same numbers the server grades with
+const TRY_PENALTY = Object.freeze({ procedural: 0.5, fatal: 1 });
+
+// reading for this run: rolled from the attemptId so the server knows it too.
+// tests may pin one. no session means no attemptId — throw, never invent a reading
+export function methaneReadingForRun(options = {}) {
+  if (options && typeof options.reading === "number" && !isNaN(options.reading)) {
+    return options.reading;
+  }
+  const session = getActiveSession();
+  return scenarioFor(session && session.attemptId).reading;
 }
 
 // check if decision matches safety rule for measured gas concentration
@@ -35,10 +47,18 @@ export function isCorrectDecision(reading, choice) {
   if (choice === DECISION_CHOICES.WAIT) {
     return false;
   }
-  if (reading >= METHANE_EXPLOSIVE_THRESHOLD) {
+  if (reading >= METHANE_WITHDRAWAL_THRESHOLD) {
     return choice === DECISION_CHOICES.EVACUATE;
   }
   return choice === DECISION_CHOICES.EXTINGUISH;
+}
+
+// how bad a wrong pick is for this reading, from the local copy of the server key
+export function decisionSeverity(reading, choice) {
+  const level = reading >= METHANE_WITHDRAWAL_THRESHOLD ? "high" : "low";
+  const rule = DECISION_ANSWER_KEY.cases[level];
+  if (choice === rule.expected) return null;
+  return rule.severity[choice] || "procedural";
 }
 
 // get feedback explanation for wrong choice based on methane reading
@@ -47,11 +67,11 @@ export function getDecisionExplanation(reading, choice) {
   if (choice === DECISION_CHOICES.WAIT) {
     return t("fire.decision_explain_wait", { reading: readVal }, "The meter read {reading}% CH₄. When holding a live gas reading in an active fire emergency, waiting for a supervisor wastes critical seconds and risks lives.");
   }
-  if (reading >= METHANE_EXPLOSIVE_THRESHOLD && choice === DECISION_CHOICES.EXTINGUISH) {
-    return t("fire.decision_explain_high", { reading: readVal }, "The meter read {reading}% CH₄ — above the 5.0% lower explosive limit (LEL). Never fight an incipient fire in an explosive atmosphere: evacuate immediately.");
+  if (reading >= METHANE_WITHDRAWAL_THRESHOLD && choice === DECISION_CHOICES.EXTINGUISH) {
+    return t("fire.decision_explain_high", { reading: readVal }, "The meter read {reading}% CH₄ — at or above the 1.25% withdrawal limit. Power is cut and everyone withdraws. Never fight a fire in a gassy heading: evacuate immediately.");
   }
-  if (reading < METHANE_EXPLOSIVE_THRESHOLD && choice === DECISION_CHOICES.EVACUATE) {
-    return t("fire.decision_explain_low", { reading: readVal }, "The meter read {reading}% CH₄ — below 5.0% explosive limit. With low gas levels, standard protocol requires attempting extinguisher PASS suppression before flame spreads, followed by evacuation.");
+  if (reading < METHANE_WITHDRAWAL_THRESHOLD && choice === DECISION_CHOICES.EVACUATE) {
+    return t("fire.decision_explain_low", { reading: readVal }, "The meter read {reading}% CH₄ — below the 1.25% withdrawal limit. With low gas levels, standard protocol requires attempting extinguisher PASS suppression before flame spreads, followed by evacuation.");
   }
   return t("fire.decision_explain_other", { choice, reading: readVal }, "Action \"{choice}\" is incorrect for methane concentration of {reading}%.");
 }
@@ -73,46 +93,55 @@ function _describeArc(cx, cy, radius, startAngle, endAngle) {
   return `M ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${end.x} ${end.y}`;
 }
 
+// gauge full scale in % CH4. withdrawal limit sits a quarter of the way round
+const GAUGE_MAX_PCT = 5;
+
 // render original drawn gas gauge dial as standalone scalable svg string
 export function renderGasGaugeSvg(reading, options = {}) {
   const size = options.size || 240;
-  const clamped = Math.max(0, Math.min(10, typeof reading === "number" && !isNaN(reading) ? reading : 0));
+  const clamped = Math.max(0, Math.min(GAUGE_MAX_PCT, typeof reading === "number" && !isNaN(reading) ? reading : 0));
   const cx = 120;
   const cy = 120;
   const r = 85;
 
-  // scale spans from -120 deg (0%) to +120 deg (10%), 5% sits straight up at 0 deg
+  // scale spans from -120 deg (0%) to +120 deg (5%)
   const startAngle = -120;
-  const midAngle = 0;
   const endAngle = 120;
-  const needleAngle = startAngle + (clamped / 10) * (endAngle - startAngle);
+  const toAngle = (pct) => startAngle + (pct / GAUGE_MAX_PCT) * (endAngle - startAngle);
+  const limitAngle = toAngle(METHANE_WITHDRAWAL_THRESHOLD);
+  const needleAngle = toAngle(clamped);
 
-  // green arc: 0% to 5% (safe / low gas)
-  const greenArc = _describeArc(cx, cy, r, startAngle, midAngle);
-  // red arc: 5% to 10% (explosive hazard zone)
-  const redArc = _describeArc(cx, cy, r, midAngle, endAngle);
+  // green arc: below withdrawal limit
+  const greenArc = _describeArc(cx, cy, r, startAngle, limitAngle);
+  // red arc: withdrawal limit and up
+  const redArc = _describeArc(cx, cy, r, limitAngle, endAngle);
 
-  // major and minor ticks
+  // major tick every 1%, minor every 0.5%
   let ticksHtml = "";
-  for (let i = 0; i <= 10; i++) {
-    const angle = startAngle + (i / 10) * 240;
+  for (let i = 0; i <= GAUGE_MAX_PCT; i++) {
+    const angle = toAngle(i);
     const p1 = _polarToCartesian(cx, cy, r - 2, angle);
     const p2 = _polarToCartesian(cx, cy, r - 12, angle);
     const textPos = _polarToCartesian(cx, cy, r - 23, angle);
-    const isRed = i >= 5;
+    const isRed = i >= METHANE_WITHDRAWAL_THRESHOLD;
     const strokeColor = isRed ? "#ef4444" : "#10b981";
     ticksHtml += `<line x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" stroke="${strokeColor}" stroke-width="2.5" stroke-linecap="round" />`;
     ticksHtml += `<text x="${textPos.x}" y="${textPos.y + 4}" font-family="system-ui, sans-serif" font-size="10" font-weight="700" fill="${isRed ? "#f87171" : "#34d399"}" text-anchor="middle">${i}</text>`;
 
-    if (i < 10) {
-      const halfAngle = angle + 12;
+    if (i < GAUGE_MAX_PCT) {
+      const halfAngle = toAngle(i + 0.5);
       const h1 = _polarToCartesian(cx, cy, r - 2, halfAngle);
       const h2 = _polarToCartesian(cx, cy, r - 8, halfAngle);
       ticksHtml += `<line x1="${h1.x}" y1="${h1.y}" x2="${h2.x}" y2="${h2.y}" stroke="#64748b" stroke-width="1.2" />`;
     }
   }
 
-  const isExplosive = clamped >= 5.0;
+  // limit marker sits on the rim where red begins
+  const limitTick1 = _polarToCartesian(cx, cy, r + 4, limitAngle);
+  const limitTick2 = _polarToCartesian(cx, cy, r - 14, limitAngle);
+  const limitLabel = _polarToCartesian(cx, cy, r + 16, limitAngle);
+
+  const isExplosive = clamped >= METHANE_WITHDRAWAL_THRESHOLD;
   const digitalBg = isExplosive ? "rgba(239, 68, 68, 0.25)" : "rgba(16, 185, 129, 0.25)";
   const digitalBorder = isExplosive ? "#ef4444" : "#10b981";
   const digitalText = isExplosive ? "#fca5a5" : "#6ee7b7";
@@ -157,8 +186,9 @@ export function renderGasGaugeSvg(reading, options = {}) {
       <text x="120" y="78" font-family="system-ui, sans-serif" font-size="11" font-weight="800" letter-spacing="1.2" fill="#94a3b8" text-anchor="middle">CH₄ METHANE</text>
       <text x="120" y="92" font-family="system-ui, sans-serif" font-size="8.5" font-weight="700" letter-spacing="0.8" fill="#64748b" text-anchor="middle">% CONCENTRATION</text>
 
-      <!-- threshold marker warning label at 5% top center -->
-      <text x="120" y="44" font-family="system-ui, sans-serif" font-size="7.5" font-weight="800" fill="#ef4444" text-anchor="middle">▲ 5% LEL</text>
+      <!-- withdrawal limit marker where the red arc starts -->
+      <line x1="${limitTick1.x}" y1="${limitTick1.y}" x2="${limitTick2.x}" y2="${limitTick2.y}" stroke="#ef4444" stroke-width="3" stroke-linecap="round" />
+      <text x="${limitLabel.x}" y="${limitLabel.y + 3}" font-family="system-ui, sans-serif" font-size="7.5" font-weight="800" fill="#ef4444" text-anchor="middle">${METHANE_WITHDRAWAL_THRESHOLD}%</text>
 
       <!-- digital value box -->
       <rect x="75" y="148" width="90" height="24" rx="6" fill="${digitalBg}" stroke="${digitalBorder}" stroke-width="1.5" />
@@ -234,12 +264,101 @@ export function renderAlertFlash(container, { durationMs = 1800, onDone } = {}) 
   };
 }
 
+// fail-to-learn gate. buttons with data-choice live in container (or come in gateConfig.buttons). every pick is
+// logged with its time; a wrong pick is explained, disabled and blocks progress; the
+// checkpoint fires once, on the right pick, carrying every try for the server to grade.
+export function runDecisionGate(container, gateConfig, onDone) {
+  const { checkpointId, feedbackSlot, isCorrect, severityOf, explain, successHtml, context = {}, onWrong, now = Date.now } = gateConfig;
+  const buttons = Array.from(gateConfig.buttons || container.querySelectorAll("[data-choice]"));
+  const shownAt = now();
+  const tries = [];
+  let done = false;
+
+  registerCheckpoint({ id: checkpointId, type: "select", onTrigger: () => {} });
+
+  buttons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const choice = btn.dataset.choice;
+      if (done || btn.disabled || tries.some((picked) => picked.selected === choice)) return;
+      tries.push({ selected: choice, atMs: Math.max(0, Math.round(now() - shownAt)) });
+
+      if (!isCorrect(choice)) {
+        const severity = severityOf(choice) || "procedural";
+        const failure = { checkpointId, selected: choice, severity, tryIndex: tries.length, timestamp: new Date().toISOString() };
+        logger.warn({ event: "checkpoint_failure", ...failure }, "Wrong pick on gate");
+        if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+          window.dispatchEvent(new CustomEvent("safear:checkpoint_failure", { detail: failure }));
+        }
+        vibrate(severity === "fatal" ? [200, 100, 200] : [40, 60, 40]);
+        btn.disabled = true;
+        if (btn.classList) btn.classList.add("wheel-btn-selected-wrong");
+
+        const title = severity === "fatal"
+          ? t("fire.gate_fatal_title", "✖ FATAL MISTAKE")
+          : t("fire.decision_wrong_title", "✖ INCORRECT SAFETY ACTION");
+        feedbackSlot.innerHTML = `
+          <div class="decision-feedback decision-feedback-error${severity === "fatal" ? " decision-feedback-fatal" : ""}">
+            <div class="feedback-title">${_esc(title)}</div>
+            <div class="feedback-desc">${_esc(explain(choice))}</div>
+            <button type="button" id="btn-decision-retry" class="btn-decision-retry">
+              ${_esc(t("fire.decision_retry", "🔄 Re-evaluate Meter & Choose Action"))}
+            </button>
+          </div>
+        `;
+        let retryBtn = feedbackSlot.querySelector ? feedbackSlot.querySelector("#btn-decision-retry") : null;
+        if (!retryBtn) {
+          // webviews that do not parse innerHTML into nodes still get a working retry
+          retryBtn = document.createElement("button");
+          retryBtn.type = "button";
+          retryBtn.id = "btn-decision-retry";
+          retryBtn.className = "btn-decision-retry";
+          retryBtn.textContent = t("fire.decision_retry", "🔄 Re-evaluate Meter & Choose Action");
+          feedbackSlot.appendChild(retryBtn);
+        }
+        retryBtn.addEventListener("click", () => {
+          feedbackSlot.innerHTML = "";
+          if (typeof retryBtn.remove === "function") retryBtn.remove();
+        });
+
+        if (typeof onWrong === "function") onWrong({ choice, severity, tries: tries.slice() });
+        return;
+      }
+
+      done = true;
+      vibrate(15);
+      if (btn.classList) btn.classList.add("wheel-btn-selected-correct");
+      buttons.forEach((b) => { b.disabled = true; });
+      feedbackSlot.innerHTML = `
+        <div class="decision-feedback decision-feedback-success">
+          <div class="feedback-title">${_esc(t("fire.decision_correct_title", "✔ CORRECT PROTOCOL CONFIRMED"))}</div>
+          <div class="feedback-desc">${successHtml(choice)}</div>
+        </div>
+      `;
+
+      // local score only drives the offline ui. the server regrades the tries.
+      const wrong = tries.slice(0, -1).map((picked) => severityOf(picked.selected) || "procedural");
+      const fatalCount = wrong.filter((level) => level === "fatal").length;
+      const score = Math.max(0, 1 - wrong.reduce((sum, level) => sum + TRY_PENALTY[level], 0));
+      fireCheckpointResult(
+        checkpointId,
+        fatalCount === 0,
+        { ...context, choice, tryCount: tries.length, fatalCount, score },
+        selectionSequence(tries)
+      );
+
+      if (typeof onDone === "function") onDone({ choice, tries: tries.slice() });
+    });
+  });
+
+  return { getTries: () => tries.slice() };
+}
+
 // render radial decision wheel dialogue around methane meter
 export function renderDecisionWheel(container, { reading, onDecision, onWrongAttempt } = {}) {
   if (!container) return null;
 
-  const readingVal = typeof reading === "number" && !isNaN(reading) ? reading : generateMethaneReading();
-  const isExplosive = readingVal >= METHANE_EXPLOSIVE_THRESHOLD;
+  const readingVal = methaneReadingForRun({ reading });
+  const isExplosive = readingVal >= METHANE_WITHDRAWAL_THRESHOLD;
 
   const panel = document.createElement("div");
   panel.id = "fire-decision-panel";
@@ -256,8 +375,8 @@ export function renderDecisionWheel(container, { reading, onDecision, onWrongAtt
       <div class="decision-title">${_esc(t("fire.decision_title", "Methane Monitor"))}</div>
       <div class="decision-reading-status ${isExplosive ? "status-danger" : "status-warning"}">
         ${isExplosive
-          ? _esc(t("fire.decision_status_high", "🚨 DANGER: AT/ABOVE 5% LOWER EXPLOSIVE LIMIT"))
-          : _esc(t("fire.decision_status_low", "⚠️ DETECTED: BELOW 5% (INCIPIENT RISK ZONE)"))}
+          ? _esc(t("fire.decision_status_high", "🚨 DANGER: AT/ABOVE 1.25% WITHDRAWAL LIMIT"))
+          : _esc(t("fire.decision_status_low", "⚠️ DETECTED: BELOW 1.25% (INCIPIENT RISK ZONE)"))}
       </div>
     </div>
     <div class="decision-gauge-container">
@@ -356,90 +475,29 @@ export function renderDecisionWheel(container, { reading, onDecision, onWrongAtt
   // detector chirp, pitch climb with gas
   playGasChirp(readingVal);
 
-  // register scored moment checkpoint
-  registerCheckpoint({
-    id: CP_DECISION_ID,
-    type: "select",
-    onTrigger: () => {}
-  });
-
-  buttons.forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const choice = btn.dataset.choice;
-      const correct = isCorrectDecision(readingVal, choice);
-
-      // fire checkpoint result event for tracking
-      fireCheckpointResult(
-        CP_DECISION_ID,
-        correct,
-        {
-          choice,
-          reading: readingVal,
-          threshold: METHANE_EXPLOSIVE_THRESHOLD
-        },
-        typeof selectionSingle === "function" ? selectionSingle(choice) : null
-      );
-
-      if (correct) {
-        vibrate(15);
-        if (btn.classList && typeof btn.classList.add === "function") {
-          btn.classList.add("wheel-btn-selected-correct");
-        }
-        buttons.forEach((b) => (b.disabled = true));
-        const reading1 = readingVal.toFixed(1);
-        feedbackSlot.innerHTML = `
-          <div class="decision-feedback decision-feedback-success">
-            <div class="feedback-title">${_esc(t("fire.decision_correct_title", "✔ CORRECT PROTOCOL CONFIRMED"))}</div>
-            <div class="feedback-desc">
-              ${choice === DECISION_CHOICES.EVACUATE
-                ? _esc(t("fire.decision_correct_evacuate", { reading: reading1 }, "Meter reading is {reading}% (>= 5.0% LEL). Immediate evacuation is mandatory."))
-                : _esc(t("fire.decision_correct_extinguish", { reading: reading1 }, "Meter reading is {reading}% (< 5.0% LEL). Proceed to sound alarm and suppress with extinguisher."))
-              }
-            </div>
-          </div>
-        `;
-        if (typeof onDecision === "function") {
-          onDecision({ choice, reading: readingVal, correct: true, panel });
-        }
-      } else {
-        // wrong choice blocks progress and displays explanation
-        vibrate([40, 60, 40]);
-        if (btn.classList && typeof btn.classList.add === "function") {
-          btn.classList.add("wheel-btn-selected-wrong");
-        }
-        const explanation = getDecisionExplanation(readingVal, choice);
-        feedbackSlot.innerHTML = `
-          <div class="decision-feedback decision-feedback-error">
-            <div class="feedback-title">${_esc(t("fire.decision_wrong_title", "✖ INCORRECT SAFETY ACTION"))}</div>
-            <div class="feedback-desc">${_esc(explanation)}</div>
-            <button type="button" id="btn-decision-retry" class="btn-decision-retry">
-              ${_esc(t("fire.decision_retry", "🔄 Re-evaluate Meter & Choose Action"))}
-            </button>
-          </div>
-        `;
-
-        let retryBtn = feedbackSlot.querySelector ? feedbackSlot.querySelector("#btn-decision-retry") : document.getElementById("btn-decision-retry");
-        if (!retryBtn) {
-          retryBtn = document.createElement("button");
-          retryBtn.type = "button";
-          retryBtn.id = "btn-decision-retry";
-          retryBtn.className = "btn-decision-retry";
-          retryBtn.textContent = t("fire.decision_retry", "🔄 Re-evaluate Meter & Choose Action");
-          feedbackSlot.appendChild(retryBtn);
-        }
-        retryBtn.addEventListener("click", () => {
-          if (btn.classList && typeof btn.classList.remove === "function") {
-            btn.classList.remove("wheel-btn-selected-wrong");
-          }
-          feedbackSlot.innerHTML = "";
-          if (typeof retryBtn.remove === "function") retryBtn.remove();
-        });
-
-        if (typeof onWrongAttempt === "function") {
-          onWrongAttempt({ choice, reading: readingVal, correct: false });
-        }
+  runDecisionGate(radialWheel, {
+    checkpointId: CP_DECISION_ID,
+    buttons,
+    feedbackSlot,
+    isCorrect: (choice) => isCorrectDecision(readingVal, choice),
+    severityOf: (choice) => decisionSeverity(readingVal, choice),
+    explain: (choice) => getDecisionExplanation(readingVal, choice),
+    successHtml: (choice) => {
+      const reading1 = readingVal.toFixed(1);
+      return choice === DECISION_CHOICES.EVACUATE
+        ? _esc(t("fire.decision_correct_evacuate", { reading: reading1 }, "Meter reading is {reading}% (>= 1.25% withdrawal limit). Immediate evacuation is mandatory."))
+        : _esc(t("fire.decision_correct_extinguish", { reading: reading1 }, "Meter reading is {reading}% (< 1.25% withdrawal limit). Proceed to sound alarm and suppress with extinguisher."));
+    },
+    context: { reading: readingVal, threshold: METHANE_WITHDRAWAL_THRESHOLD },
+    onWrong: ({ choice }) => {
+      if (typeof onWrongAttempt === "function") {
+        onWrongAttempt({ choice, reading: readingVal, correct: false });
       }
-    });
+    }
+  }, ({ choice }) => {
+    if (typeof onDecision === "function") {
+      onDecision({ choice, reading: readingVal, correct: true, panel });
+    }
   });
 
   return panel;

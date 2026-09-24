@@ -1,5 +1,6 @@
 const { createChildLogger } = require("../logger");
 const { gradeCheckpoint, GRADER_VERSION, GRADING_ERRORS, GradingError } = require("./grading");
+const { scenarioFor } = require("./grading/scenario");
 
 const log = createChildLogger({ component: "attempts" });
 
@@ -17,6 +18,13 @@ function recomputeAttempt(attempt, definitions, moduleRow) {
   let everyCheckpointGradeable = true;
   const criticalFailures = [];
   const checkpoints = [];
+  // optional checkpoints with no rule yet, kept as evidence but left out of the score
+  let unscoredWeight = 0;
+
+  // scenario graded gates need the fire the phone showed, rolled from attemptId
+  const context = definitions.some((row) => row.answer_key || row.applies_when)
+    ? { scenario: scenarioFor(attempt.attemptId) }
+    : {};
 
   attempt.checkpoints.forEach((checkpoint) => {
     const definitionRow = byId.get(checkpoint.checkpointId);
@@ -32,15 +40,19 @@ function recomputeAttempt(attempt, definitions, moduleRow) {
 
     // weight always comes from the manifest, never from the payload
     const weight = definitionRow.weight;
-    const graded = gradeCheckpoint(checkpoint.observation, definitionRow);
+    const graded = gradeCheckpoint(checkpoint.observation, definitionRow, context);
 
-    // one unconfigured rule makes the whole attempt uncertifiable, not partly scored
-    if (!graded.gradeable) {
-      everyCheckpointGradeable = false;
+    // one unconfigured rule on a required checkpoint makes the whole attempt
+    // uncertifiable. an optional one with no rule yet is recorded, never scored.
+    if (!graded.gradeable && definitionRow.required !== 1) {
+      unscoredWeight += weight;
+    } else {
+      if (!graded.gradeable) {
+        everyCheckpointGradeable = false;
+      }
+      totalScore += graded.score * weight;
+      maxScore += weight;
     }
-
-    totalScore += graded.score * weight;
-    maxScore += weight;
 
     // a failed critical checkpoint sinks the whole module whatever the average says.
     // every seeded critical is 0, so this is wired but dormant until the team rules.
@@ -60,6 +72,12 @@ function recomputeAttempt(attempt, definitions, moduleRow) {
       clientTs: checkpoint.observedAt
     });
   });
+
+  // nothing scorable at all is not a zero mark, it is an ungraded run
+  if (maxScore === 0 && unscoredWeight > 0) {
+    everyCheckpointGradeable = false;
+    maxScore = unscoredWeight;
+  }
 
   const percentage = maxScore > 0 ? Math.round((totalScore / maxScore) * 100 * 100) / 100 : 0;
 

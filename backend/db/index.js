@@ -10,7 +10,8 @@ const SCHEMA_FILE = path.join(__dirname, "schema.sql");
 // to match the SafeAR Attempt Contract v1.0. v3 added certificate.key_id for
 // ed25519 signing key rotation. v4 moved grading to the server for Contract v2.0 —
 // checkpoint_definition holds the rule, checkpoint_result holds the raw observation.
-const SCHEMA_VERSION = 4;
+// v5 added selection_sequence plus answer_key and applies_when for scenario graded gates.
+const SCHEMA_VERSION = 5;
 
 let _db = null;
 

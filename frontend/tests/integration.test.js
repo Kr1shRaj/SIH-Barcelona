@@ -109,6 +109,26 @@ globalThis.window = {
   localStorage: globalThis.localStorage
 };
 
+// the loader rolls the attemptId and the gas reading comes from it. pin the id so the
+// branch is known: 0b5e1a2c rolls 0.88% CH4, below the 1.25% withdrawal limit
+const LOW_METHANE_ATTEMPT_ID = "0b5e1a2c-3d4e-4f56-8a7b-9c0d1e2f3a4b";
+
+async function loadFireWithAttempt(attemptId) {
+  const original = globalThis.crypto.randomUUID;
+  globalThis.crypto.randomUUID = () => attemptId;
+  try {
+    await loadModule("fire-response");
+  } finally {
+    globalThis.crypto.randomUUID = original;
+  }
+}
+
+// gas below the limit: fight the fire, sound the alarm first
+function decideToFightAndPullAlarm() {
+  _elements["btn-decision-extinguish"]?.click();
+  _elements["btn-pull-alarm"]?.click();
+}
+
 function clickThroughSubscreens() {
   let nextBtn = _elements["btn-step-next"];
   let count = 0;
@@ -203,11 +223,12 @@ describe("End-to-End Runtime Integration", () => {
   });
 
   it("completing Fire module creates exactly one queued attempt matching backend contract", async () => {
-    await loadModule("fire-response");
+    await loadFireWithAttempt(LOW_METHANE_ATTEMPT_ID);
 
-    // step 1: confirm exit
+    // step 1: confirm exit, then the gas decision gate
     clickThroughSubscreens();
     _elements["btn-exit-found"]?.click();
+    decideToFightAndPullAlarm();
 
     // step 2: PASS technique
     const pin = _elements["extinguisher-pin"];
@@ -241,7 +262,10 @@ describe("End-to-End Runtime Integration", () => {
     assert.strictEqual(attempt.contractVersion, "2.0");
     assert.strictEqual(attempt.clientClaimedPassed, true);
     assert.strictEqual(typeof attempt.clientClaimedPercentage, "number");
-    assert.strictEqual(attempt.checkpoints.length, 3);
+    // exit, decision gate, alarm, aim, evacuation
+    assert.strictEqual(attempt.checkpoints.length, 5);
+    assert.strictEqual(attempt.arTier, 2, "the loader records the tier it booted");
+    assert.strictEqual(attempt.locale, "hi", "the loader records the active locale");
     // the phone's own score never rides on the wire
     assert.ok(!("passed" in attempt) && !("totalScore" in attempt) && !("percentage" in attempt));
 
@@ -344,10 +368,11 @@ describe("End-to-End Runtime Integration", () => {
 
   it("completed attempt can be synced via /api/sync envelope and satisfies SQLite database schema", async () => {
     clearAttemptQueue();
-    await loadModule("fire-response");
+    await loadFireWithAttempt(LOW_METHANE_ATTEMPT_ID);
 
     clickThroughSubscreens();
     _elements["btn-exit-found"]?.click();
+    decideToFightAndPullAlarm();
     const pin = _elements["extinguisher-pin"];
     if (pin?.simulateSelect) pin.simulateSelect();
     if (pin?.simulatePull) pin.simulatePull(60);
@@ -422,6 +447,7 @@ describe("End-to-End Runtime Integration", () => {
           receivedAt: sentEnvelope.sentAt
         });
         assert.strictEqual(outcome.status, "accepted", "the server must accept what the modules built");
+        assert.strictEqual(outcome.gradingStatus, "graded", "the optional exit sighting must not block grading");
 
         const row = db.prepare("SELECT * FROM attempt WHERE attempt_id = ?").get(attempt.attemptId);
         assert.ok(row, "attempt must be successfully inserted in database");

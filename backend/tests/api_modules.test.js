@@ -30,7 +30,8 @@ describe("GET /api/modules", () => {
       res.body.map((manifest) => [manifest.moduleId, manifest.requiredCheckpoints.length])
     );
 
-    // fire-response carries four because the evacuation question is split per tier, team carries five
+    // fire-response carries four: evacuation split per tier, the decision gate, the aim.
+    // the exit sighting is optional until its angle is measured. team carries five
     assert.deepStrictEqual(counts, { "fire-response": 4, "fire-response-team": 5, "gas-leak": 3 });
   });
 
@@ -43,7 +44,7 @@ describe("GET /api/modules", () => {
       [
         "fire_evacuation_sequence_marker",
         "fire_evacuation_sequence_webxr",
-        "fire_exit_identification",
+        "fire_explosion_decision",
         "fire_extinguisher_aim"
       ]
     );
@@ -57,12 +58,13 @@ describe("GET /api/modules", () => {
     assert.strictEqual(typeof checkpoint.critical, "boolean");
   });
 
-  it("reports critical as false everywhere except team_drill_outcome", async () => {
+  it("reports critical as false everywhere except team_drill_outcome and the methane decision gate", async () => {
     const res = await request(ctx.app).get("/api/modules");
+    const critical = ["team_drill_outcome", "fire_explosion_decision"];
 
     res.body.forEach((manifest) => {
       manifest.requiredCheckpoints.forEach((checkpoint) => {
-        const expected = checkpoint.checkpointId === "team_drill_outcome";
+        const expected = critical.includes(checkpoint.checkpointId);
         assert.strictEqual(checkpoint.critical, expected, `${checkpoint.checkpointId} critical flag is wrong`);
       });
     });

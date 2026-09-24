@@ -36,7 +36,7 @@ describe("Attempt contract — structural validation", () => {
     it("accepts the Fire Response example from the contract", () => {
       const result = validateAttemptContract(fireAttempt(), AT);
       assert.strictEqual(result.attemptId, "a3f1c9e2-5b47-4d18-9e6a-2c8b7f0d4e51");
-      assert.strictEqual(result.checkpoints.length, 3);
+      assert.strictEqual(result.checkpoints.length, 4);
     });
 
     it("accepts the Gas Leak example from the contract", () => {
@@ -276,8 +276,8 @@ describe("Attempt contract — structural validation", () => {
       payload.checkpoints.push(JSON.parse(JSON.stringify(payload.checkpoints[0])));
 
       const err = failure(payload);
-      assert.ok(hasIssueAt(err, "checkpoints.3.checkpointId"));
-      assert.match(err.issues.find((i) => i.path === "checkpoints.3.checkpointId").message, /duplicate checkpoint/);
+      assert.ok(hasIssueAt(err, "checkpoints.4.checkpointId"));
+      assert.match(err.issues.find((i) => i.path === "checkpoints.4.checkpointId").message, /duplicate checkpoint/);
     });
   });
 

@@ -287,6 +287,7 @@ import {
   endWebXRSession,
   loadModule3DScene
 } from "../ar/webxr.js";
+import { startAssessmentSession, abortAssessmentSession } from "../assessment/engine.js";
 
 describe("WebXR Placement and Tracking", () => {
   beforeEach(() => {
@@ -526,10 +527,12 @@ describe("WebXR Placement and Tracking", () => {
       removeFromScene() {}
     };
 
-    // fire-response route
+    // fire-response route. the loader opens the session first, the gas reading is rolled from its attemptId
+    startAssessmentSession({ moduleId: "fire-response", arTier: 1, attemptId: "0b5e1a2c-3d4e-4f56-8a7b-9c0d1e2f3a4b" });
     await assert.doesNotReject(async () => {
       await loadModule3DScene("fire-response", mockController);
     });
+    abortAssessmentSession();
 
     // gas-leak route
     await assert.doesNotReject(async () => {

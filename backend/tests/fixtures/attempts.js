@@ -54,6 +54,16 @@ const FIRE_ATTEMPT = {
         kind: "selection_single",
         selected: "sound_alarm_then_evacuate"
       }
+    },
+    {
+      // attemptId a3f1c9e2 rolls methaneLevel "low" (0.84% CH4), so fight the fire.
+      // kept last so tests indexing exit/aim/evacuation as 0/1/2 stay put.
+      checkpointId: "fire_explosion_decision",
+      observedAt: "2026-09-01T10:14:52.310Z",
+      observation: {
+        kind: "selection_sequence",
+        tries: [{ selected: "extinguish", atMs: 4200 }]
+      }
     }
   ],
   clientClaimedPercentage: 91.67,
@@ -197,8 +207,39 @@ const MANIFEST_ROWS = [
     min_frame_count: null,
     gradeable: 0,
     weight: 1,
-    required: 1,
+    // optional until its angle is measured on a real phone, mirrors seed.js
+    required: 0,
     critical: 0
+  },
+  {
+    module_id: "fire-response",
+    checkpoint_id: "fire_explosion_decision",
+    checkpoint_type: "select",
+    observation_kind: "selection_sequence",
+    applies_to_tier: null,
+    expected_value: null,
+    allowed_values: JSON.stringify(["evacuate", "extinguish", "wait"]),
+    forbidden_values: null,
+    allowed_tracking_sources: null,
+    answer_key: JSON.stringify({
+      by: "methaneLevel",
+      cases: {
+        high: { expected: "evacuate", severity: { extinguish: "fatal", wait: "fatal" } },
+        low: { expected: "extinguish", severity: { evacuate: "procedural", wait: "procedural" } }
+      }
+    }),
+    applies_when: null,
+    anchor_id: null,
+    max_angular_error_rad: null,
+    max_distance_m: null,
+    pass_threshold: null,
+    min_sweep_coverage: null,
+    min_dwell_ms: null,
+    min_frame_count: null,
+    gradeable: 1,
+    weight: 1,
+    required: 1,
+    critical: 1
   },
   {
     module_id: "fire-response",
@@ -217,6 +258,8 @@ const MANIFEST_ROWS = [
     min_sweep_coverage: 0.75,
     min_dwell_ms: 800,
     min_frame_count: null,
+    // only asked when the scenario leaves the fire fightable
+    applies_when: JSON.stringify({ methaneLevel: "low" }),
     gradeable: 1,
     weight: 1,
     required: 1,
