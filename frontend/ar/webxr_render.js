@@ -7,7 +7,237 @@ function getTHREE() {
   return null;
 }
 
-// build placement reticle ring that sits on detected surfaces
+// seeded prng (mulberry32) so every vfx run replay same
+function createSeededRandom(seed) {
+  let a = seed >>> 0;
+  return function next() {
+    a = (a + 0x6D2B79F5) | 0;
+    let x = Math.imul(a ^ (a >>> 15), 1 | a);
+    x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const _vfxRand = createSeededRandom(0x5afea2);
+
+// three sines at unrelated rates, no visible loop in flame flicker
+function fireFlickerWave(tMs) {
+  return 0.55 * Math.sin(tMs * 0.045) + 0.35 * Math.sin(tMs * 0.089) + 0.20 * Math.sin(tMs * 0.173);
+}
+
+const _texCache = new Map();
+
+// draw into fresh canvas and wrap as texture, null when no canvas (tests, old webview)
+function _canvasTexture(key, size, draw) {
+  if (_texCache.has(key)) return _texCache.get(key);
+  const THREE = getTHREE();
+  if (!THREE || !THREE.CanvasTexture || typeof document === "undefined" || typeof document.createElement !== "function") return null;
+  const canvas = document.createElement("canvas");
+  const ctx = canvas && typeof canvas.getContext === "function" ? canvas.getContext("2d") : null;
+  if (!ctx) return null;
+  canvas.width = size;
+  canvas.height = size;
+  draw(ctx, size);
+  const tex = new THREE.CanvasTexture(canvas);
+  _texCache.set(key, tex);
+  return tex;
+}
+
+// soft round blob texture, stops = [[offset, css color], ...]
+function _radialTexture(key, stops) {
+  return _canvasTexture(key, 64, (ctx, n) => {
+    const g = ctx.createRadialGradient(n / 2, n / 2, 0, n / 2, n / 2, n / 2);
+    stops.forEach(([o, c]) => g.addColorStop(o, c));
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, n, n);
+  });
+}
+
+const _TEX = {
+  shadow: () => _radialTexture("shadow", [[0, "rgba(0,0,0,1)"], [0.55, "rgba(0,0,0,0.45)"], [1, "rgba(0,0,0,0)"]]),
+  glow: () => _radialTexture("glow", [[0, "rgba(255,170,60,1)"], [0.35, "rgba(255,110,20,0.55)"], [1, "rgba(255,80,0,0)"]]),
+  smoke: () => _radialTexture("smoke", [[0, "rgba(255,255,255,0.9)"], [0.5, "rgba(255,255,255,0.4)"], [1, "rgba(255,255,255,0)"]]),
+  powder: () => _radialTexture("powder", [[0, "rgba(226,232,240,1)"], [0.6, "rgba(203,213,225,0.5)"], [1, "rgba(203,213,225,0)"]]),
+  green: () => _radialTexture("green", [[0, "rgba(160,255,200,1)"], [0.3, "rgba(0,230,118,0.6)"], [1, "rgba(0,230,118,0)"]]),
+  red: () => _radialTexture("red", [[0, "rgba(255,220,220,1)"], [0.3, "rgba(239,68,68,0.8)"], [1, "rgba(239,68,68,0)"]])
+};
+
+// chevron arrow tile pointing up (+v), tiled along route strip
+function _chevronTexture() {
+  const THREE = getTHREE();
+  const tex = _canvasTexture("chevron", 64, (ctx, n) => {
+    ctx.clearRect(0, 0, n, n);
+    ctx.strokeStyle = "rgba(0,230,118,1)";
+    ctx.lineWidth = n * 0.14;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(n * 0.18, n * 0.72);
+    ctx.lineTo(n * 0.5, n * 0.32);
+    ctx.lineTo(n * 0.82, n * 0.72);
+    ctx.stroke();
+  });
+  if (tex && THREE && THREE.RepeatWrapping !== undefined) {
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+  }
+  return tex;
+}
+
+// vfx never steal aim / tap raycasts
+function _noRaycast(obj) {
+  if (obj) obj.raycast = () => {};
+  return obj;
+}
+
+// flat soft-textured quad lying on floor
+function _floorDecal(name, tex, size, { opacity = 1, additive = false, y = 0.005 } = {}) {
+  const THREE = getTHREE();
+  if (!THREE || !tex || !THREE.PlaneGeometry) return null;
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    opacity,
+    depthWrite: false,
+    blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending
+  });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(size, size), mat);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.y = y;
+  mesh.name = name;
+  return _noRaycast(mesh);
+}
+
+// soft dark blob under object so it sit on real floor
+function createContactShadow(size = 1.0, opacity = 0.55) {
+  return _floorDecal("contact-shadow", _TEX.shadow(), size, { opacity, y: 0.004 });
+}
+
+// camera-facing soft sprite
+function _sprite(name, tex, color, { additive = false } = {}) {
+  const THREE = getTHREE();
+  if (!THREE || !tex || !THREE.Sprite || !THREE.SpriteMaterial) return null;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: tex,
+    color,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending
+  }));
+  sp.name = name;
+  return _noRaycast(sp);
+}
+
+// group of n sprites, null if sprites not possible
+function _spriteGroup(name, count, tex, color, opts) {
+  const THREE = getTHREE();
+  if (!THREE || !tex || !THREE.Sprite) return null;
+  const group = new THREE.Group();
+  group.name = name;
+  for (let i = 0; i < count; i++) {
+    const sp = _sprite(`${name}-${i}`, tex, color, opts);
+    if (sp) group.add(sp);
+  }
+  return _noRaycast(group);
+}
+
+// start or restart one smoke puff at fire base
+function _respawnSmoke(sp, staggered) {
+  const d = sp.userData;
+  d.life = 2.2 + _vfxRand() * 1.2;
+  d.age = staggered ? _vfxRand() * d.life : 0;
+  d.x0 = (_vfxRand() - 0.5) * 0.5;
+  d.z0 = (_vfxRand() - 0.5) * 0.5;
+  d.phase = _vfxRand() * Math.PI * 2;
+  sp.visible = true;
+}
+
+// rising smoke column, 10 sprites
+function createSmokeColumn(count = 10) {
+  const group = _spriteGroup("fire-smoke", count, _TEX.smoke(), 0x2b3440);
+  if (!group) return null;
+  group.children.forEach((sp) => _respawnSmoke(sp, true));
+  return group;
+}
+
+// move smoke puffs: rise ~0.5 m/s, drift, grow, fade; emit 0 = no new puffs
+function updateSmokeColumn(group, dtSec, emit, localPerMeter = 1) {
+  if (!group) return;
+  group.children.forEach((sp) => {
+    const d = sp.userData;
+    d.age += dtSec;
+    if (d.age >= d.life) {
+      if (emit > 0.05) {
+        _respawnSmoke(sp, false);
+      } else {
+        sp.visible = false;
+        return;
+      }
+    }
+    const k = d.age / d.life;
+    const rise = 0.5 * localPerMeter * d.age;
+    const drift = 0.12 * localPerMeter * k;
+    sp.position.set(d.x0 + Math.sin(d.age * 1.3 + d.phase) * drift, 1.3 + rise, d.z0 + Math.cos(d.age * 1.1 + d.phase) * drift);
+    const sc = 0.8 + 1.7 * k;
+    sp.scale.set(sc, sc, sc);
+    if (sp.material) sp.material.opacity = 0.45 * Math.min(1, k * 4) * (1 - k) * emit;
+  });
+}
+
+// swirling ember points, one draw call
+function createEmbers(count = 18) {
+  const THREE = getTHREE();
+  if (!THREE || !THREE.Points || !THREE.BufferGeometry || !THREE.BufferAttribute || !THREE.PointsMaterial) return null;
+  const positions = new Float32Array(count * 3);
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  const mat = new THREE.PointsMaterial({
+    color: 0xffa040,
+    size: 0.035,
+    sizeAttenuation: true,
+    transparent: true,
+    opacity: 0.9,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending
+  });
+  const points = new THREE.Points(geo, mat);
+  points.name = "fire-embers";
+  points.userData.embers = Array.from({ length: count }, () => ({
+    angle: _vfxRand() * Math.PI * 2,
+    radius: 0.1 + _vfxRand() * 0.35,
+    speed: 1.2 + _vfxRand() * 1.4,
+    age: _vfxRand() * 1.6,
+    life: 1.0 + _vfxRand() * 0.8
+  }));
+  return _noRaycast(points);
+}
+
+// rise + spiral embers, recycle at end of life
+function updateEmbers(points, dtSec, strength) {
+  if (!points || !points.userData.embers) return;
+  points.visible = strength > 0.05;
+  if (!points.visible) return;
+  const attr = points.geometry.getAttribute ? points.geometry.getAttribute("position") : points.geometry.attributes.position;
+  const arr = attr.array;
+  points.userData.embers.forEach((e, i) => {
+    e.age += dtSec;
+    if (e.age >= e.life) {
+      e.age = 0;
+      e.angle = _vfxRand() * Math.PI * 2;
+    }
+    e.angle += 2.2 * dtSec;
+    const k = e.age / e.life;
+    const rad = e.radius * (1 + k);
+    arr[i * 3] = Math.cos(e.angle) * rad;
+    arr[i * 3 + 1] = 0.2 + e.speed * e.age;
+    arr[i * 3 + 2] = Math.sin(e.angle) * rad;
+  });
+  attr.needsUpdate = true;
+  if (points.material) points.material.opacity = 0.9 * strength;
+}
+
+
 function createPlacementReticle() {
   const THREE = getTHREE();
   if (!THREE) return null;
@@ -241,10 +471,80 @@ function createFireMesh() {
     });
   }
 
+  // vfx layers (skipped quietly when canvas/sprites not available)
+  const vfx = {
+    shadow: createContactShadow(2.2, 0.45),
+    glow: _floorDecal("fire-floor-glow", _TEX.glow(), 6.8, { opacity: 0.4, additive: true, y: 0.012 }),
+    residue: _floorDecal("fire-powder-residue", _TEX.powder(), 2.8, { opacity: 0, y: 0.016 }),
+    smoke: createSmokeColumn(10),
+    embers: createEmbers(18),
+    impact: _spriteGroup("fire-spray-impact", 3, _TEX.powder(), 0xffffff),
+    steam: _spriteGroup("fire-steam", 5, _TEX.smoke(), 0xf1f5f9)
+  };
+  Object.values(vfx).forEach((obj) => { if (obj) group.add(obj); });
+  if (vfx.impact) vfx.impact.visible = false;
+  if (vfx.steam) vfx.steam.visible = false;
+  group.userData.vfx = vfx;
+
   // store animation state
   group.userData._animTime = 0;
 
   return group;
+}
+
+// drive glow, smoke, embers, spray impact, residue, steam from fire state
+function _updateFireVfx(fireGroup, deltaMs, flameFactor, extProgress, wave) {
+  const vfx = fireGroup.userData.vfx;
+  if (!vfx) return;
+  const dtSec = Math.min(0.1, (deltaMs || 16) / 1000);
+  const localPerMeter = 1 / ((fireGroup.scale && fireGroup.scale.x) || 1);
+
+  if (vfx.glow && vfx.glow.material) {
+    vfx.glow.material.opacity = Math.max(0, Math.min(1, 0.42 + 0.22 * wave)) * flameFactor;
+    vfx.glow.visible = flameFactor > 0.02;
+  }
+  if (vfx.residue && vfx.residue.material) {
+    vfx.residue.material.opacity = 0.65 * extProgress;
+  }
+  updateSmokeColumn(vfx.smoke, dtSec, flameFactor, localPerMeter);
+  updateEmbers(vfx.embers, dtSec, flameFactor);
+
+  // white splash where powder meet fire base, only while spraying
+  if (vfx.impact) {
+    const hitting = Boolean(fireGroup.userData.sprayHitting) && flameFactor > 0.02;
+    vfx.impact.visible = hitting;
+    if (hitting) {
+      const t = fireGroup.userData._animTime || 0;
+      vfx.impact.children.forEach((sp, i) => {
+        const a = i * 2.1 + t * 0.004;
+        sp.position.set(Math.cos(a) * 0.35, 0.35 + 0.15 * Math.sin(t * 0.011 + i), Math.sin(a) * 0.35);
+        const sc = 1.0 + 0.45 * Math.sin(t * 0.02 + i * 1.7);
+        sp.scale.set(sc, sc, sc);
+        if (sp.material) sp.material.opacity = 0.55;
+      });
+    }
+  }
+
+  // one-shot steam burst when fire fully out, gone after 1.5s
+  if (vfx.steam) {
+    if (extProgress >= 0.98 && fireGroup.userData._steamMs === undefined) {
+      fireGroup.userData._steamMs = 0;
+      vfx.steam.visible = true;
+    }
+    if (fireGroup.userData._steamMs !== undefined && vfx.steam.visible) {
+      fireGroup.userData._steamMs += deltaMs || 16;
+      const k = Math.min(1, fireGroup.userData._steamMs / 1500);
+      vfx.steam.children.forEach((sp, i) => {
+        const a = (i / vfx.steam.children.length) * Math.PI * 2;
+        const spread = 0.6 * k;
+        sp.position.set(Math.cos(a) * spread, 0.4 + 1.6 * k, Math.sin(a) * spread);
+        const sc = 1.0 + 2.2 * k;
+        sp.scale.set(sc, sc, sc);
+        if (sp.material) sp.material.opacity = 0.6 * (1 - k);
+      });
+      if (k >= 1) vfx.steam.visible = false;
+    }
+  }
 }
 
 // update fire flames scale and tick animation mixers
@@ -265,6 +565,8 @@ function animateFireMesh(fireGroup, deltaMs) {
     ? fireGroup.userData.extinguishProgress
     : 0;
   const flameFactor = Math.max(0, 1.0 - extProgress * 1.0);
+  const wave = fireFlickerWave(t);
+  _updateFireVfx(fireGroup, deltaMs, flameFactor, extProgress, wave);
 
   // update GLB flames cluster if loaded
   const flamesGroup = fireGroup.userData.flamesGroup || fireGroup.getObjectByName("fire-flames-group");
@@ -324,7 +626,7 @@ function animateFireMesh(fireGroup, deltaMs) {
   }
 
   if (light) {
-    light.intensity = (1.5 + 1.1 * Math.sin(t * 0.045)) * flameFactor;
+    light.intensity = Math.max(0, 1.6 + wave) * flameFactor;
   }
 }
 
@@ -335,6 +637,10 @@ function createExtinguisherMesh() {
 
   const group = new THREE.Group();
   group.name = "extinguisher-graphic";
+
+  // soft floor shadow under cylinder base
+  const extShadow = createContactShadow(1.5, 0.55);
+  if (extShadow) group.add(extShadow);
 
   // main red cylinder body
   const bodyGeo = new THREE.CylinderGeometry(0.38, 0.38, 1.30, 24);
@@ -552,11 +858,11 @@ function createPowderSprayMesh() {
     });
     const puff = new THREE.Mesh(puffGeo, puffMat);
     puff.userData = {
-      offsetZ: -(i * 0.11 + Math.random() * 0.08),
-      speed: 2.2 + Math.random() * 1.5,
-      spreadX: (Math.random() - 0.5) * 0.28,
-      spreadY: (Math.random() - 0.5) * 0.28,
-      baseScale: 0.8 + Math.random() * 0.6
+      offsetZ: -(i * 0.11 + _vfxRand() * 0.08),
+      speed: 2.2 + _vfxRand() * 1.5,
+      spreadX: (_vfxRand() - 0.5) * 0.28,
+      spreadY: (_vfxRand() - 0.5) * 0.28,
+      baseScale: 0.8 + _vfxRand() * 0.6
     };
     puff.position.set(puff.userData.spreadX, puff.userData.spreadY, puff.userData.offsetZ);
     sprayGroup.add(puff);
@@ -603,8 +909,8 @@ function animatePowderSpray(sprayGroup, active, deltaMs) {
     }
     if (p.position.z < -2.2) {
       p.position.z = 0;
-      p.position.x = (Math.random() - 0.5) * 0.05;
-      p.position.y = (Math.random() - 0.5) * 0.05;
+      p.position.x = (_vfxRand() - 0.5) * 0.05;
+      p.position.y = (_vfxRand() - 0.5) * 0.05;
     }
   });
 }
@@ -668,9 +974,14 @@ function orientNozzleTowardTarget(nozzleGroup, extGroup, targetWorldPos) {
 
   const spray = nozzleGroup.getObjectByName("powder-spray");
   if (spray && spray.scale) {
-    const coneScaleZ = Math.max(0.5, Math.min(2.5, dist / 2.2));
-    spray.scale.set(1, 1, coneScaleZ);
+    spray.scale.set(1, 1, calcSprayScaleZ(dist, extGroup && extGroup.scale ? extGroup.scale.x : 1));
   }
+}
+
+// spray cone is 2.2 local units long inside scaled extinguisher; stretch so tip land on fire
+function calcSprayScaleZ(worldDist, extScale = 1) {
+  const localReach = worldDist / (extScale || 1);
+  return Math.max(0.5, Math.min(8, localReach / 2.2));
 }
 
 // animate extinguisher parts and gas spray
@@ -794,6 +1105,27 @@ function createAlarmStationMesh(options = {}) {
   ring.position.set(0, 0, 0.05);
   group.add(ring);
 
+  // procedural t-bar handle (glb is one skinned mesh, no lever node to animate)
+  const pullBar = new THREE.Group();
+  pullBar.name = "alarm-pull-bar";
+  pullBar.position.set(0, 0.012, 0.035);
+  const barMesh = new THREE.Mesh(
+    new THREE.BoxGeometry(0.075, 0.014, 0.014),
+    new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.3 })
+  );
+  barMesh.position.set(0, -0.012, 0);
+  pullBar.add(barMesh);
+  group.add(pullBar);
+
+  // red in-world strobe above station, lit only after pull
+  const strobe = _sprite("alarm-strobe", _TEX.red(), 0xffffff, { additive: true });
+  if (strobe) {
+    strobe.position.set(0, 0.16, 0.02);
+    strobe.scale.set(0.22, 0.22, 0.22);
+    strobe.visible = false;
+    group.add(strobe);
+  }
+
   // touch hit box
   const hitGeo = new THREE.BoxGeometry(0.24, 0.26, 0.18);
   const hitMat = new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.0 });
@@ -820,11 +1152,46 @@ function createAlarmStationMesh(options = {}) {
   return group;
 }
 
+// how long alarm pull payoff (lever, green ring, strobe, siren) run
+const ALARM_PULL_PAYOFF_MS = 1000;
+
+// start pull payoff: lever drop, ring turn green, strobe flash
+function triggerAlarmPullVisual(alarmGroup) {
+  if (!alarmGroup || !alarmGroup.userData) return;
+  alarmGroup.userData.pullMs = 0;
+  const ring = alarmGroup.getObjectByName("alarm-pulse-ring");
+  if (ring && ring.material && ring.material.color) {
+    if (typeof ring.material.color.setHex === "function") ring.material.color.setHex(0x10b981);
+    else if (typeof ring.material.color.setRGB === "function") ring.material.color.setRGB(0.06, 0.73, 0.51);
+  }
+}
+
 // pulse red alarm pull circle ring
 function animateAlarmStationMesh(alarmGroup, deltaMs) {
   if (!alarmGroup || !alarmGroup.userData) return;
   alarmGroup.userData._animTime = (alarmGroup.userData._animTime || 0) + deltaMs;
   const t = alarmGroup.userData._animTime;
+
+  // payoff phase after pull
+  if (typeof alarmGroup.userData.pullMs === "number") {
+    alarmGroup.userData.pullMs += deltaMs || 16;
+    const pm = alarmGroup.userData.pullMs;
+    const bar = alarmGroup.getObjectByName("alarm-pull-bar");
+    // ~20 deg down and out over 200ms; strobe under 3 flashes/s (photosensitivity)
+    if (bar && bar.rotation) bar.rotation.x = -0.35 * Math.min(1, pm / 200);
+    const strobe = alarmGroup.getObjectByName("alarm-strobe");
+    if (strobe) {
+      strobe.visible = pm < ALARM_PULL_PAYOFF_MS;
+      if (strobe.material) strobe.material.opacity = 0.5 + 0.5 * Math.abs(Math.sin(pm * 0.0085));
+    }
+    const pulseRing = alarmGroup.getObjectByName("alarm-pulse-ring");
+    if (pulseRing) {
+      const s = 1.0 + 0.35 * Math.abs(Math.sin(pm * 0.0085));
+      pulseRing.scale.set(s, s, s);
+    }
+    return;
+  }
+
   const ring = alarmGroup.getObjectByName("alarm-pulse-ring");
   if (ring) {
     const s = 1.0 + 0.25 * Math.sin(t * 0.006);
@@ -833,6 +1200,156 @@ function animateAlarmStationMesh(alarmGroup, deltaMs) {
       ring.material.opacity = 0.5 + 0.35 * Math.sin(t * 0.006);
     }
   }
+}
+
+// chevron repeat spacing along route, meters
+const CHEVRON_SPACING_M = 0.55;
+
+// route strip math: start gap from feet, length, centre, yaw so -z of strip point at exit
+function calcRouteStripLayout(from, to, startGapM = 0.8) {
+  const dx = to.x - from.x;
+  const dz = to.z - from.z;
+  const full = Math.hypot(dx, dz);
+  const length = full - startGapM;
+  if (!(length > 0.3)) return null;
+  const ux = dx / full;
+  const uz = dz / full;
+  const sx = from.x + ux * startGapM;
+  const sz = from.z + uz * startGapM;
+  return {
+    length,
+    center: { x: sx + ux * length / 2, z: sz + uz * length / 2 },
+    yaw: Math.atan2(-ux, -uz)
+  };
+}
+
+// flat green chevron strip on floor, one quad, texture scroll toward exit
+function createRouteChevronStrip() {
+  const THREE = getTHREE();
+  const tex = _chevronTexture();
+  if (!THREE || !tex || !THREE.PlaneGeometry) return null;
+  const mat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    opacity: 0.85,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending
+  });
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), mat);
+  mesh.name = "evac-route-chevrons";
+  mesh.visible = false;
+  return _noRaycast(mesh);
+}
+
+// place strip between viewer feet and exit floor point
+function layoutRouteChevronStrip(strip, from, to, floorY, widthM = 0.45) {
+  if (!strip) return null;
+  const lay = calcRouteStripLayout(from, to);
+  if (!lay) {
+    strip.visible = false;
+    return null;
+  }
+  strip.visible = true;
+  strip.position.set(lay.center.x, floorY + 0.01, lay.center.z);
+  strip.rotation.set(-Math.PI / 2, lay.yaw, 0, "YXZ");
+  strip.scale.set(widthM, lay.length, 1);
+  const tex = strip.material && strip.material.map;
+  if (tex && tex.repeat) tex.repeat.set(1, lay.length / CHEVRON_SPACING_M);
+  return lay;
+}
+
+// scroll chevrons forward toward exit
+function scrollRouteChevronStrip(strip, deltaMs) {
+  const tex = strip && strip.material && strip.material.map;
+  if (!tex || !tex.offset) return;
+  tex.offset.y = (tex.offset.y - ((deltaMs || 16) / 1000) * 1.1) % 1;
+}
+
+// green halo + light pillar behind exit sign, hidden until route locked
+function createExitBeacon() {
+  const THREE = getTHREE();
+  if (!THREE) return null;
+  const group = new THREE.Group();
+  group.name = "exit-beacon";
+  group.visible = false;
+  const halo = _sprite("exit-beacon-halo", _TEX.green(), 0xffffff, { additive: true });
+  if (halo) {
+    halo.position.set(0, 0, -0.03);
+    halo.scale.set(0.6, 0.6, 0.6);
+    group.add(halo);
+  }
+  if (THREE.CylinderGeometry) {
+    const pillar = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.025, 0.025, 1.2, 8, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0x00e676, transparent: true, opacity: 0.3, depthWrite: false, blending: THREE.AdditiveBlending })
+    );
+    pillar.name = "exit-beacon-pillar";
+    pillar.position.set(0, 0.72, -0.03);
+    group.add(_noRaycast(pillar));
+  }
+  return _noRaycast(group);
+}
+
+// halo grow with distance so sign stay findable, gentle pulse
+function animateExitBeacon(beacon, deltaMs, distM = 2) {
+  if (!beacon || !beacon.userData) return;
+  beacon.userData._animTime = (beacon.userData._animTime || 0) + (deltaMs || 16);
+  const t = beacon.userData._animTime;
+  const halo = beacon.getObjectByName("exit-beacon-halo");
+  if (halo) {
+    const s = Math.max(0.6, Math.min(2.2, 0.45 + distM * 0.2)) * (1 + 0.08 * Math.sin(t * 0.004));
+    halo.scale.set(s, s, s);
+    if (halo.material) halo.material.opacity = 0.75;
+  }
+  const pillar = beacon.getObjectByName("exit-beacon-pillar");
+  if (pillar && pillar.material) pillar.material.opacity = 0.22 + 0.12 * Math.sin(t * 0.003);
+}
+
+// ~30 small spark quads bursting up then falling
+function createConfettiBurst(count = 30) {
+  const THREE = getTHREE();
+  if (!THREE || !THREE.PlaneGeometry) return null;
+  const colors = [0x00e676, 0xfacc15, 0x38bdf8, 0xff6a00, 0xf8fafc];
+  const group = new THREE.Group();
+  group.name = "confetti-burst";
+  const geo = new THREE.PlaneGeometry(0.035, 0.035);
+  for (let i = 0; i < count; i++) {
+    const piece = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+      color: colors[i % colors.length],
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 1,
+      depthWrite: false
+    }));
+    const a = _vfxRand() * Math.PI * 2;
+    const sp = 0.4 + _vfxRand() * 0.9;
+    piece.userData.vel = { x: Math.cos(a) * sp, y: 1.6 + _vfxRand() * 1.4, z: Math.sin(a) * sp };
+    piece.userData.spin = (_vfxRand() - 0.5) * 12;
+    group.add(_noRaycast(piece));
+  }
+  group.userData.ageMs = 0;
+  group.userData.lifeMs = 1500;
+  return _noRaycast(group);
+}
+
+// step confetti physics; false once burst finished
+function animateConfettiBurst(group, deltaMs) {
+  if (!group || !group.userData) return false;
+  const dt = Math.min(0.05, (deltaMs || 16) / 1000);
+  group.userData.ageMs += deltaMs || 16;
+  const k = group.userData.ageMs / group.userData.lifeMs;
+  group.children.forEach((p) => {
+    const v = p.userData.vel;
+    v.y -= 4.5 * dt;
+    p.position.set(p.position.x + v.x * dt, p.position.y + v.y * dt, p.position.z + v.z * dt);
+    if (p.rotation) {
+      p.rotation.x += p.userData.spin * dt;
+      p.rotation.y += p.userData.spin * 0.7 * dt;
+    }
+    if (p.material) p.material.opacity = k < 0.6 ? 1 : Math.max(0, 1 - (k - 0.6) / 0.4);
+  });
+  return k < 1;
 }
 
 // drop fire two meters in front of worker
@@ -857,6 +1374,24 @@ function calcFireOffsetPosition(placedPosition, placedQuaternion) {
 }
 
 export {
+  createSeededRandom,
+  fireFlickerWave,
+  createContactShadow,
+  createSmokeColumn,
+  updateSmokeColumn,
+  createEmbers,
+  updateEmbers,
+  calcSprayScaleZ,
+  ALARM_PULL_PAYOFF_MS,
+  triggerAlarmPullVisual,
+  calcRouteStripLayout,
+  createRouteChevronStrip,
+  layoutRouteChevronStrip,
+  scrollRouteChevronStrip,
+  createExitBeacon,
+  animateExitBeacon,
+  createConfettiBurst,
+  animateConfettiBurst,
   getTHREE,
   loadGLBModel,
   createPlacementReticle,

@@ -326,7 +326,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     setTimeout(() => {
       const decisionPanel = document.getElementById("fire-decision-panel");
       assert.ok(decisionPanel, "Decision panel must be rendered after alert");
-      assert.ok(decisionPanel.innerHTML.includes("6.8% CH₄"));
+      assert.ok(decisionPanel.innerHTML.includes("6.8% VOL"));
 
       const btnEvac = document.getElementById("btn-decision-evacuate");
       const btnExt = document.getElementById("btn-decision-extinguish");
@@ -642,8 +642,8 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
 
       assert.strictEqual(getAlarmPulledWebXR(), true);
 
-      // alarm mesh cleaned up
-      assert.ok(removedMeshes.some((m) => m.name === "fire-alarm-station"), "3D Alarm station mesh must be removed after pulling");
+      // station stays up for the 1s pull payoff (lever, strobe, siren) before it is cleared
+      assert.ok(!removedMeshes.some((m) => m.name === "fire-alarm-station"), "Alarm station must stay visible during pull payoff");
 
       const exitCp = checkpointsFired.find((c) => c.checkpointId === "fire_exit_identification");
       assert.ok(exitCp);
@@ -651,11 +651,13 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
       assert.strictEqual(exitCp.context.method, "alarm_pull_activated");
 
       setTimeout(() => {
+        // alarm mesh cleaned up once payoff is over
+        assert.ok(removedMeshes.some((m) => m.name === "fire-alarm-station"), "3D Alarm station mesh must be removed after pulling");
         // after alarm, transitions to placement screen
         const placeBtn = document.getElementById("btn-place-extinguisher");
         assert.ok(placeBtn, "Must transition to extinguisher placement screen after alarm pull");
         done();
-      }, 500);
+      }, 1200);
     }, 300);
   });
 

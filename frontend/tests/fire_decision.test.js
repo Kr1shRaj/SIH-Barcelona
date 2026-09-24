@@ -300,7 +300,8 @@ describe("Fire & Explosion Scenario: Methane Reading & Decision Logic (Phase 1)"
       const panel = renderDecisionWheel(container, { reading: 6.5 });
 
       assert.ok(panel);
-      assert.ok(panel.innerHTML.includes("6.5% CH₄"));
+      // reading shown once, in the gauge digital readout
+      assert.ok(panel.innerHTML.includes("6.5% VOL"));
       assert.ok(document.getElementById("btn-decision-evacuate"));
       assert.ok(document.getElementById("btn-decision-extinguish"));
       assert.ok(document.getElementById("btn-decision-wait"));
@@ -426,7 +427,7 @@ describe("Fire & Explosion Scenario: Methane Reading & Decision Logic (Phase 1)"
       });
 
       assert.ok(panel);
-      assert.ok(panel.innerHTML.includes("3.2% CH₄"));
+      assert.ok(panel.innerHTML.includes("3.2% VOL"));
 
       // simulate device orientation rotation from portrait to landscape
       window.innerWidth = 800;
@@ -436,7 +437,7 @@ describe("Fire & Explosion Scenario: Methane Reading & Decision Logic (Phase 1)"
 
       // panel still mounted, reading preserved, button click still triggers onDecision
       assert.strictEqual(document.getElementById("fire-decision-panel"), panel);
-      assert.ok(panel.innerHTML.includes("3.2% CH₄"));
+      assert.ok(panel.innerHTML.includes("3.2% VOL"));
 
       const btnExt = document.getElementById("btn-decision-extinguish");
       assert.ok(btnExt);

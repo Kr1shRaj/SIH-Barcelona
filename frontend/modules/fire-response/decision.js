@@ -1,6 +1,12 @@
 import { registerCheckpoint, fireCheckpointResult } from "../../ar/interactions.js";
 import { selectionSingle } from "../../assessment/observations.js";
 import { t } from "../../js/i18n.js";
+import { vibrate, playGasChirp } from "../../js/sfx.js";
+
+// escape translated text before it go into innerHTML
+function _esc(text) {
+  return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
 
 // stable decision checkpoint identifier
 export const CP_DECISION_ID = "fire_explosion_decision";
@@ -39,15 +45,15 @@ export function isCorrectDecision(reading, choice) {
 export function getDecisionExplanation(reading, choice) {
   const readVal = typeof reading === "number" ? reading.toFixed(1) : String(reading);
   if (choice === DECISION_CHOICES.WAIT) {
-    return `The meter read ${readVal}% CH₄. When holding a live gas reading in an active fire emergency, waiting for a supervisor wastes critical seconds and risks lives.`;
+    return t("fire.decision_explain_wait", { reading: readVal }, "The meter read {reading}% CH₄. When holding a live gas reading in an active fire emergency, waiting for a supervisor wastes critical seconds and risks lives.");
   }
   if (reading >= METHANE_EXPLOSIVE_THRESHOLD && choice === DECISION_CHOICES.EXTINGUISH) {
-    return `The meter read ${readVal}% CH₄ — above the 5.0% lower explosive limit (LEL). Never fight an incipient fire in an explosive atmosphere: evacuate immediately.`;
+    return t("fire.decision_explain_high", { reading: readVal }, "The meter read {reading}% CH₄ — above the 5.0% lower explosive limit (LEL). Never fight an incipient fire in an explosive atmosphere: evacuate immediately.");
   }
   if (reading < METHANE_EXPLOSIVE_THRESHOLD && choice === DECISION_CHOICES.EVACUATE) {
-    return `The meter read ${readVal}% CH₄ — below 5.0% explosive limit. With low gas levels, standard protocol requires attempting extinguisher PASS suppression before flame spreads, followed by evacuation.`;
+    return t("fire.decision_explain_low", { reading: readVal }, "The meter read {reading}% CH₄ — below 5.0% explosive limit. With low gas levels, standard protocol requires attempting extinguisher PASS suppression before flame spreads, followed by evacuation.");
   }
-  return `Action "${choice}" is incorrect for methane concentration of ${readVal}%.`;
+  return t("fire.decision_explain_other", { choice, reading: readVal }, "Action \"{choice}\" is incorrect for methane concentration of {reading}%.");
 }
 
 // polar coordinates helper converting dial angle to xy
@@ -126,16 +132,23 @@ export function renderGasGaugeSvg(reading, options = {}) {
         <filter id="gauge-shadow" x="-20%" y="-20%" width="140%" height="140%">
           <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#000" flood-opacity="0.6" />
         </filter>
+        <filter id="gauge-arc-glow" x="-30%" y="-30%" width="160%" height="160%">
+          <feGaussianBlur stdDeviation="3.5" result="blur" />
+          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
       </defs>
 
       <!-- outer industrial metallic bezel -->
       <circle cx="120" cy="120" r="114" fill="url(#gauge-rim)" stroke="#475569" stroke-width="4" filter="url(#gauge-shadow)" />
       <circle cx="120" cy="120" r="106" fill="#0f172a" stroke="#334155" stroke-width="1.5" />
 
-      <!-- green safe / incipient zone arc (0% - 5%) -->
-      <path d="${greenArc}" fill="none" stroke="#10b981" stroke-width="6.5" stroke-linecap="round" opacity="0.9" />
-      <!-- red danger zone arc (5% - 10%) -->
-      <path d="${redArc}" fill="none" stroke="#ef4444" stroke-width="6.5" stroke-linecap="round" opacity="0.9" />
+      <!-- green safe arc (0% - 5%), glows when needle sits in it -->
+      <path d="${greenArc}" fill="none" stroke="#10b981" stroke-width="6.5" stroke-linecap="round" class="gauge-arc gauge-arc-safe"
+        opacity="${isExplosive ? "0.35" : "1"}"${isExplosive ? "" : " filter=\"url(#gauge-arc-glow)\""} />
+      <!-- red danger arc (5% - 10%), glows and pulses when needle sits in it -->
+      <path d="${redArc}" fill="none" stroke="#ef4444" stroke-width="6.5" stroke-linecap="round"
+        class="gauge-arc gauge-arc-danger${isExplosive ? " gauge-arc-danger-pulse" : ""}"
+        opacity="${isExplosive ? "1" : "0.35"}"${isExplosive ? " filter=\"url(#gauge-arc-glow)\"" : ""} />
 
       <!-- scale ticks and numbers -->
       ${ticksHtml}
@@ -151,11 +164,13 @@ export function renderGasGaugeSvg(reading, options = {}) {
       <rect x="75" y="148" width="90" height="24" rx="6" fill="${digitalBg}" stroke="${digitalBorder}" stroke-width="1.5" />
       <text x="120" y="164" font-family="monospace, monospace" font-size="13" font-weight="800" fill="${digitalText}" text-anchor="middle">${clamped.toFixed(1)}% VOL</text>
 
-      <!-- animated/positioned needle -->
-      <g transform="rotate(${needleAngle.toFixed(1)}, 120, 120)">
-        <polygon points="117.5,120 119.2,28 120.8,28 122.5,120 121,138 119,138" fill="url(#needle-grad)" />
-        <circle cx="120" cy="120" r="8" fill="#334155" stroke="#f8fafc" stroke-width="2" />
-        <circle cx="120" cy="120" r="3" fill="#f59e0b" />
+      <!-- needle: outer g sweep up from zero with overshoot (css), inner g hold final angle -->
+      <g class="gauge-needle-sweep" style="--needle-from:${(startAngle - needleAngle).toFixed(1)}deg">
+        <g transform="rotate(${needleAngle.toFixed(1)}, 120, 120)">
+          <polygon points="117.5,120 119.2,28 120.8,28 122.5,120 121,138 119,138" fill="url(#needle-grad)" />
+          <circle cx="120" cy="120" r="8" fill="#334155" stroke="#f8fafc" stroke-width="2" />
+          <circle cx="120" cy="120" r="3" fill="#f59e0b" />
+        </g>
       </g>
     </svg>
   `;
@@ -174,10 +189,10 @@ export function renderAlertFlash(container, { durationMs = 1800, onDone } = {}) 
   overlay.innerHTML = `
     <div class="fire-alert-content">
       <div class="fire-alert-icon">⚠️</div>
-      <div class="fire-alert-title">FIRE &amp; EXPLOSION ALERT</div>
-      <div class="fire-alert-subtitle">INCIDENT REPORTED IN MINE WORKINGS</div>
-      <div class="fire-alert-desc">Inspect your personal methane gas monitor immediately before proceeding.</div>
-      <div class="fire-alert-hint">Tap anywhere or waiting to assess gas meter...</div>
+      <div class="fire-alert-title">${_esc(t("fire.alert_title", "FIRE & EXPLOSION ALERT"))}</div>
+      <div class="fire-alert-subtitle">${_esc(t("fire.alert_subtitle", "INCIDENT REPORTED IN MINE WORKINGS"))}</div>
+      <div class="fire-alert-desc">${_esc(t("fire.alert_desc", "Inspect your personal methane gas monitor immediately before proceeding."))}</div>
+      <div class="fire-alert-hint">${_esc(t("fire.alert_hint", "Tap anywhere, or wait, to check the gas meter..."))}</div>
     </div>
   `;
 
@@ -237,17 +252,19 @@ export function renderDecisionWheel(container, { reading, onDecision, onWrongAtt
 
   cardShell.innerHTML = `
     <div class="decision-header">
-      <div class="decision-step-badge">⚠️ EXPLOSION HAZARD ASSESSMENT</div>
-      <div class="decision-title">Methane Monitor: ${readingVal.toFixed(1)}% CH₄</div>
+      <div class="decision-step-badge">${_esc(t("fire.decision_badge", "⚠️ EXPLOSION HAZARD ASSESSMENT"))}</div>
+      <div class="decision-title">${_esc(t("fire.decision_title", "Methane Monitor"))}</div>
       <div class="decision-reading-status ${isExplosive ? "status-danger" : "status-warning"}">
-        ${isExplosive ? "🚨 DANGER: AT/ABOVE 5% LOWER EXPLOSIVE LIMIT" : "⚠️ DETECTED: BELOW 5% (INCIPIENT RISK ZONE)"}
+        ${isExplosive
+          ? _esc(t("fire.decision_status_high", "🚨 DANGER: AT/ABOVE 5% LOWER EXPLOSIVE LIMIT"))
+          : _esc(t("fire.decision_status_low", "⚠️ DETECTED: BELOW 5% (INCIPIENT RISK ZONE)"))}
       </div>
     </div>
     <div class="decision-gauge-container">
       ${gaugeHtml}
     </div>
     <div class="decision-prompt">
-      Select emergency protocol on the decision wheel:
+      ${_esc(t("fire.decision_prompt", "Select emergency protocol on the decision wheel:"))}
     </div>
   `;
 
@@ -271,8 +288,8 @@ export function renderDecisionWheel(container, { reading, onDecision, onWrongAtt
     </svg>
     <div class="radial-center-hub ${isExplosive ? "hub-danger" : "hub-safe"}">
       <span class="hub-label">CH₄</span>
-      <span class="hub-value">${readingVal.toFixed(1)}%</span>
-      <span class="hub-sub">VOL</span>
+      <span class="hub-value">${isExplosive ? "⚠" : "✓"}</span>
+      <span class="hub-sub">${_esc(isExplosive ? t("fire.decision_hub_high", "HIGH") : t("fire.decision_hub_low", "LOW"))}</span>
     </div>
   `;
 
@@ -282,24 +299,24 @@ export function renderDecisionWheel(container, { reading, onDecision, onWrongAtt
       choice: DECISION_CHOICES.EXTINGUISH,
       extraClass: "wheel-btn-extinguish wheel-node-top",
       icon: "🧯",
-      label: "Attempt Extinguish",
-      sub: "PASS suppression drill"
+      label: t("fire.decision_opt_extinguish", "Attempt Extinguish"),
+      sub: t("fire.decision_opt_extinguish_sub", "PASS suppression drill")
     },
     {
       id: "btn-decision-evacuate",
       choice: DECISION_CHOICES.EVACUATE,
       extraClass: "wheel-btn-evacuate wheel-node-left",
       icon: "🚨",
-      label: "Evacuate Now",
-      sub: "To emergency exit"
+      label: t("fire.decision_opt_evacuate", "Evacuate Now"),
+      sub: t("fire.decision_opt_evacuate_sub", "To emergency exit")
     },
     {
       id: "btn-decision-wait",
       choice: DECISION_CHOICES.WAIT,
       extraClass: "wheel-btn-wait wheel-node-right",
       icon: "⏳",
-      label: "Wait in Place",
-      sub: "Await supervisor"
+      label: t("fire.decision_opt_wait", "Wait in Place"),
+      sub: t("fire.decision_opt_wait_sub", "Await supervisor")
     }
   ];
 
@@ -312,8 +329,8 @@ export function renderDecisionWheel(container, { reading, onDecision, onWrongAtt
     btn.dataset.choice = opt.choice;
     btn.innerHTML = `
       <span class="wheel-btn-icon">${opt.icon}</span>
-      <span class="wheel-btn-label">${opt.label}</span>
-      <span class="wheel-btn-sub">${opt.sub}</span>
+      <span class="wheel-btn-label">${_esc(opt.label)}</span>
+      <span class="wheel-btn-sub">${_esc(opt.sub)}</span>
     `;
     radialWheel.appendChild(btn);
     buttons.push(btn);
@@ -335,6 +352,9 @@ export function renderDecisionWheel(container, { reading, onDecision, onWrongAtt
     if (viewport) mountTarget = viewport;
   }
   mountTarget.appendChild(panel);
+
+  // detector chirp, pitch climb with gas
+  playGasChirp(readingVal);
 
   // register scored moment checkpoint
   registerCheckpoint({
@@ -361,17 +381,19 @@ export function renderDecisionWheel(container, { reading, onDecision, onWrongAtt
       );
 
       if (correct) {
+        vibrate(15);
         if (btn.classList && typeof btn.classList.add === "function") {
           btn.classList.add("wheel-btn-selected-correct");
         }
         buttons.forEach((b) => (b.disabled = true));
+        const reading1 = readingVal.toFixed(1);
         feedbackSlot.innerHTML = `
           <div class="decision-feedback decision-feedback-success">
-            <div class="feedback-title">✔ CORRECT PROTOCOL CONFIRMED</div>
+            <div class="feedback-title">${_esc(t("fire.decision_correct_title", "✔ CORRECT PROTOCOL CONFIRMED"))}</div>
             <div class="feedback-desc">
               ${choice === DECISION_CHOICES.EVACUATE
-                ? `Meter reading is ${readingVal.toFixed(1)}% (>= 5.0% LEL). Immediate evacuation is mandatory.`
-                : `Meter reading is ${readingVal.toFixed(1)}% (< 5.0% LEL). Proceed to sound alarm and suppress with extinguisher.`
+                ? _esc(t("fire.decision_correct_evacuate", { reading: reading1 }, "Meter reading is {reading}% (>= 5.0% LEL). Immediate evacuation is mandatory."))
+                : _esc(t("fire.decision_correct_extinguish", { reading: reading1 }, "Meter reading is {reading}% (< 5.0% LEL). Proceed to sound alarm and suppress with extinguisher."))
               }
             </div>
           </div>
@@ -381,16 +403,17 @@ export function renderDecisionWheel(container, { reading, onDecision, onWrongAtt
         }
       } else {
         // wrong choice blocks progress and displays explanation
+        vibrate([40, 60, 40]);
         if (btn.classList && typeof btn.classList.add === "function") {
           btn.classList.add("wheel-btn-selected-wrong");
         }
         const explanation = getDecisionExplanation(readingVal, choice);
         feedbackSlot.innerHTML = `
           <div class="decision-feedback decision-feedback-error">
-            <div class="feedback-title">✖ INCORRECT SAFETY ACTION</div>
-            <div class="feedback-desc">${explanation}</div>
+            <div class="feedback-title">${_esc(t("fire.decision_wrong_title", "✖ INCORRECT SAFETY ACTION"))}</div>
+            <div class="feedback-desc">${_esc(explanation)}</div>
             <button type="button" id="btn-decision-retry" class="btn-decision-retry">
-              🔄 Re-evaluate Meter &amp; Choose Action
+              ${_esc(t("fire.decision_retry", "🔄 Re-evaluate Meter & Choose Action"))}
             </button>
           </div>
         `;
@@ -401,7 +424,7 @@ export function renderDecisionWheel(container, { reading, onDecision, onWrongAtt
           retryBtn.type = "button";
           retryBtn.id = "btn-decision-retry";
           retryBtn.className = "btn-decision-retry";
-          retryBtn.textContent = "🔄 Re-evaluate Meter & Choose Action";
+          retryBtn.textContent = t("fire.decision_retry", "🔄 Re-evaluate Meter & Choose Action");
           feedbackSlot.appendChild(retryBtn);
         }
         retryBtn.addEventListener("click", () => {

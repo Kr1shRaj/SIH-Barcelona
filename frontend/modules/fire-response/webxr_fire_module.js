@@ -7,8 +7,13 @@ import {
   createExtinguisherMesh, animateExtinguisherMesh,
   createExitSignMesh, animateExitSignMesh,
   createAlarmStationMesh, animateAlarmStationMesh,
-  calcFireOffsetPosition
+  calcFireOffsetPosition,
+  triggerAlarmPullVisual, ALARM_PULL_PAYOFF_MS,
+  createRouteChevronStrip, layoutRouteChevronStrip, scrollRouteChevronStrip,
+  createExitBeacon, animateExitBeacon,
+  createConfettiBurst, animateConfettiBurst
 } from "../../ar/webxr_render.js";
+import { vibrate, playSiren, playLockBlip } from "../../js/sfx.js";
 import {
   calcDragDistance, isPinPullComplete,
   calcRaycastAimAccuracy,
@@ -54,6 +59,16 @@ let _alarmPointerTapHandler = null;
 let _exitPointerTapHandler = null;
 let _step3ExitTapHandler = null;
 let _interactionState = null;
+let _routeStrip = null;
+let _confetti = null;
+let _alarmPayoffTimer = null;
+let _drillBadgeTimer = null;
+// where drill-complete confetti burst (exit sign spot in branch a)
+let _celebrationFocus = null;
+
+// reticle ring circumferences (svg r=16 dwell, r=21 sweep)
+const RETICLE_DWELL_C = 2 * Math.PI * 16;
+const RETICLE_SWEEP_C = 2 * Math.PI * 21;
 
 // show center screen crosshair for aiming and raycasting
 function _showAimCrosshair(container) {
@@ -63,13 +78,17 @@ function _showAimCrosshair(container) {
     crosshair = document.createElement("div");
     crosshair.id = "webxr-aim-crosshair";
     crosshair.innerHTML = `
-      <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="16" cy="16" r="10" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-dasharray="3 3"/>
-        <circle cx="16" cy="16" r="2.2" fill="#00e676"/>
-        <line x1="16" y1="2" x2="16" y2="7" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
-        <line x1="16" y1="25" x2="16" y2="30" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
-        <line x1="2" y1="16" x2="7" y2="16" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
-        <line x1="25" y1="16" x2="30" y2="16" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
+      <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="24" cy="24" r="10" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-dasharray="3 3"/>
+        <circle id="webxr-reticle-dwell" class="reticle-dwell" cx="24" cy="24" r="16" stroke="#facc15" stroke-width="2.5"
+          stroke-linecap="round" stroke-dasharray="${RETICLE_DWELL_C.toFixed(2)}" stroke-dashoffset="${RETICLE_DWELL_C.toFixed(2)}" transform="rotate(-90 24 24)"/>
+        <circle id="webxr-reticle-sweep" class="reticle-sweep" cx="24" cy="24" r="21" stroke="#06b6d4" stroke-width="2"
+          stroke-linecap="round" stroke-dasharray="${RETICLE_SWEEP_C.toFixed(2)}" stroke-dashoffset="${RETICLE_SWEEP_C.toFixed(2)}" transform="rotate(-90 24 24)"/>
+        <circle class="reticle-core" cx="24" cy="24" r="2.2" fill="#00e676"/>
+        <line x1="24" y1="10" x2="24" y2="15" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="24" y1="33" x2="24" y2="38" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="10" y1="24" x2="15" y2="24" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="33" y1="24" x2="38" y2="24" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
       </svg>
     `;
     const targetParent = container || document.getElementById("fire-module-overlay") || document.body;
@@ -78,6 +97,37 @@ function _showAimCrosshair(container) {
     }
   }
   crosshair.style.display = "flex";
+}
+
+// fill ring 0..1 by shrinking dash offset
+function _setReticleRing(id, circumference, progress) {
+  if (typeof document === "undefined") return;
+  const ring = document.getElementById(id);
+  if (!ring || typeof ring.setAttribute !== "function") return;
+  const p = Math.max(0, Math.min(1, Number(progress) || 0));
+  ring.setAttribute("stroke-dashoffset", (circumference * (1 - p)).toFixed(2));
+}
+
+// aim dwell ring around crosshair
+function _setReticleDwell(progress) {
+  _setReticleRing("webxr-reticle-dwell", RETICLE_DWELL_C, progress);
+}
+
+// sweep coverage arc around crosshair
+function _setReticleSweep(progress) {
+  _setReticleRing("webxr-reticle-sweep", RETICLE_SWEEP_C, progress);
+}
+
+// lock-on: shrink, go green, one buzz + blip
+function _setReticleLocked() {
+  if (typeof document === "undefined") return;
+  const crosshair = document.getElementById("webxr-aim-crosshair");
+  if (!crosshair || !crosshair.classList || typeof crosshair.classList.add !== "function") return;
+  if (typeof crosshair.classList.contains === "function" && crosshair.classList.contains("reticle-locked")) return;
+  crosshair.classList.add("reticle-locked");
+  _setReticleDwell(1);
+  vibrate(10);
+  playLockBlip();
 }
 
 // remove center screen crosshair
@@ -237,6 +287,9 @@ function _computePlacementPose(frame, referenceSpace, defaultDist = 2.0, elevate
 function _ensureFrameHandler() {
   if (_frameHandler || !_controller || typeof _controller.onFrame !== "function") return;
   _frameHandler = ({ deltaMs }) => {
+    if (_fireMesh && _fireMesh.userData) {
+      _fireMesh.userData.sprayHitting = Boolean(_extMesh && _extMesh.userData && _extMesh.userData._discharging);
+    }
     if (_fireMesh) animateFireMesh(_fireMesh, deltaMs);
     if (_extMesh) {
       let targetPos = _extMesh.userData ? _extMesh.userData.targetWorldPos : null;
@@ -251,6 +304,10 @@ function _ensureFrameHandler() {
     }
     if (_exitMesh && (!_exitMesh.userData || !_exitMesh.userData.isLocked)) animateExitSignMesh(_exitMesh, deltaMs);
     if (_alarmMesh) animateAlarmStationMesh(_alarmMesh, deltaMs);
+    if (_confetti && !animateConfettiBurst(_confetti, deltaMs)) {
+      if (_controller && typeof _controller.removeFromScene === "function") _controller.removeFromScene(_confetti);
+      _confetti = null;
+    }
   };
   _controller.onFrame(_frameHandler);
 }
@@ -547,6 +604,24 @@ function getCurrentStepWebXR() {
 
 // clean up all webxr fire module state
 function cleanupWebXRFireModule() {
+  if (_alarmPayoffTimer) {
+    clearTimeout(_alarmPayoffTimer);
+    _alarmPayoffTimer = null;
+  }
+  if (_drillBadgeTimer) {
+    clearTimeout(_drillBadgeTimer);
+    _drillBadgeTimer = null;
+  }
+  if (typeof document !== "undefined") {
+    const badge = document.getElementById("drill-complete-badge");
+    if (badge && typeof badge.remove === "function") badge.remove();
+  }
+  _removeRouteStrip();
+  _celebrationFocus = null;
+  if (_confetti && _controller && typeof _controller.removeFromScene === "function") {
+    _controller.removeFromScene(_confetti);
+  }
+  _confetti = null;
   if (_frameHandler && _controller) {
     _controller.offFrame(_frameHandler);
     _frameHandler = null;
@@ -1154,14 +1229,18 @@ function _showAlarmPullStationWebXR(container, overlay, onDone) {
       })
     );
 
-    if (_alarmMesh && _controller && typeof _controller.removeFromScene === "function") {
-      _controller.removeFromScene(_alarmMesh);
-      _alarmMesh = null;
-    }
-
-    setTimeout(() => {
+    // payoff: lever drop, ring green, strobe, siren; then clear station and move on
+    triggerAlarmPullVisual(_alarmMesh);
+    playSiren(ALARM_PULL_PAYOFF_MS);
+    vibrate([60, 40, 60]);
+    _alarmPayoffTimer = setTimeout(() => {
+      _alarmPayoffTimer = null;
+      if (_alarmMesh && _controller && typeof _controller.removeFromScene === "function") {
+        _controller.removeFromScene(_alarmMesh);
+        _alarmMesh = null;
+      }
       if (typeof onDone === "function") onDone();
-    }, 350);
+    }, ALARM_PULL_PAYOFF_MS);
   };
 
   const handleAlarmTap = (e) => {
@@ -1380,6 +1459,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
       _controller.removeFromScene(_exitMesh);
       _exitMesh = null;
     }
+    _removeRouteStrip();
 
     const method = (opts && opts.method) || "branch_a_evacuate";
     fireCheckpointResult(
@@ -1423,6 +1503,20 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
       z: _exitMesh ? _exitMesh.position.z : -2.0
     };
     _placedWallNormal = lastNormal || { x: 0, y: 0, z: 1 };
+    _celebrationFocus = { ..._placedSignPos };
+
+    // light beacon on sign + green chevron route on floor
+    if (_exitMesh && typeof _exitMesh.add === "function") {
+      const beacon = createExitBeacon();
+      if (beacon) {
+        beacon.visible = true;
+        _exitMesh.add(beacon);
+      }
+    }
+    if (!_routeStrip && _controller && typeof _controller.addToScene === "function") {
+      _routeStrip = createRouteChevronStrip();
+      if (_routeStrip) _controller.addToScene(_routeStrip);
+    }
 
     let camPos = { x: 0, y: 1.5, z: 0 };
     if (_controller && typeof _controller.getViewerPosition === "function") {
@@ -1467,10 +1561,12 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
     let _recentWalkSamples = [];
     let _lastSpeedCalcTime = 0;
     let _currentWalkingSpeed = 0;
+    let _routeFrom = null;
 
     if (_controller && typeof _controller.onFrame === "function") {
-      _exitWalkFrameHandler = () => {
+      _exitWalkFrameHandler = (frameInfo = {}) => {
         if (confirmed || !exitPlaced || !_exitMesh) return;
+        const frameDeltaMs = frameInfo.deltaMs || 16;
         let currentPos = null;
         if (_controller && typeof _controller.getViewerPosition === "function") {
           currentPos = _controller.getViewerPosition();
@@ -1482,6 +1578,22 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
 
         const res = checkEvacuationPhysicalExit(currentPos, _placedSignPos, _placedWallNormal);
         const now = Date.now();
+
+        // re-lay route only after 0.25m of walking; scroll every frame
+        if (_routeStrip) {
+          if (!_routeFrom || Math.hypot(currentPos.x - _routeFrom.x, currentPos.z - _routeFrom.z) > 0.25) {
+            _routeFrom = { x: currentPos.x, z: currentPos.z };
+            const doorFloor = {
+              x: _placedSignPos.x + _placedWallNormal.x * 0.35,
+              z: _placedSignPos.z + _placedWallNormal.z * 0.35
+            };
+            // ponytail: floor guessed as 1.3m below phone (0 on local-floor); pass tracked floor y if scan phase ever feeds branch a
+            layoutRouteChevronStrip(_routeStrip, _routeFrom, doorFloor, Math.min(0, (currentPos.y || 0) - 1.3));
+          }
+          scrollRouteChevronStrip(_routeStrip, frameDeltaMs);
+        }
+        const beacon = _exitMesh && typeof _exitMesh.getObjectByName === "function" ? _exitMesh.getObjectByName("exit-beacon") : null;
+        if (beacon) animateExitBeacon(beacon, frameDeltaMs, res.distance);
 
         _recentWalkSamples.push({ t: now, d: res.distance });
         _recentWalkSamples = _recentWalkSamples.filter(s => now - s.t <= 1200);
@@ -1798,8 +1910,10 @@ function _showAimPhase(overlay, container) {
       const { progress, isComplete } = evaluateGazeAimProgress(true, aimStartMs, 800);
       const fill = document.getElementById("aim-progress-fill");
       if (fill) fill.style.width = `${Math.round(progress * 100)}%`;
+      _setReticleDwell(progress);
 
       if (isComplete) {
+        _setReticleLocked();
         if (_controller && _aimFrameHandler) {
           _controller.offFrame(_aimFrameHandler);
           _aimFrameHandler = null;
@@ -1814,6 +1928,7 @@ function _showAimPhase(overlay, container) {
       aimFrames = 0;
       const fill = document.getElementById("aim-progress-fill");
       if (fill) fill.style.width = "0%";
+      _setReticleDwell(0);
     }
   };
 
@@ -1967,6 +2082,7 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
     }
     const fill = document.getElementById("sweep-progress-fill");
     if (fill) fill.style.width = `${Math.round(progress * 100)}%`;
+    _setReticleSweep(progress);
 
     if (progress >= 1 && isSweepComplete(coverage)) {
       _hideAimCrosshair();
@@ -2218,6 +2334,7 @@ function _renderDebriefCardWebXR(overlay, passed = true) {
   const isExplosive = reading >= METHANE_EXPLOSIVE_THRESHOLD;
   const card = document.createElement("div");
   card.id = "debrief-summary-card";
+  card.className = "debrief-enter";
   card.style.cssText = [
     "background:#0f172a", "border:2px solid " + (isExplosive ? "#ef4444" : "#10b981"),
     "border-radius:10px", "padding:0.5rem 0.65rem", "margin:0 auto",
@@ -2308,8 +2425,56 @@ function _showCompletionWebXR(overlay, container, passed) {
   overlay.style.boxSizing = "border-box";
   _updateWebXRDiag(`Module Complete | Passed: ${passed}`);
   overlay.innerHTML = "";
+  _showDrillCompleteCelebration(container, passed);
   _renderDebriefCardWebXR(overlay, passed);
   logger.info({ event: "webxr_fire_module_complete", passed }, "Fire module complete (WebXR)");
+}
+
+// pull route strip out of scene
+function _removeRouteStrip() {
+  if (_routeStrip && _controller && typeof _controller.removeFromScene === "function") {
+    _controller.removeFromScene(_routeStrip);
+  }
+  _routeStrip = null;
+}
+
+// "drill complete" badge + confetti burst at scene focus, debrief fade in under it
+function _showDrillCompleteCelebration(container, passed) {
+  if (typeof document !== "undefined") {
+    const old = document.getElementById("drill-complete-badge");
+    if (old && typeof old.remove === "function") old.remove();
+    const badge = document.createElement("div");
+    badge.id = "drill-complete-badge";
+    badge.className = "drill-complete-badge";
+    badge.textContent = passed
+      ? t("fire.drill_complete", "✔ DRILL COMPLETE")
+      : t("fire.drill_complete_review", "DRILL COMPLETE — REVIEW NEEDED");
+    const parent = container || document.body;
+    if (parent && typeof parent.appendChild === "function") parent.appendChild(badge);
+    if (_drillBadgeTimer) clearTimeout(_drillBadgeTimer);
+    _drillBadgeTimer = setTimeout(() => {
+      _drillBadgeTimer = null;
+      if (badge && typeof badge.remove === "function") badge.remove();
+    }, 1700);
+  }
+  vibrate(passed ? [30, 50, 30] : 30);
+
+  if (!passed || !_controller || typeof _controller.addToScene !== "function") return;
+  if (_confetti && typeof _controller.removeFromScene === "function") _controller.removeFromScene(_confetti);
+  _confetti = createConfettiBurst(30);
+  if (!_confetti) return;
+  let focus = null;
+  if (_fireMesh && _fireMesh.position) {
+    focus = { x: _fireMesh.position.x, y: _fireMesh.position.y + 0.4, z: _fireMesh.position.z };
+  } else if (_celebrationFocus) {
+    focus = { ..._celebrationFocus };
+  } else {
+    const vp = _controller.getViewerPosition ? _controller.getViewerPosition() : null;
+    focus = vp ? { x: vp.x, y: vp.y - 0.2, z: vp.z - 1.5 } : { x: 0, y: 1.3, z: -1.5 };
+  }
+  if (_confetti.position && typeof _confetti.position.set === "function") _confetti.position.set(focus.x, focus.y, focus.z);
+  _controller.addToScene(_confetti);
+  _ensureFrameHandler();
 }
 
 // entry point for tier 1 webxr fire module
