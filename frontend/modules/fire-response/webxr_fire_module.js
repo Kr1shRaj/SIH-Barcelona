@@ -13,7 +13,7 @@ import {
   calcDragDistance, isPinPullComplete,
   calcRaycastAimAccuracy,
   evaluateGazeAimProgress,
-  isSqueezeComplete, calcMotionSweepCoverage, isSweepComplete,
+  isSqueezeComplete, calcMotionSweepCoverage, isSweepComplete, SWEEP_MIN_COVERAGE,
   AIM_PASS_THRESHOLD, FIRE_BASE_MAX_DISTANCE_3D,
   CP_EXIT_ID, CP_EXTINGUISHER_ID, CP_EVACUATION_WEBXR_ID, EXIT_ANCHOR_ID
 } from "./fire-response.js";
@@ -109,6 +109,14 @@ function _raycastMesh(event, targetMesh) {
   raycaster.setFromCamera(pointer, camera);
   const hits = raycaster.intersectObject(targetMesh, true);
   return Array.isArray(hits) && hits.length > 0;
+}
+
+// up-component of hit surface normal from hit orientation quaternion
+function _hitNormalY(q) {
+  if (!q) return 1;
+  const hx = Number(q.x) || 0;
+  const hz = Number(q.z) || 0;
+  return 1 - 2 * (hx * hx + hz * hz);
 }
 
 // find wall or floor spot and normal from xr hit test or look straight ahead
@@ -364,6 +372,39 @@ let _zoomScale = 1.0;
 let _exitSignScale = 1.0;
 // door can be far down corridor, accept wall hit this far for exit sign
 const EXIT_MAX_WALL_DIST_M = 8.0;
+// full powder discharge time before fire count as out
+const EXTINGUISH_DURATION_MS = 5000;
+// no wall found, alarm sit left-front of worker
+const ALARM_FALLBACK_LEFT_M = 0.8;
+const ALARM_FALLBACK_FWD_M = 1.0;
+const ALARM_BELOW_EYE_M = 0.15;
+
+// no wall hit: put alarm left-front of viewer, face viewer
+function calcAlarmFallbackPose(camPos, camQuat) {
+  const qx = camQuat.x || 0, qy = camQuat.y || 0, qz = camQuat.z || 0, qw = camQuat.w !== undefined ? camQuat.w : 1;
+  let fx = -2 * (qx * qz + qw * qy);
+  let fz = 2 * (qx * qx + qy * qy) - 1;
+  const len = Math.hypot(fx, fz) || 1;
+  fx /= len;
+  fz /= len;
+  // left of forward (fx, fz) is (fz, -fx)
+  const pos = {
+    x: camPos.x + fx * ALARM_FALLBACK_FWD_M + fz * ALARM_FALLBACK_LEFT_M,
+    y: camPos.y - ALARM_BELOW_EYE_M,
+    z: camPos.z + fz * ALARM_FALLBACK_FWD_M - fx * ALARM_FALLBACK_LEFT_M
+  };
+  const toCamX = camPos.x - pos.x;
+  const toCamZ = camPos.z - pos.z;
+  const nLen = Math.hypot(toCamX, toCamZ) || 1;
+  return { pos, normal: { x: toCamX / nLen, y: 0, z: toCamZ / nLen } };
+}
+
+// fire shrink only as fast as both spray time and sweep allow
+function calcExtinguishProgress(elapsedMs, sweepCoverage, durationMs = EXTINGUISH_DURATION_MS) {
+  const byTime = Math.max(0, elapsedMs) / durationMs;
+  const bySweep = Math.max(0, sweepCoverage) / SWEEP_MIN_COVERAGE;
+  return Math.min(1, byTime, bySweep);
+}
 const MIN_EXIT_SCALE = 0.5;
 const MAX_EXIT_SCALE = 2.0;
 const BASE_EXT_SCALE = 0.35;
@@ -713,12 +754,18 @@ function _setupStep1WebXR(container) {
       }
     }
 
+    // lowest flat hit seen = floor, table sit higher
+    let floorY = null;
+
     // preview extinguisher sitting on detected surface while scanning
     if (_controller && typeof _controller.onFrame === "function") {
       _scanFrameHandler = () => {
         if (placed) return;
         if (_controller._lastHitPose && _controller.state === "surface_found") {
           const hp = _controller._lastHitPose.transform.position;
+          if (_hitNormalY(_controller._lastHitPose.transform.orientation) > 0.75) {
+            floorY = floorY === null ? hp.y : Math.min(floorY, hp.y);
+          }
           if (_extMesh) {
             _extMesh.visible = true;
             _extMesh.position.set(hp.x, hp.y, hp.z);
@@ -770,7 +817,8 @@ function _setupStep1WebXR(container) {
         _placementConfirmedHandler = null;
       }
 
-      const finalPos = pos || { x: 0, y: -0.45, z: -1.20 };
+      const finalPos = { ...(pos || { x: 0, y: -0.45, z: -1.20 }) };
+      if (floorY !== null) finalPos.y = floorY;
       logger.info({ event: "extinguisher_placed", position: finalPos }, "Extinguisher placed on surface");
       _updateWebXRDiag("Extinguisher Placed on Surface -> Ready for Step 2");
 
@@ -786,12 +834,13 @@ function _setupStep1WebXR(container) {
         _extMesh.scale.set(s, s, s);
       }
 
-      // spawn fire 1.8m in front
+      // spawn fire on floor 2m in front of worker, not 2m past extinguisher
       const THREE = typeof window !== "undefined" && window.THREE;
       let firePos;
+      const vp = _controller && _controller.getViewerPosition ? _controller.getViewerPosition() : null;
       if (THREE && viewerQuat) {
         const q = new THREE.Quaternion(viewerQuat.x, viewerQuat.y, viewerQuat.z, viewerQuat.w);
-        const p = new THREE.Vector3(finalPos.x, finalPos.y, finalPos.z);
+        const p = vp ? new THREE.Vector3(vp.x, finalPos.y, vp.z) : new THREE.Vector3(finalPos.x, finalPos.y, finalPos.z);
         firePos = calcFireOffsetPosition(p, q);
       }
       if (!firePos) {
@@ -1039,12 +1088,20 @@ function _showAlarmPullStationWebXR(container, overlay, onDone) {
   if (_controller && typeof _controller.onFrame === "function") {
     _alarmPlacementFrameHandler = ({ frame, referenceSpace }) => {
       if (alarmPlaced || !_alarmMesh) return;
-      const { pos, isVertical } = _computePlacementPose(frame, referenceSpace, 1.2, true, 1.15, -0.35);
+      const hit = _computePlacementPose(frame, referenceSpace, 1.2, false, 0, 0);
+      let pose = hit;
+      if (!hit.isVertical) {
+        const vp = _controller.getViewerPosition ? _controller.getViewerPosition() : null;
+        const vq = _controller.getViewerQuaternion ? _controller.getViewerQuaternion() : null;
+        pose = calcAlarmFallbackPose(vp || { x: 0, y: 1.5, z: 0 }, vq || { x: 0, y: 0, z: 0, w: 1 });
+      }
+      const isVertical = hit.isVertical;
+      const { pos, normal } = pose;
       if (pos && _alarmMesh.position && _alarmMesh.position.set) {
         _alarmMesh.position.set(pos.x, pos.y, pos.z);
-        const camera = _controller.getCamera ? _controller.getCamera() : null;
-        if (camera && camera.position && typeof _alarmMesh.lookAt === "function") {
-          _alarmMesh.lookAt(camera.position.x, _alarmMesh.position.y, camera.position.z);
+        // +z face point out of wall, flush against it
+        if (normal && typeof _alarmMesh.lookAt === "function") {
+          _alarmMesh.lookAt(pos.x + normal.x, pos.y, pos.z + normal.z);
         }
       }
       const statusEl = document.getElementById("alarm-status-hint");
@@ -1119,6 +1176,10 @@ function _showAlarmPullStationWebXR(container, overlay, onDone) {
 
     if (!alarmPlaced) {
       alarmPlaced = true;
+      if (_alarmMesh) {
+        if (!_alarmMesh.userData) _alarmMesh.userData = {};
+        _alarmMesh.userData.isLocked = true;
+      }
       if (_alarmPlacementFrameHandler && _controller && typeof _controller.offFrame === "function") {
         _controller.offFrame(_alarmPlacementFrameHandler);
         _alarmPlacementFrameHandler = null;
@@ -1874,6 +1935,7 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
       <div class="hud-badge">${t("fire.pass_sweep_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (4/4)")}</div>
       <div class="hud-title">${t("fire.pass_sweep_title", "S — Sweep Side to Side")}</div>
       <div class="hud-desc">${t("fire.pass_sweep_desc", "Move your device left and right to sweep the fire base. Cover at least 75% of the fire width.")}</div>
+      <div class="hud-desc">${t("fire.pass_sweep_timer", "Keep spraying for 5 seconds until the fire is out.")}</div>
       <div id="sweep-progress-bar" style="width:100%;height:8px;background:rgba(30,41,59,0.7);border-radius:4px;overflow:hidden;margin-top:0.5rem;">
         <div id="sweep-progress-fill" style="width:0%;height:100%;background:#06b6d4;transition:width 0.1s;"></div>
       </div>
@@ -1881,6 +1943,7 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
   `;
 
   const sweepSamples = [];
+  const sprayStart = Date.now();
 
   // discharge white gas particles during sweeping
   if (_extMesh && _extMesh.userData) {
@@ -1898,13 +1961,14 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
 
   const processSweep = () => {
     const coverage = calcMotionSweepCoverage(sweepSamples);
+    const progress = calcExtinguishProgress(Date.now() - sprayStart, coverage);
     if (_fireMesh && _fireMesh.userData) {
-      _fireMesh.userData.extinguishProgress = coverage;
+      _fireMesh.userData.extinguishProgress = progress;
     }
     const fill = document.getElementById("sweep-progress-fill");
-    if (fill) fill.style.width = `${Math.round(coverage * 100)}%`;
+    if (fill) fill.style.width = `${Math.round(progress * 100)}%`;
 
-    if (isSweepComplete(coverage)) {
+    if (progress >= 1 && isSweepComplete(coverage)) {
       _hideAimCrosshair();
       if (_controller && _sweepFrameHandler) {
         _controller.offFrame(_sweepFrameHandler);
@@ -2334,5 +2398,8 @@ export {
   METHANE_EXPLOSIVE_THRESHOLD,
   _computePlacementPose,
   _raycastMesh,
-  checkEvacuationPhysicalExit
+  checkEvacuationPhysicalExit,
+  calcAlarmFallbackPose,
+  calcExtinguishProgress,
+  EXTINGUISH_DURATION_MS
 };

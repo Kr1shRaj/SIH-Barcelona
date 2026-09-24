@@ -258,6 +258,9 @@ import {
   _renderDebriefCardWebXR,
   _computePlacementPose,
   _raycastMesh,
+  calcAlarmFallbackPose,
+  calcExtinguishProgress,
+  EXTINGUISH_DURATION_MS,
   _showAimCrosshair,
   _hideAimCrosshair,
   getExitSignScaleWebXR,
@@ -812,6 +815,31 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     const far = _computePlacementPose(mockFrame, {}, 2.0, false, 0, 0, 8.0);
     assert.strictEqual(far.isVertical, true);
     assert.strictEqual(far.pos.z, -4.0, "sign must land on the door, not 2m ahead");
+  });
+
+  it("calcAlarmFallbackPose puts alarm left-front of viewer, below eye, facing viewer", () => {
+    const { pos, normal } = calcAlarmFallbackPose({ x: 0, y: 1.5, z: 0 }, { x: 0, y: 0, z: 0, w: 1 });
+    assert.ok(Math.abs(pos.x - -0.8) < 1e-9, "0.8m to the left");
+    assert.ok(Math.abs(pos.z - -1.0) < 1e-9, "1.0m forward");
+    assert.ok(Math.abs(pos.y - 1.35) < 1e-9, "just below eye level");
+    // normal must point back at the viewer
+    assert.ok(normal.x > 0 && normal.z > 0);
+
+    // viewer turned 90 deg left (facing -x): left is now +z
+    const yaw = Math.PI / 2;
+    const turned = calcAlarmFallbackPose({ x: 0, y: 1.5, z: 0 }, { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) });
+    assert.ok(Math.abs(turned.pos.x - -1.0) < 1e-9);
+    assert.ok(Math.abs(turned.pos.z - 0.8) < 1e-9);
+  });
+
+  it("calcExtinguishProgress needs full 5s spray and full sweep before fire is out", () => {
+    assert.strictEqual(EXTINGUISH_DURATION_MS, 5000);
+    assert.strictEqual(calcExtinguishProgress(0, 1), 0);
+    assert.strictEqual(calcExtinguishProgress(2500, 1), 0.5, "linear in time when sweep is ahead");
+    assert.ok(calcExtinguishProgress(3000, 1) < 1, "old 3s is no longer enough");
+    assert.strictEqual(calcExtinguishProgress(5000, 1), 1);
+    assert.strictEqual(calcExtinguishProgress(10000, 0), 0, "no sweep, fire does not shrink");
+    assert.ok(calcExtinguishProgress(10000, 0.375) === 0.5, "half the required sweep caps at half");
   });
 
   it("_computePlacementPose elevates position when horizontal floor hit detected", () => {
