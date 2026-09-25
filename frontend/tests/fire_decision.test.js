@@ -142,7 +142,8 @@ import {
   METHANE_WITHDRAWAL_THRESHOLD,
   initOrientationNudge
 } from "../modules/fire-response/decision.js";
-import { scenarioFor } from "../modules/fire-response/scenario.js";
+import { scenarioFor, GATE_ANSWER_KEYS, gateSeverity } from "../modules/fire-response/scenario.js";
+import { renderGateCard, isFlameTipAim, gateExplanation, GATE_OPTIONS } from "../modules/fire-response/gates.js";
 import { startAssessmentSession, abortAssessmentSession } from "../assessment/engine.js";
 
 describe("Fire & Explosion Scenario: Methane Reading & Decision Logic (Phase 1)", () => {
@@ -548,4 +549,65 @@ describe("Fire & Explosion Scenario: Methane Reading & Decision Logic (Phase 1)"
   });
 });
 
+describe("Fire gates 2-5: cards, keys and flame-tip aim", () => {
+  const SWITCHGEAR = { methaneLevel: "low", fuel: "electrical_switchgear", airflow: "intake_left" };
 
+  beforeEach(() => {
+    Object.keys(_elements).forEach((k) => delete _elements[k]);
+  });
+
+  it("rates every shown option: right, procedural, fatal or critical", () => {
+    const g2 = GATE_ANSWER_KEYS.fire_g2_media;
+    assert.strictEqual(gateSeverity(g2, SWITCHGEAR, "co2"), null);
+    assert.strictEqual(gateSeverity(g2, SWITCHGEAR, "abc_powder"), null);
+    assert.strictEqual(gateSeverity(g2, SWITCHGEAR, "water"), "fatal");
+    assert.strictEqual(gateSeverity(g2, SWITCHGEAR, "isolate_supply_then_evacuate"), "procedural");
+    assert.strictEqual(gateSeverity(GATE_ANSWER_KEYS.fire_g3_stance, SWITCHGEAR, "under_1m"), "critical");
+    assert.strictEqual(gateSeverity(GATE_ANSWER_KEYS.fire_g5_post, SWITCHGEAR, "poke_debris"), "procedural");
+  });
+
+  it("explains every wrong pick on every fuel in plain words", () => {
+    ["conveyor_coal", "diesel_hydraulic", "electrical_switchgear", "pressurized_methane"].forEach((fuel) => {
+      const scenario = { ...SWITCHGEAR, fuel };
+      GATE_OPTIONS.fire_g2_media
+        .filter((choice) => gateSeverity(GATE_ANSWER_KEYS.fire_g2_media, scenario, choice) !== null)
+        .forEach((choice) => {
+          const why = gateExplanation("fire_g2_media", scenario, choice);
+          assert.ok(why && !why.startsWith("fire."), `no explanation for ${choice} on ${fuel}`);
+        });
+    });
+  });
+
+  it("blocks on a critical stance, words it critical, and fires once with every try", () => {
+    const fired = [];
+    const onCp = (ev) => { if (ev.detail.checkpointId === "fire_g3_stance") fired.push(ev.detail); };
+    window.addEventListener("safear:checkpoint", onCp);
+    let done = null;
+    try {
+      const panel = renderGateCard(document.createElement("div"), "fire_g3_stance", SWITCHGEAR, (r) => { done = r; });
+      assert.ok(panel.innerHTML.includes("LEFT"), "the prompt names the intake side");
+
+      document.getElementById("gate-opt-under_1m").click();
+      assert.ok(panel.querySelector("#gate-feedback-slot").innerHTML.includes("CRITICAL MISTAKE"));
+      assert.strictEqual(fired.length, 0, "a wrong pick never advances the gate");
+
+      document.getElementById("gate-opt-approach_upwind_2_3m").click();
+      assert.strictEqual(fired.length, 1);
+      assert.deepStrictEqual(fired[0].observation.tries.map((x) => x.selected), ["under_1m", "approach_upwind_2_3m"]);
+      assert.strictEqual(fired[0].passed, false, "critical grades like fatal");
+      assert.strictEqual(fired[0].context.score, 0);
+
+      assert.strictEqual(done, null, "the worker reads the result before moving on");
+      document.getElementById("btn-gate-continue").click();
+      assert.deepStrictEqual(done, { choice: "approach_upwind_2_3m" });
+    } finally {
+      window.removeEventListener("safear:checkpoint", onCp);
+    }
+  });
+
+  it("calls a hit high on the flame the tips, a hit low the base", () => {
+    assert.strictEqual(isFlameTipAim(0.9, 1.6), true);
+    assert.strictEqual(isFlameTipAim(0.3, 1.6), false);
+    assert.strictEqual(isFlameTipAim(null, 1.6), false, "no hit is not a tip hit");
+  });
+});

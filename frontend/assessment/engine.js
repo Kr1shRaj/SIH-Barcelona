@@ -42,6 +42,9 @@ const DEFAULT_LOCAL_MANIFESTS = [
     recertMonths: null,
     requiredCheckpoints: [
       { checkpointId: "fire_explosion_decision", type: "select", weight: 1, required: true, critical: true },
+      { checkpointId: "fire_g2_media", type: "select", weight: 1, required: true, critical: true },
+      { checkpointId: "fire_g3_stance", type: "select", weight: 1, required: true, critical: true },
+      { checkpointId: "fire_g5_post", type: "select", weight: 1, required: true, critical: true },
       { checkpointId: "fire_extinguisher_aim", type: "aim", weight: 1, required: true, critical: false },
       { checkpointId: "fire_evacuation_sequence_marker", type: "select", weight: 1, required: true, critical: false },
       { checkpointId: "fire_evacuation_sequence_webxr", type: "select", weight: 1, required: true, critical: false }

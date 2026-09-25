@@ -406,3 +406,58 @@ describe("Grading services", () => {
     });
   });
 });
+
+// fail-to-learn gates: every pick in order, graded against the key for this scenario
+describe("selection_sequence grading", () => {
+  const seq = (...picks) => ({ kind: "selection_sequence", tries: picks.map((selected, i) => ({ selected, atMs: 1000 * (i + 1) })) });
+  const grade = (id, obs, scenario) => gradeCheckpoint(obs, definition(id), { scenario });
+  const DIESEL = { methaneLevel: "low", fuel: "diesel_hydraulic" };
+  const SWITCHGEAR = { methaneLevel: "low", fuel: "electrical_switchgear" };
+  const GAS_JET = { methaneLevel: "low", fuel: "pressurized_methane" };
+
+  it("scores a right first pick full marks", () => {
+    const r = grade("fire_g2_media", seq("abc_powder"), DIESEL);
+    assert.deepStrictEqual([r.score, r.passed, r.reason], [1, true, "first_try"]);
+  });
+
+  it("accepts any of the right agents the fuel allows", () => {
+    assert.strictEqual(grade("fire_g2_media", seq("foam"), DIESEL).score, 1);
+    assert.strictEqual(grade("fire_g2_media", seq("co2"), SWITCHGEAR).score, 1);
+  });
+
+  it("charges an unrated wrong pick the procedural half", () => {
+    const r = grade("fire_g2_media", seq("co2", "foam"), DIESEL);
+    assert.deepStrictEqual([r.score, r.passed, r.fatalCount], [0.5, true, 0]);
+  });
+
+  it("zeroes and fails the gate on a fatal trap, even after the fix", () => {
+    const r = grade("fire_g2_media", seq("water", "co2"), SWITCHGEAR);
+    assert.deepStrictEqual([r.score, r.passed, r.fatalCount, r.reason], [0, false, 1, "fatal_then_corrected"]);
+  });
+
+  it("treats every agent on a gas jet as fatal: isolate the supply", () => {
+    assert.strictEqual(grade("fire_g2_media", seq("isolate_supply_then_evacuate"), GAS_JET).score, 1);
+    assert.strictEqual(grade("fire_g2_media", seq("abc_powder", "isolate_supply_then_evacuate"), GAS_JET).passed, false);
+  });
+
+  it("grades critical exactly like fatal", () => {
+    const r = grade("fire_g3_stance", seq("under_1m", "approach_upwind_2_3m"), DIESEL);
+    assert.deepStrictEqual([r.score, r.passed, r.fatalCount], [0, false, 1]);
+    assert.strictEqual(grade("fire_g5_post", seq("turn_and_walk_away", "back_away_facing_fire"), DIESEL).passed, false);
+  });
+
+  it("reads a key with no scenario case the same on every roll", () => {
+    assert.strictEqual(grade("fire_g5_post", seq("poke_debris", "back_away_facing_fire"), DIESEL).score, 0.5);
+    assert.strictEqual(grade("fire_g3_stance", seq("approach_upwind_2_3m"), GAS_JET).score, 1);
+  });
+
+  it("refuses a sequence where a right pick is not the last one", () => {
+    const err = refusal(() => grade("fire_g2_media", seq("foam", "abc_powder"), DIESEL));
+    assert.strictEqual(err.code, GRADING_ERRORS.IMPLAUSIBLE_OBSERVATION);
+  });
+
+  it("refuses a sequence that stops on a wrong pick", () => {
+    const err = refusal(() => grade("fire_g3_stance", seq("over_4m"), DIESEL));
+    assert.strictEqual(err.code, GRADING_ERRORS.IMPLAUSIBLE_OBSERVATION);
+  });
+});

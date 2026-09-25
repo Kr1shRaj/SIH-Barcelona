@@ -40,7 +40,7 @@ describe("POST /api/sync", () => {
 
       const result = res.body.results[0];
       assert.strictEqual(result.status, "accepted");
-      assert.strictEqual(result.serverPercentage, 91.67, "decision 1 + aim 0.75 + evacuation 1 out of 3, exit unscored");
+      assert.strictEqual(result.serverPercentage, 95.83, "decision, g2, g3, g5 1 each + aim 0.75 + evacuation 1 out of 6, exit unscored");
       assert.strictEqual(result.serverPassed, true);
       assert.strictEqual(result.gradingStatus, "graded");
       assert.strictEqual(result.certificateEligible, true);
@@ -88,10 +88,10 @@ describe("POST /api/sync", () => {
 
       const result = res.body.results[0];
       assert.strictEqual(result.status, "accepted");
-      assert.strictEqual(result.serverPercentage, 93.75, "measured exit now scores too: 4 checkpoints");
+      assert.strictEqual(result.serverPercentage, 96.43, "measured exit now scores too: 7 checkpoints");
       assert.strictEqual(result.serverPassed, true);
       assert.strictEqual(result.gradingStatus, "graded");
-      assert.strictEqual(result.clientClaimMismatch, true, "93.75 vs the claimed 91.67 is score drift");
+      assert.strictEqual(result.clientClaimMismatch, true, "96.43 vs the claimed 95.83 is score drift");
       assert.strictEqual(result.certificateEligible, true);
     });
 
@@ -104,7 +104,7 @@ describe("POST /api/sync", () => {
       assert.strictEqual(row.worker_id, "WRK-0001");
       assert.strictEqual(row.module_id, "fire-response");
       assert.strictEqual(row.contract_version, "2.0");
-      assert.strictEqual(row.server_percentage, 93.75);
+      assert.strictEqual(row.server_percentage, 96.43);
       assert.strictEqual(row.server_passed, 1);
       assert.strictEqual(row.threshold_applied, 0.7);
       assert.strictEqual(row.status, "completed");
@@ -121,12 +121,15 @@ describe("POST /api/sync", () => {
         .prepare("SELECT * FROM checkpoint_result WHERE attempt_id = ? ORDER BY checkpoint_id")
         .all(payload.attemptId);
 
-      assert.strictEqual(rows.length, 4);
+      assert.strictEqual(rows.length, 7);
       assert.deepStrictEqual(rows.map((r) => r.checkpoint_id), [
         "fire_evacuation_sequence_marker",
         "fire_exit_identification",
         "fire_explosion_decision",
-        "fire_extinguisher_aim"
+        "fire_extinguisher_aim",
+        "fire_g2_media",
+        "fire_g3_stance",
+        "fire_g5_post"
       ]);
     });
 
@@ -203,7 +206,7 @@ describe("POST /api/sync", () => {
       const checkpoints = ctx.db
         .prepare("SELECT COUNT(*) AS n FROM checkpoint_result WHERE attempt_id = ?")
         .get(payload.attemptId).n;
-      assert.strictEqual(checkpoints, 4, "checkpoints must not be duplicated either");
+      assert.strictEqual(checkpoints, 7, "checkpoints must not be duplicated either");
     });
 
     it("returns the stored server score on a duplicate", async () => {
@@ -211,7 +214,7 @@ describe("POST /api/sync", () => {
       await post(envelope([payload]));
 
       const replay = await post(envelope([payload], { batchId: SECOND_BATCH }));
-      assert.strictEqual(replay.body.results[0].serverPercentage, 93.75);
+      assert.strictEqual(replay.body.results[0].serverPercentage, 96.43);
       assert.strictEqual(replay.body.results[0].certificateEligible, true);
     });
 
@@ -442,7 +445,7 @@ describe("POST /api/sync", () => {
       await post(envelope([payload]));
 
       const row = ctx.db.prepare("SELECT server_max_score FROM attempt WHERE attempt_id = ?").get(payload.attemptId);
-      assert.strictEqual(row.server_max_score, 4);
+      assert.strictEqual(row.server_max_score, 7);
     });
 
     it("has no client pass threshold to ignore either", async () => {
@@ -464,14 +467,14 @@ describe("POST /api/sync", () => {
 
       assert.strictEqual(res.body.results[0].clientClaimMismatch, true);
       assert.strictEqual(res.body.results[0].mismatchKind, "score_drift");
-      assert.strictEqual(res.body.results[0].serverPercentage, 93.75);
+      assert.strictEqual(res.body.results[0].serverPercentage, 96.43);
 
       const row = ctx.db
         .prepare("SELECT client_percentage, server_percentage, client_claim_mismatch, mismatch_kind FROM attempt WHERE attempt_id = ?")
         .get(payload.attemptId);
 
       assert.strictEqual(row.client_percentage, 100);
-      assert.strictEqual(row.server_percentage, 93.75);
+      assert.strictEqual(row.server_percentage, 96.43);
       assert.strictEqual(row.client_claim_mismatch, 1);
       assert.strictEqual(row.mismatch_kind, "score_drift");
     });
@@ -480,6 +483,11 @@ describe("POST /api/sync", () => {
       const payload = fire({ clientClaimedPassed: true, clientClaimedPercentage: 100 });
       payload.checkpoints[1].observation.hitDistanceM = null;
       payload.checkpoints[2].observation.selected = "use_elevator";
+      // walked into the smoke before correcting: a fatal pick on a critical gate
+      payload.checkpoints[5].observation.tries = [
+        { selected: "approach_downwind", atMs: 1100 },
+        { selected: "approach_upwind_2_3m", atMs: 3300 }
+      ];
 
       const res = await post(envelope([payload]));
 

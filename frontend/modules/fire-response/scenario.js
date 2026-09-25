@@ -20,6 +20,46 @@ export const DECISION_ANSWER_KEY = Object.freeze({
   }
 });
 
+// fuels a worker may fight. a pressurised methane jet is isolated and walked away from
+export const FIGHTABLE_FUELS = Object.freeze(["conveyor_coal", "diesel_hydraulic", "electrical_switchgear"]);
+
+// local copy of the gate keys in seed.js FIRE_GATE_ANSWER_KEYS, for offline feedback only.
+// a key with "by" picks its case from the scenario; a key without one is the rule itself
+export const GATE_ANSWER_KEYS = Object.freeze({
+  fire_g2_media: {
+    by: "fuel",
+    cases: {
+      conveyor_coal: { expected: ["water", "abc_powder"], severity: { co2: "procedural" } },
+      diesel_hydraulic: { expected: ["foam", "abc_powder"], severity: { water: "fatal" } },
+      electrical_switchgear: { expected: ["co2", "abc_powder"], severity: { water: "fatal", foam: "fatal" } },
+      pressurized_methane: {
+        expected: ["isolate_supply_then_evacuate"],
+        severity: { abc_powder: "fatal", co2: "fatal", water: "fatal", foam: "fatal" }
+      }
+    }
+  },
+  fire_g3_stance: {
+    expected: "approach_upwind_2_3m",
+    severity: { approach_downwind: "fatal", under_1m: "critical", over_4m: "procedural" }
+  },
+  fire_g5_post: {
+    expected: "back_away_facing_fire",
+    severity: { turn_and_walk_away: "critical", poke_debris: "procedural" }
+  }
+});
+
+// the rule a key gives for this scenario, same lookup the server grader does
+export function gateRule(key, scenario) {
+  return key.by ? key.cases[scenario[key.by]] : key;
+}
+
+// null when the pick is right, else how bad it is. an unrated pick is a procedural slip
+export function gateSeverity(key, scenario, choice) {
+  const rule = gateRule(key, scenario);
+  if ([].concat(rule.expected).includes(choice)) return null;
+  return rule.severity[choice] || "procedural";
+}
+
 // mulberry32, same prng the vfx use, tiny and seedable
 export function mulberry32(seed) {
   let a = seed >>> 0;

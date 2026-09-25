@@ -64,7 +64,7 @@ describe("End to end backend flow", () => {
       .prepare("SELECT server_percentage, server_passed, threshold_applied, grading_status, client_percentage FROM attempt WHERE attempt_id = ?")
       .get(attempt.attemptId);
 
-    assert.strictEqual(row.server_percentage, 93.75, "decision gate + measured exit + aim 0.75 + evacuation over 4");
+    assert.strictEqual(row.server_percentage, 96.43, "four gates + measured exit + aim 0.75 + evacuation over 7");
     assert.strictEqual(row.threshold_applied, 0.7, "threshold comes from the module row");
     assert.strictEqual(row.grading_status, "graded");
     assert.strictEqual(row.client_percentage, attempt.clientClaimedPercentage,
@@ -91,7 +91,7 @@ describe("End to end backend flow", () => {
 
   it("6. signs the server score, never the claimed one", async () => {
     const row = ctx.db.prepare("SELECT score, attempt_id, key_id FROM certificate WHERE cert_id = ?").get(certId);
-    assert.strictEqual(row.score, 93.75);
+    assert.strictEqual(row.score, 96.43);
     assert.strictEqual(row.attempt_id, attempt.attemptId);
     assert.ok(row.key_id, "the issuing key must be recorded for rotation");
   });
@@ -136,7 +136,7 @@ describe("End to end backend flow", () => {
     const n = ctx.db.prepare("SELECT COUNT(*) AS n FROM attempt WHERE attempt_id = ?").get(attempt.attemptId).n;
     assert.strictEqual(n, 1);
     const cps = ctx.db.prepare("SELECT COUNT(*) AS n FROM checkpoint_result WHERE attempt_id = ?").get(attempt.attemptId).n;
-    assert.strictEqual(cps, 4, "a replay must not duplicate checkpoints either");
+    assert.strictEqual(cps, 7, "a replay must not duplicate checkpoints either");
   });
 
   it("11. hands the same certificate back when issuance is retried", async () => {
@@ -165,7 +165,8 @@ describe("End to end backend flow", () => {
 
   it("13. rejects an attempt that skipped a required checkpoint", async () => {
     const partial = fireAttempt({ workerId: WORKER, attemptId: BAD_ATTEMPT });
-    partial.checkpoints.pop();
+    // the evacuation question is required on every roll, whatever the fire
+    partial.checkpoints = partial.checkpoints.filter((c) => c.checkpointId !== "fire_evacuation_sequence_marker");
 
     const res = await request(ctx.app)
       .post("/api/sync")

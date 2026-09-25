@@ -87,7 +87,7 @@ describe("Manifest validation — referential layer", () => {
 
       const err = manifestFailure(payload, manifestRows());
       assert.ok(hasCode(err, "missing_required_checkpoint"));
-      assert.match(err.issues[0].message, /fire_explosion_decision/);
+      assert.match(err.issues[0].message, /fire_g5_post/);
     });
 
     it("reports every missing checkpoint at once, not just the first", () => {
@@ -96,7 +96,7 @@ describe("Manifest validation — referential layer", () => {
 
       const err = manifestFailure(payload, manifestRows());
       const missing = err.issues.filter((i) => i.code === "missing_required_checkpoint");
-      assert.strictEqual(missing.length, 3, "aim, evacuation and the decision gate");
+      assert.strictEqual(missing.length, 6, "aim, evacuation and the four decision gates");
     });
 
     it("rejects an observation kind that disagrees with the manifest", () => {

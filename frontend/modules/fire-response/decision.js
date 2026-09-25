@@ -8,6 +8,11 @@ import { scenarioFor, METHANE_WITHDRAWAL_PCT, DECISION_ANSWER_KEY } from "./scen
 
 const logger = createLogger("FireDecision");
 
+// same escape, shared with the gate cards
+export function escapeHtml(text) {
+  return _esc(text);
+}
+
 // escape translated text before it go into innerHTML
 function _esc(text) {
   return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -26,17 +31,24 @@ export const DECISION_CHOICES = Object.freeze({
 // at or above this % CH4 the worker withdraws. lives in scenario.js so the server copy can match it
 export const METHANE_WITHDRAWAL_THRESHOLD = METHANE_WITHDRAWAL_PCT;
 
-// what one wrong try cost locally, same numbers the server grades with
-const TRY_PENALTY = Object.freeze({ procedural: 0.5, fatal: 1 });
+// what one wrong try cost locally, same numbers the server grades with.
+// critical grades like fatal, the card only words it differently
+const TRY_PENALTY = Object.freeze({ procedural: 0.5, fatal: 1, critical: 1 });
+const FAILING_SEVERITIES = Object.freeze(["fatal", "critical"]);
 
-// reading for this run: rolled from the attemptId so the server knows it too.
-// tests may pin one. no session means no attemptId — throw, never invent a reading
-export function methaneReadingForRun(options = {}) {
-  if (options && typeof options.reading === "number" && !isNaN(options.reading)) {
-    return options.reading;
-  }
+// scenario for this run: rolled from the attemptId so the server knows it too.
+// tests may pin the reading. no session and no pin means no attemptId — throw, never invent one
+export function scenarioForRun(options = {}) {
+  const pinned = Boolean(options) && typeof options.reading === "number" && !isNaN(options.reading);
   const session = getActiveSession();
-  return scenarioFor(session && session.attemptId).reading;
+  const rolled = session || !pinned ? scenarioFor(session && session.attemptId) : {};
+  if (!pinned) return rolled;
+  return { ...rolled, reading: options.reading, methaneLevel: options.reading >= METHANE_WITHDRAWAL_THRESHOLD ? "high" : "low" };
+}
+
+// the gas reading shown on the meter for this run
+export function methaneReadingForRun(options = {}) {
+  return scenarioForRun(options).reading;
 }
 
 // check if decision matches safety rule for measured gas concentration
@@ -269,6 +281,7 @@ export function renderAlertFlash(container, { durationMs = 1800, onDone } = {}) 
 // checkpoint fires once, on the right pick, carrying every try for the server to grade.
 export function runDecisionGate(container, gateConfig, onDone) {
   const { checkpointId, feedbackSlot, isCorrect, severityOf, explain, successHtml, context = {}, onWrong, now = Date.now } = gateConfig;
+  const retryText = gateConfig.retryText || t("fire.decision_retry", "🔄 Re-evaluate Meter & Choose Action");
   const buttons = Array.from(gateConfig.buttons || container.querySelectorAll("[data-choice]"));
   const shownAt = now();
   const tries = [];
@@ -289,19 +302,20 @@ export function runDecisionGate(container, gateConfig, onDone) {
         if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
           window.dispatchEvent(new CustomEvent("safear:checkpoint_failure", { detail: failure }));
         }
-        vibrate(severity === "fatal" ? [200, 100, 200] : [40, 60, 40]);
+        const failing = FAILING_SEVERITIES.includes(severity);
+        vibrate(failing ? [200, 100, 200] : [40, 60, 40]);
         btn.disabled = true;
         if (btn.classList) btn.classList.add("wheel-btn-selected-wrong");
 
-        const title = severity === "fatal"
-          ? t("fire.gate_fatal_title", "✖ FATAL MISTAKE")
-          : t("fire.decision_wrong_title", "✖ INCORRECT SAFETY ACTION");
+        let title = t("fire.decision_wrong_title", "✖ INCORRECT SAFETY ACTION");
+        if (severity === "fatal") title = t("fire.gate_fatal_title", "✖ FATAL MISTAKE");
+        if (severity === "critical") title = t("fire.gate_critical_title", "✖ CRITICAL MISTAKE");
         feedbackSlot.innerHTML = `
-          <div class="decision-feedback decision-feedback-error${severity === "fatal" ? " decision-feedback-fatal" : ""}">
+          <div class="decision-feedback decision-feedback-error${failing ? " decision-feedback-fatal" : ""}">
             <div class="feedback-title">${_esc(title)}</div>
             <div class="feedback-desc">${_esc(explain(choice))}</div>
             <button type="button" id="btn-decision-retry" class="btn-decision-retry">
-              ${_esc(t("fire.decision_retry", "🔄 Re-evaluate Meter & Choose Action"))}
+              ${_esc(retryText)}
             </button>
           </div>
         `;
@@ -312,7 +326,7 @@ export function runDecisionGate(container, gateConfig, onDone) {
           retryBtn.type = "button";
           retryBtn.id = "btn-decision-retry";
           retryBtn.className = "btn-decision-retry";
-          retryBtn.textContent = t("fire.decision_retry", "🔄 Re-evaluate Meter & Choose Action");
+          retryBtn.textContent = retryText;
           feedbackSlot.appendChild(retryBtn);
         }
         retryBtn.addEventListener("click", () => {
@@ -336,8 +350,11 @@ export function runDecisionGate(container, gateConfig, onDone) {
       `;
 
       // local score only drives the offline ui. the server regrades the tries.
-      const wrong = tries.slice(0, -1).map((picked) => severityOf(picked.selected) || "procedural");
-      const fatalCount = wrong.filter((level) => level === "fatal").length;
+      const wrong = tries.slice(0, -1).map((picked) => {
+        const level = severityOf(picked.selected);
+        return TRY_PENALTY[level] === undefined ? "procedural" : level;
+      });
+      const fatalCount = wrong.filter((level) => FAILING_SEVERITIES.includes(level)).length;
       const score = Math.max(0, 1 - wrong.reduce((sum, level) => sum + TRY_PENALTY[level], 0));
       fireCheckpointResult(
         checkpointId,

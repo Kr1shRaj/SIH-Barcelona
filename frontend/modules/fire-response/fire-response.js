@@ -17,7 +17,9 @@ import {
   getEffectiveWorkerId
 } from "../../assessment/engine.js";
 import { recordStageResult, isStage2Passed } from "../../prerequisite/progress.js";
+import { renderGateCard, isFlameTipAim } from "./gates.js";
 import {
+  scenarioForRun,
   methaneReadingForRun,
   isCorrectDecision,
   getDecisionExplanation,
@@ -60,6 +62,9 @@ const FIRE_BASE_MAX_DISTANCE_3D = 0.8;
 // target 3D base coordinate relative to marker space
 const FIRE_BASE_TARGET_3D = { x: 0, y: 0.3, z: 0 };
 
+// where the gaze ray is scored from: the fuel bed at the foot of the flames
+const AIM_BASE_POINT = Object.freeze({ x: 0, y: 0.16, z: 0 });
+
 let _exitGraphicEl = null;
 
 // track which step is active; steps are sequential — next only registers after prev passes
@@ -68,7 +73,8 @@ let _currentStep = 0;
 // expose current step for testing and assessment engine reads
 function getCurrentStep() { return _currentStep; }
 
-// branching scenario state
+// branching scenario state. _scenario is rolled from the attemptId at start
+let _scenario = null;
 let _methaneReading = 2.1;
 let _currentBranch = null; // "evacuate" | "suppress"
 let _alarmPulled = false;
@@ -364,7 +370,7 @@ function _executeBranchA_Evacuate(container, tierInfo, reading) {
         })
       );
       // the worker still answers the evacuation question — never record an answer they did not give
-      _setupStep3(container, { afterSuppression: false });
+      _setupStep3(container, { reason: "withdraw" });
     });
     const card = overlay.querySelector ? overlay.querySelector("#fire-hud-card") : document.getElementById("fire-hud-card");
     if (card && card.appendChild) {
@@ -482,8 +488,31 @@ function _executeBranchB_Suppress(container, tierInfo, reading) {
   }
 
   _showAlarmPullStation(container, tierInfo, () => {
-    _setupStep2(container, tierInfo);
+    _runSuppressionGates(container, tierInfo);
   });
+}
+
+// gate 2 picks the agent. a gas jet is isolated and walked away from; any other
+// fire gets gate 3 (stance) and then the PASS drill
+function _runSuppressionGates(container, tierInfo) {
+  renderGateCard(container, "fire_g2_media", _scenario, ({ choice }) => {
+    if (choice === "isolate_supply_then_evacuate") {
+      _currentBranch = "isolate";
+      _setupStep3(container, { reason: "isolated" });
+      return;
+    }
+    renderGateCard(container, "fire_g3_stance", _scenario, () => _setupStep2(container, tierInfo));
+  });
+}
+
+// gate 5 after the flames are out, then the evacuation question. the team drill
+// shares this PASS flow but rolls no solo scenario, so it has no gate to show
+function _runPostSuppressionGate(container) {
+  if (!_scenario) {
+    _setupStep3(container);
+    return;
+  }
+  renderGateCard(container, "fire_g5_post", _scenario, () => _setupStep3(container));
 }
 
 // render post drill debrief log card
@@ -501,9 +530,10 @@ function _renderDebriefCard(overlay) {
     "color:#fff", "box-shadow:0 4px 14px rgba(0,0,0,0.5)"
   ].join(";");
 
-  const branchLabel = _currentBranch === "evacuate"
-    ? "Branch A (Immediate Evacuation)"
-    : (_currentBranch === "suppress" ? "Branch B (Alarm & Suppression Drill)" : "Standard Sequence");
+  let branchLabel = "Standard Sequence";
+  if (_currentBranch === "evacuate") branchLabel = "Branch A (Immediate Evacuation)";
+  if (_currentBranch === "suppress") branchLabel = "Branch B (Alarm & Suppression Drill)";
+  if (_currentBranch === "isolate") branchLabel = t("fire.debrief_branch_isolate", "Branch B (Alarm & Gas Isolation)");
 
   const alarmStatus = _alarmPulled ? "✔ Sounded & Activated" : (_currentBranch === "evacuate" ? "N/A (Evacuated Immediately)" : "Completed");
 
@@ -531,7 +561,9 @@ function _renderDebriefCard(overlay) {
     <div style="font-size:0.8rem;color:#cbd5e1;line-height:1.4;margin-top:0.35rem;">
       ${isExplosive
         ? t("fire.training_feedback_explosive", "Training feedback: Trainee recognized methane at or above the 1.25% withdrawal limit and evacuated immediately without fighting the fire.")
-        : t("fire.training_feedback_standard", "Training feedback: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit.")
+        : _currentBranch === "isolate"
+          ? t("fire.training_feedback_isolate", "Training feedback: Trainee sounded the alarm, recognised a pressurised gas fire, isolated the supply and evacuated without fighting it.")
+          : t("fire.training_feedback_standard", "Training feedback: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit.")
       }
     </div>
   `;
@@ -1280,6 +1312,15 @@ function _setupStep2(container, tierInfo) {
       });
     }
 
+    // flame tips: reset the hold and say why nothing is happening
+    const showTipWarning = () => {
+      stopHold();
+      if (statusLabel) {
+        statusLabel.textContent = t("fire.pass_aim_tips", "Flame tips — the powder passes straight through. 0% progress. Aim lower, at the base.");
+        statusLabel.style.color = "#f59e0b";
+      }
+    };
+
     // handle gaze raycaster intersection on gazeLaser or reticle
     const onRaycastIntersection = (ev) => {
       if (completed) return;
@@ -1287,7 +1328,12 @@ function _setupStep2(container, tierInfo) {
       const point = intersections && intersections[0] && intersections[0].point
         ? intersections[0].point
         : (ev && ev.detail && ev.detail.intersection ? ev.detail.intersection.point : null);
-      const distance = point ? calcIntersectionDistance(point, { x: 0, y: 0.16, z: 0 }) : null;
+      // gate 4: spray on the flame tips passes straight through, no hold progress
+      if (point && isFlameTipAim(point.y - AIM_BASE_POINT.y, FIRE_BASE_MAX_DISTANCE_3D)) {
+        showTipWarning();
+        return;
+      }
+      const distance = point ? calcIntersectionDistance(point, AIM_BASE_POINT) : null;
       const accuracy = distance === null ? null : calcRaycastAimAccuracy(distance);
       if (point) {
         _distanceFromRaycast = true;
@@ -1300,8 +1346,12 @@ function _setupStep2(container, tierInfo) {
     if (gazeLaser && typeof gazeLaser.addEventListener === "function") {
       gazeLaser.addEventListener("raycaster-intersection", onRaycastIntersection);
       gazeLaser.addEventListener("raycaster-intersection-cleared", stopHold);
-      gazeLaser.simulateIntersection = (point = { x: 0, y: 0.16, z: 0 }) => {
-        const distance = calcIntersectionDistance(point, { x: 0, y: 0.16, z: 0 });
+      gazeLaser.simulateIntersection = (point = AIM_BASE_POINT) => {
+        if (isFlameTipAim(point.y - AIM_BASE_POINT.y, FIRE_BASE_MAX_DISTANCE_3D)) {
+          showTipWarning();
+          return;
+        }
+        const distance = calcIntersectionDistance(point, AIM_BASE_POINT);
         const accuracy = calcRaycastAimAccuracy(distance);
         _distanceFromRaycast = true;
         _aimFrameCount += 1;
@@ -1736,10 +1786,10 @@ function _setupStep2(container, tierInfo) {
       );
 
       if (sync) {
-        _setupStep3(container);
+        _runPostSuppressionGate(container);
       } else {
         setTimeout(() => {
-          _setupStep3(container);
+          _runPostSuppressionGate(container);
         }, 450);
       }
     };
@@ -1888,9 +1938,17 @@ function _setupStep2(container, tierInfo) {
   _renderPullPin();
 }
 
+// the evacuation prompt says why the worker is leaving: after the fight, gas at the
+// withdrawal limit, or a gas jet they isolated and never fought
+function _evacPrompt(reason) {
+  if (reason === "withdraw") return t("fire.evac_desc_3_withdraw", "Gas is at the withdrawal limit, so you do not fight the fire. Select the safest way out:");
+  if (reason === "isolated") return t("fire.evac_desc_3_isolate", "Supply isolated. You never fight a gas jet. Select the safest way out:");
+  return t("fire.evac_desc_3", "After using the extinguisher, you must evacuate. Select the safest option:");
+}
+
 // step 3: select — user learns evacuation sequencing before choosing protocol.
-// branch A reaches here without fighting the fire, so the prompt says so
-function _setupStep3(_container, { afterSuppression = true } = {}) {
+// reason: "suppressed" (default), "withdraw" (branch A) or "isolated" (gas jet)
+function _setupStep3(_container, { reason = "suppressed" } = {}) {
   _currentStep = 3;
   logger.info({ event: "fire_step_start", step: 3 }, "Evacuation sequence");
   playNarration({ moduleId: "fire-response", stepKey: "step_3_evacuate" });
@@ -1934,9 +1992,7 @@ function _setupStep3(_container, { afterSuppression = true } = {}) {
         <div class="fire-hud-card">
           <div class="hud-badge">${t("fire.evac_badge_3", "🔥 STEP 3 / 3 — EVACUATION ROUTE")}</div>
           <div class="hud-title">${t("fire.evac_title_3", "Choose Safest Evacuation Path")}</div>
-          <div class="hud-desc">${afterSuppression
-            ? t("fire.evac_desc_3", "After using the extinguisher, you must evacuate. Select the safest option:")
-            : t("fire.evac_desc_3_withdraw", "Gas is at the withdrawal limit, so you do not fight the fire. Select the safest way out:")}</div>
+          <div class="hud-desc">${_evacPrompt(reason)}</div>
           <div id="evacuation-options-container"></div>
         </div>
       `;
@@ -1978,6 +2034,7 @@ function cleanupFireModule({ keepSession = false } = {}) {
   _currentBranch = null;
   _alarmPulled = false;
   _decisionMade = null;
+  _scenario = null;
   // reset team scenario state
   _teamAlarmSetup = false;
   _teamSelectSetup = false;
@@ -2125,8 +2182,9 @@ function startFireModule(container, tierInfo, options = {}) {
 
   cleanupFireModule({ keepSession: true });
 
-  // rolled from this run's attemptId so the server grades against the same gas reading
-  _methaneReading = methaneReadingForRun(options);
+  // rolled from this run's attemptId so the server grades against the same fire
+  _scenario = scenarioForRun(options);
+  _methaneReading = _scenario.reading;
 
   // initialize orientation recommendation toast for portrait view
   const nudge = initOrientationNudge(container);

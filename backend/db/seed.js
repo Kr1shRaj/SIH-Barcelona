@@ -60,8 +60,8 @@ const AIM_PASS_THRESHOLD = 0.6;
 // lifted from fire-response.js SWEEP_MIN_COVERAGE
 const AIM_MIN_SWEEP_COVERAGE = 0.75;
 
-// fire gates only. the decision gate is life critical: a fatal pick fails the run
-// even when the worker corrects it. team ruling, see audit gate 1.
+// fire gates only. every gate is life critical: a fatal or critical pick fails the
+// run even when the worker corrects it. team ruling.
 const CRITICAL_GATE = 1;
 
 // methane decision key, one case per scenario methaneLevel. at or above 1.25% CH4
@@ -77,8 +77,41 @@ const FIRE_DECISION_ANSWER_KEY = {
   }
 };
 
-// checkpoints that only happen when the worker stays to fight the fire
+// fuels a worker may fight. a pressurised methane jet is isolated and walked away from
+const FIGHTABLE_FUELS = ["conveyor_coal", "diesel_hydraulic", "electrical_switchgear"];
+
+// checkpoints that only happen below the withdrawal limit
 const SUPPRESS_BRANCH_ONLY = JSON.stringify({ methaneLevel: "low" });
+
+// checkpoints that only happen when the worker actually fights the fire
+const FIGHTING_ONLY = JSON.stringify({ methaneLevel: "low", fuel: FIGHTABLE_FUELS });
+
+// gate 2 key, one case per scenario fuel. expected lists every right agent. team ruling.
+// frontend/modules/fire-response/scenario.js carries the same keys for offline feedback,
+// scenario_parity.test.js keeps them in step.
+const FIRE_GATE_ANSWER_KEYS = {
+  fire_g2_media: {
+    by: "fuel",
+    cases: {
+      conveyor_coal: { expected: ["water", "abc_powder"], severity: { co2: "procedural" } },
+      diesel_hydraulic: { expected: ["foam", "abc_powder"], severity: { water: "fatal" } },
+      electrical_switchgear: { expected: ["co2", "abc_powder"], severity: { water: "fatal", foam: "fatal" } },
+      pressurized_methane: {
+        expected: ["isolate_supply_then_evacuate"],
+        severity: { abc_powder: "fatal", co2: "fatal", water: "fatal", foam: "fatal" }
+      }
+    }
+  },
+  // stance reads the same whichever side the intake is on, so no scenario case
+  fire_g3_stance: {
+    expected: "approach_upwind_2_3m",
+    severity: { approach_downwind: "fatal", under_1m: "critical", over_4m: "procedural" }
+  },
+  fire_g5_post: {
+    expected: "back_away_facing_fire",
+    severity: { turn_and_walk_away: "critical", poke_debris: "procedural" }
+  }
+};
 
 // checkpoint ids and option lists read straight out of the AR modules. these are
 // facts, not choices — they must stay in step with fire-response.js, gas-leak.js
@@ -114,6 +147,39 @@ const CHECKPOINT_DEFINITIONS = [
   },
   {
     moduleId: "fire-response",
+    checkpointId: "fire_g2_media",
+    type: "select",
+    observationKind: "selection_sequence",
+    allowedValues: JSON.stringify(["abc_powder", "co2", "water", "foam", "isolate_supply_then_evacuate"]),
+    answerKey: JSON.stringify(FIRE_GATE_ANSWER_KEYS.fire_g2_media),
+    appliesWhen: SUPPRESS_BRANCH_ONLY,
+    gradeable: 1,
+    critical: CRITICAL_GATE
+  },
+  {
+    moduleId: "fire-response",
+    checkpointId: "fire_g3_stance",
+    type: "select",
+    observationKind: "selection_sequence",
+    allowedValues: JSON.stringify(["approach_upwind_2_3m", "approach_downwind", "under_1m", "over_4m"]),
+    answerKey: JSON.stringify(FIRE_GATE_ANSWER_KEYS.fire_g3_stance),
+    appliesWhen: FIGHTING_ONLY,
+    gradeable: 1,
+    critical: CRITICAL_GATE
+  },
+  {
+    moduleId: "fire-response",
+    checkpointId: "fire_g5_post",
+    type: "select",
+    observationKind: "selection_sequence",
+    allowedValues: JSON.stringify(["back_away_facing_fire", "turn_and_walk_away", "poke_debris"]),
+    answerKey: JSON.stringify(FIRE_GATE_ANSWER_KEYS.fire_g5_post),
+    appliesWhen: FIGHTING_ONLY,
+    gradeable: 1,
+    critical: CRITICAL_GATE
+  },
+  {
+    moduleId: "fire-response",
     checkpointId: "fire_extinguisher_aim",
     type: "aim",
     observationKind: "aim_dwell",
@@ -123,7 +189,7 @@ const CHECKPOINT_DEFINITIONS = [
     minDwellMs: AIM_DWELL_MS,
     minFrameCount: FRAME_COUNT_UNMEASURED,
     allowedTrackingSources: CERTIFYING_TRACKING_SOURCES,
-    appliesWhen: SUPPRESS_BRANCH_ONLY,
+    appliesWhen: FIGHTING_ONLY,
     gradeable: 1
   },
   {
@@ -433,5 +499,7 @@ module.exports = {
   MODULES,
   WORKERS,
   CHECKPOINT_DEFINITIONS,
-  FIRE_DECISION_ANSWER_KEY
+  FIRE_DECISION_ANSWER_KEY,
+  FIRE_GATE_ANSWER_KEYS,
+  FIGHTABLE_FUELS
 };

@@ -663,7 +663,14 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
       setTimeout(() => {
         // alarm mesh cleaned up once payoff is over
         assert.ok(removedMeshes.some((m) => m.name === "fire-alarm-station"), "3D Alarm station mesh must be removed after pulling");
-        // after alarm, transitions to placement screen
+        // after alarm, the agent and stance gates come before placement. this roll is a diesel fire
+        assert.ok(document.getElementById("gate-opt-foam"), "gate 2 must ask for the agent after the alarm");
+        assert.strictEqual(document.getElementById("btn-place-extinguisher"), null, "no placement before the gates");
+        document.getElementById("gate-opt-foam").click();
+        document.getElementById("btn-gate-continue").click();
+        document.getElementById("gate-opt-approach_upwind_2_3m").click();
+        document.getElementById("btn-gate-continue").click();
+        // then transitions to placement screen
         const placeBtn = document.getElementById("btn-place-extinguisher");
         assert.ok(placeBtn, "Must transition to extinguisher placement screen after alarm pull");
         done();

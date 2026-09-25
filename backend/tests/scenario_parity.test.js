@@ -6,7 +6,7 @@ const assert = require("node:assert");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const backend = require("../services/grading/scenario");
-const { FIRE_DECISION_ANSWER_KEY } = require("../db/seed");
+const { FIRE_DECISION_ANSWER_KEY, FIRE_GATE_ANSWER_KEYS, FIGHTABLE_FUELS } = require("../db/seed");
 
 const FRONTEND_SCENARIO = pathToFileURL(
   path.join(__dirname, "../../frontend/modules/fire-response/scenario.js")
@@ -58,6 +58,15 @@ describe("fire scenario parity, phone vs server", () => {
 
   it("gives offline feedback from the same decision key the server grades with", () => {
     assert.deepStrictEqual(JSON.parse(JSON.stringify(frontend.DECISION_ANSWER_KEY)), FIRE_DECISION_ANSWER_KEY);
+  });
+
+  it("gives offline feedback from the same gate 2, 3 and 5 keys the server grades with", () => {
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(frontend.GATE_ANSWER_KEYS)), FIRE_GATE_ANSWER_KEYS);
+    assert.deepStrictEqual([...frontend.FIGHTABLE_FUELS], FIGHTABLE_FUELS);
+  });
+
+  it("has a gate 2 case for every fuel the scenario can roll", () => {
+    assert.deepStrictEqual(Object.keys(FIRE_GATE_ANSWER_KEYS.fire_g2_media.cases).sort(), [...backend.FUELS].sort());
   });
 
   it("refuses to roll a scenario without a real attempt id, on both sides", () => {

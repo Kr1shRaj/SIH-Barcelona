@@ -123,10 +123,19 @@ async function loadFireWithAttempt(attemptId) {
   }
 }
 
-// gas below the limit: fight the fire, sound the alarm first
+// gas below the limit: fight the fire, sound the alarm first, then the diesel-fire gates:
+// foam, and the upwind stance (this roll's fresh air comes from the right)
 function decideToFightAndPullAlarm() {
   _elements["btn-decision-extinguish"]?.click();
   _elements["btn-pull-alarm"]?.click();
+  passGate("foam");
+  passGate("approach_upwind_2_3m");
+}
+
+// pass one gate card: the right pick, then continue
+function passGate(choice) {
+  _elements[`gate-opt-${choice}`]?.click();
+  _elements["btn-gate-continue"]?.click();
 }
 
 function clickThroughSubscreens() {
@@ -241,6 +250,7 @@ describe("End-to-End Runtime Integration", () => {
     if (handle?.simulateSqueeze) handle.simulateSqueeze(1500);
     const sweep = _elements["sweep-zone"];
     if (sweep?.simulateSweep) sweep.simulateSweep([0, 100, 200, 240]);
+    passGate("back_away_facing_fire");
 
     // step 3: pick correct evacuation option
     clickThroughSubscreens();
@@ -262,8 +272,8 @@ describe("End-to-End Runtime Integration", () => {
     assert.strictEqual(attempt.contractVersion, "2.0");
     assert.strictEqual(attempt.clientClaimedPassed, true);
     assert.strictEqual(typeof attempt.clientClaimedPercentage, "number");
-    // exit, decision gate, alarm, aim, evacuation
-    assert.strictEqual(attempt.checkpoints.length, 5);
+    // exit, decision gate, alarm, agent gate, stance gate, aim, post-fire gate, evacuation
+    assert.strictEqual(attempt.checkpoints.length, 8);
     assert.strictEqual(attempt.arTier, 2, "the loader records the tier it booted");
     assert.strictEqual(attempt.locale, "hi", "the loader records the active locale");
     // the phone's own score never rides on the wire
@@ -383,6 +393,7 @@ describe("End-to-End Runtime Integration", () => {
     if (handle?.simulateSqueeze) handle.simulateSqueeze(1500);
     const sweep = _elements["sweep-zone"];
     if (sweep?.simulateSweep) sweep.simulateSweep([0, 100, 200, 240]);
+    passGate("back_away_facing_fire");
 
     clickThroughSubscreens();
     _elements["evacuation-opt-sound_alarm_then_evacuate"]?.click();

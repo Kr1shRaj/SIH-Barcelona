@@ -26,6 +26,7 @@ import { selectionSingle, aimDwell, spatialAlignment } from "../../assessment/ob
 import {
   renderAlertFlash,
   renderGasGaugeSvg,
+  scenarioForRun,
   methaneReadingForRun,
   isCorrectDecision,
   getDecisionExplanation,
@@ -35,6 +36,7 @@ import {
   METHANE_WITHDRAWAL_THRESHOLD,
   initOrientationNudge
 } from "./decision.js";
+import { renderGateCard, isFlameTipAim } from "./gates.js";
 
 const logger = createLogger("FireModuleWebXR");
 
@@ -311,7 +313,8 @@ function _ensureFrameHandler() {
   _controller.onFrame(_frameHandler);
 }
 
-// hazard decision state
+// hazard decision state. _scenario is rolled from the attemptId at start
+let _scenario = null;
 let _methaneReading = null;
 let _decisionMade = null;
 let _currentBranch = null;
@@ -697,6 +700,7 @@ function cleanupWebXRFireModule() {
     _alertStrobe = null;
   }
   _methaneReading = null;
+  _scenario = null;
   _decisionMade = null;
   _currentBranch = null;
 
@@ -1047,12 +1051,30 @@ function _setupStep1WebXR(container) {
       });
     } else {
       _triggerHazardDecisionPhase(container, overlay, () => {
-        showPlacementScreen();
+        _runSuppressionGatesWebXR(container, showPlacementScreen);
       });
     }
   }
 
   renderCurrentSubscreen();
+}
+
+// gate 2 picks the agent. a gas jet is isolated and walked away from; any other
+// fire gets gate 3 (stance) and then the placement + PASS drill
+function _runSuppressionGatesWebXR(container, onFight) {
+  renderGateCard(container, "fire_g2_media", _scenario, ({ choice }) => {
+    if (choice === "isolate_supply_then_evacuate") {
+      _currentBranch = "isolate";
+      _setupStep3WebXR(container, true, { reason: "isolated" });
+      return;
+    }
+    renderGateCard(container, "fire_g3_stance", _scenario, () => onFight());
+  });
+}
+
+// gate 5 after the flames are out, then the evacuation question
+function _runPostSuppressionGateWebXR(container, passed) {
+  renderGateCard(container, "fire_g5_post", _scenario, () => _setupStep3WebXR(container, passed));
 }
 
 // strobe emergency flash then show gas gauge wheel
@@ -1469,7 +1491,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
       })
     );
     // the worker still answers the evacuation question — never record an answer they did not give
-    _setupStep3WebXR(container, true, { afterSuppression: false });
+    _setupStep3WebXR(container, true, { reason: "withdraw" });
   };
 
   const lockPlacementAndStartWalk = () => {
@@ -1849,6 +1871,7 @@ function _showAimPhase(overlay, container) {
     <div id="aim-progress-bar" style="width:100%;max-width:320px;height:8px;background:rgba(30,41,59,0.7);border-radius:4px;overflow:hidden;margin-top:0.5rem;">
       <div id="aim-progress-fill" style="width:0%;height:100%;background:#00e676;transition:width 0.1s;"></div>
     </div>
+    <div id="aim-tip-warning" style="display:none;margin-top:0.4rem;font-size:0.88rem;font-weight:bold;color:#f59e0b;text-shadow:0 1px 3px #000;">${t("fire.pass_aim_tips", "Flame tips — the powder passes straight through. 0% progress. Aim lower, at the base.")}</div>
   `;
 
   // raycaster for aim detection against fire mesh
@@ -1874,6 +1897,7 @@ function _showAimPhase(overlay, container) {
 
     const targetBase = _fireMesh.getObjectByName("fire-target-base");
     let hitDistance = null;
+    let tipAim = false;
 
     if (intersects.length > 0) {
       const hitPoint = intersects[0].point;
@@ -1885,9 +1909,14 @@ function _showAimPhase(overlay, container) {
         baseWorldPos.y += 0.12 * _fireMesh.scale.y;
       }
       hitDistance = hitPoint.distanceTo(baseWorldPos);
+      // gate 4: the core flame stands 1.6 local units tall. spray on its tips passes through
+      tipAim = isFlameTipAim(hitPoint.y - baseWorldPos.y, 1.6 * _fireMesh.scale.y);
     }
 
-    if (hitDistance !== null && hitDistance < FIRE_BASE_MAX_DISTANCE_3D * _fireMesh.scale.x * 2) {
+    const tipWarn = document.getElementById("aim-tip-warning");
+    if (tipWarn) tipWarn.style.display = tipAim ? "block" : "none";
+
+    if (!tipAim && hitDistance !== null && hitDistance < FIRE_BASE_MAX_DISTANCE_3D * _fireMesh.scale.x * 2) {
       if (!aimActive) {
         aimActive = true;
         aimStartMs = 0;
@@ -1937,7 +1966,8 @@ function _showAimFallback(overlay, container) {
       _controller.offFrame(_aimFrameHandler);
       _aimFrameHandler = null;
     }
-    _onAimComplete(overlay, container, 0.85);
+    // a button press is not a measurement: no aim score
+    _onAimComplete(overlay, container, null);
   });
   overlay.appendChild(btn);
 }
@@ -2108,7 +2138,7 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
         })
       );
 
-      _setupStep3WebXR(container, passed);
+      _runPostSuppressionGateWebXR(container, passed);
     }
   };
 
@@ -2200,14 +2230,22 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
         trackingSource: "webxr_pose"
       })
     );
-    _setupStep3WebXR(container, passed);
+    _runPostSuppressionGateWebXR(container, passed);
   });
   overlay.appendChild(btn);
 }
 
+// the evacuation prompt says why the worker is leaving: after the fight, gas at the
+// withdrawal limit, or a gas jet they isolated and never fought
+function _evacPrompt(reason) {
+  if (reason === "withdraw") return t("fire.evac_desc_3_withdraw", "Gas is at the withdrawal limit, so you do not fight the fire. Select the safest way out:");
+  if (reason === "isolated") return t("fire.evac_desc_3_isolate", "Supply isolated. You never fight a gas jet. Select the safest way out:");
+  return t("fire.evac_desc_3", "After using the extinguisher, you must evacuate. Select the safest option:");
+}
+
 // step 3: evacuation route selection with 3d exit sign.
-// branch A reaches here without fighting the fire, so the prompt says so
-function _setupStep3WebXR(container, _step2Passed, { afterSuppression = true } = {}) {
+// reason: "suppressed" (default), "withdraw" (branch A) or "isolated" (gas jet)
+function _setupStep3WebXR(container, _step2Passed, { reason = "suppressed" } = {}) {
   _currentStep = 3;
   logger.info({ event: "webxr_fire_step_start", step: 3 }, "Evacuation (WebXR)");
   _showAimCrosshair(container);
@@ -2252,9 +2290,7 @@ function _setupStep3WebXR(container, _step2Passed, { afterSuppression = true } =
     <div class="fire-hud-card">
       <div class="hud-badge">${t("fire.evac_badge_3", "🔥 STEP 3 / 3 — EVACUATION ROUTE")}</div>
       <div class="hud-title">${t("fire.evac_title_3", "Choose Safest Evacuation Path")}</div>
-      <div class="hud-desc">${afterSuppression
-        ? t("fire.evac_desc_3", "After using the extinguisher, you must evacuate. Select the safest option:")
-        : t("fire.evac_desc_3_withdraw", "Gas is at the withdrawal limit, so you do not fight the fire. Select the safest way out:")}</div>
+      <div class="hud-desc">${_evacPrompt(reason)}</div>
       <div id="webxr-evac-options" style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.4rem;width:100%;"></div>
     </div>
   `;
@@ -2318,9 +2354,10 @@ function _renderDebriefCardWebXR(overlay, passed = true) {
     "box-sizing:border-box", "overflow:hidden", "word-break:break-word"
   ].join(";");
 
-  const branchLabel = _currentBranch === "evacuate"
-    ? "Branch A (Immediate Evacuation)"
-    : (_currentBranch === "suppress" ? "Branch B (Alarm & Suppression Drill)" : "Standard Sequence");
+  let branchLabel = "Standard Sequence";
+  if (_currentBranch === "evacuate") branchLabel = "Branch A (Immediate Evacuation)";
+  if (_currentBranch === "suppress") branchLabel = "Branch B (Alarm & Suppression Drill)";
+  if (_currentBranch === "isolate") branchLabel = t("fire.debrief_branch_isolate", "Branch B (Alarm & Gas Isolation)");
 
   const alarmStatus = _alarmPulled ? "✔ Sounded & Activated" : (_currentBranch === "evacuate" ? "N/A (Evacuated Immediately)" : "Completed");
 
@@ -2352,7 +2389,9 @@ function _renderDebriefCardWebXR(overlay, passed = true) {
     <div style="font-size:0.71rem;color:#cbd5e1;line-height:1.3;margin:0.25rem 0 0.35rem 0;word-break:break-word;overflow-wrap:break-word;">
       ${isExplosive
         ? t("fire.training_feedback_explosive", "Training feedback: Trainee recognized methane at or above the 1.25% withdrawal limit and evacuated immediately without fighting the fire.")
-        : t("fire.training_feedback_standard", "Training feedback: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit.")
+        : _currentBranch === "isolate"
+          ? t("fire.training_feedback_isolate", "Training feedback: Trainee sounded the alarm, recognised a pressurised gas fire, isolated the supply and evacuated without fighting it.")
+          : t("fire.training_feedback_standard", "Training feedback: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit.")
       }
     </div>
   `;
@@ -2461,8 +2500,9 @@ function startFireModuleWebXR(container, controller, options = {}) {
   cleanupWebXRFireModule();
   _controller = controller;
 
-  // rolled from this run's attemptId so the server grades against the same gas reading
-  _methaneReading = methaneReadingForRun(options);
+  // rolled from this run's attemptId so the server grades against the same fire
+  _scenario = scenarioForRun(options);
+  _methaneReading = _scenario.reading;
 
   _initDiagErrorTraps();
   _updateWebXRDiag(`Module Start (Tier 1 WebXR) | Reading: ${_methaneReading}%`);

@@ -129,6 +129,17 @@ import {
   CP_DECISION_ID,
   DECISION_CHOICES
 } from "../modules/fire-response/fire-response.js";
+import { startAssessmentSession, abortAssessmentSession } from "../assessment/engine.js";
+
+// the loader opens the session first; the fire itself is rolled from its attemptId.
+// 0b5e1a2c rolls a diesel / hydraulic oil fire with fresh air from the right
+const DIESEL_FIRE_ATTEMPT_ID = "0b5e1a2c-3d4e-4f56-8a7b-9c0d1e2f3a4b";
+
+// pass one gate card: the right pick, then continue
+function passGate(choice) {
+  _elements[`gate-opt-${choice}`]?.click();
+  _elements["btn-gate-continue"]?.click();
+}
 
 // helper: collect safear:checkpoint events during callback
 function collectCheckpointEvents(fn) {
@@ -157,6 +168,7 @@ describe("Fire Response Branching Scenario Drill", () => {
     Object.keys(_listeners).forEach((k) => delete _listeners[k]);
     clearCheckpoints();
     cleanupFireModule();
+    startAssessmentSession({ moduleId: "fire-response", attemptId: DIESEL_FIRE_ATTEMPT_ID });
   });
 
   it("initializes module with specified reading and renders decision wheel", () => {
@@ -302,6 +314,19 @@ describe("Fire Response Branching Scenario Drill", () => {
     assert.strictEqual(getAlarmPulled(), true, "alarm must be pulled");
     assert.ok(alarmEvents.some((e) => e.checkpointId === CP_ALARM_ID), "alarm cp must fire on pull");
 
+    // gates 2 and 3 before the drill: a wrong agent first, then foam; then the upwind stance
+    assert.ok(!_elements["extinguisher-pin"], "no extinguisher before the agent gate");
+    const gateEvents = collectCheckpointEvents(() => {
+      _elements["gate-opt-water"]?.click();
+      passGate("foam");
+      passGate("approach_upwind_2_3m");
+    });
+    const agentGate = gateEvents.find((e) => e.checkpointId === "fire_g2_media");
+    assert.ok(agentGate, "agent gate fires once the right agent is picked");
+    assert.deepStrictEqual(agentGate.observation.tries.map((x) => x.selected), ["water", "foam"]);
+    assert.strictEqual(agentGate.passed, false, "water on burning oil is fatal even after the fix");
+    assert.ok(gateEvents.some((e) => e.checkpointId === "fire_g3_stance" && e.passed === true));
+
     // 4. Extinguisher PASS step 2: Pull pin
     const pin = _elements["extinguisher-pin"];
     assert.ok(pin, "pin must exist");
@@ -331,6 +356,10 @@ describe("Fire Response Branching Scenario Drill", () => {
 
     assert.ok(passEvents.some((e) => e.checkpointId === CP_EXTINGUISHER_ID), "PASS extinguisher CP must fire");
 
+    // gate 5 before the evacuation question
+    assert.ok(!_elements["evacuation-opt-sound_alarm_then_evacuate"], "no evacuation before the post-fire gate");
+    passGate("back_away_facing_fire");
+
     // 5. Mandatory post-extinguish evacuation in Step 3
     clickThroughSubscreens();
     const btnEvac = _elements["evacuation-opt-sound_alarm_then_evacuate"];
@@ -347,6 +376,33 @@ describe("Fire Response Branching Scenario Drill", () => {
     assert.ok(debrief, "debrief card must be present");
     assert.ok(debrief.innerHTML.includes("0.8% CH₄"), "debrief must include 0.8% CH4 reading");
     assert.ok(debrief.innerHTML.includes("Branch B"), "debrief must indicate Branch B");
+  });
+
+  it("a pressurised gas jet is isolated and walked away from: no drill, straight to evacuation", () => {
+    abortAssessmentSession();
+    // f6623a9b rolls 0.9% CH4 and a pressurised methane jet
+    startAssessmentSession({ moduleId: "fire-response", attemptId: "f6623a9b-7c1d-4e2f-9a3b-5c6d7e8f9a0b" });
+    const container = _makeEl("ar-viewport");
+    startFireModule(container, null);
+
+    _elements["btn-decision-extinguish"]?.click();
+    _elements["btn-pull-alarm"]?.click();
+    const events = collectCheckpointEvents(() => {
+      _elements["gate-opt-co2"]?.click();
+      passGate("isolate_supply_then_evacuate");
+    });
+
+    const agentGate = events.find((e) => e.checkpointId === "fire_g2_media");
+    assert.strictEqual(agentGate.passed, false, "putting out a gas jet without isolating it is fatal");
+    assert.strictEqual(getActiveBranch(), "isolate");
+    assert.ok(!_elements["gate-opt-approach_upwind_2_3m"], "no stance gate: the fire is not fought");
+    assert.ok(!_elements["extinguisher-pin"], "no extinguisher drill on a gas jet");
+
+    clickThroughSubscreens();
+    const btnEvac = _elements["evacuation-opt-sound_alarm_then_evacuate"];
+    assert.ok(btnEvac, "evacuation question follows the isolation");
+    btnEvac.click();
+    assert.ok(_elements["debrief-summary-card"].innerHTML.includes("Gas Isolation"));
   });
 
   it("cleanupFireModule resets branch state and clears all overlay elements", () => {

@@ -30,9 +30,9 @@ describe("GET /api/modules", () => {
       res.body.map((manifest) => [manifest.moduleId, manifest.requiredCheckpoints.length])
     );
 
-    // fire-response carries four: evacuation split per tier, the decision gate, the aim.
-    // the exit sighting is optional until its angle is measured. team carries five
-    assert.deepStrictEqual(counts, { "fire-response": 4, "fire-response-team": 5, "gas-leak": 3 });
+    // fire-response carries seven: evacuation split per tier, the aim, and four decision
+    // gates. the exit sighting is optional until its angle is measured. team carries five
+    assert.deepStrictEqual(counts, { "fire-response": 7, "fire-response-team": 5, "gas-leak": 3 });
   });
 
   it("exposes the checkpoint ids the AR modules actually emit", async () => {
@@ -45,7 +45,10 @@ describe("GET /api/modules", () => {
         "fire_evacuation_sequence_marker",
         "fire_evacuation_sequence_webxr",
         "fire_explosion_decision",
-        "fire_extinguisher_aim"
+        "fire_extinguisher_aim",
+        "fire_g2_media",
+        "fire_g3_stance",
+        "fire_g5_post"
       ]
     );
   });
@@ -58,9 +61,9 @@ describe("GET /api/modules", () => {
     assert.strictEqual(typeof checkpoint.critical, "boolean");
   });
 
-  it("reports critical as false everywhere except team_drill_outcome and the methane decision gate", async () => {
+  it("reports critical as false everywhere except team_drill_outcome and the fire decision gates", async () => {
     const res = await request(ctx.app).get("/api/modules");
-    const critical = ["team_drill_outcome", "fire_explosion_decision"];
+    const critical = ["team_drill_outcome", "fire_explosion_decision", "fire_g2_media", "fire_g3_stance", "fire_g5_post"];
 
     res.body.forEach((manifest) => {
       manifest.requiredCheckpoints.forEach((checkpoint) => {

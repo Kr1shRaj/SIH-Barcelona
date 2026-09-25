@@ -36,10 +36,14 @@ function scenarioFor(attemptId) {
   return { methaneLevel, reading, fuel, airflow };
 }
 
-// does a definition row with this applies_when (parsed json or null) count for this scenario
+// does a definition row with this applies_when (parsed json or null) count for this scenario.
+// a field holds one value or a list of the values it applies to
 function appliesToScenario(appliesWhen, scenario) {
   if (!appliesWhen) return true;
-  return Object.keys(appliesWhen).every((field) => scenario[field] === appliesWhen[field]);
+  return Object.keys(appliesWhen).every((field) => {
+    const want = appliesWhen[field];
+    return Array.isArray(want) ? want.includes(scenario[field]) : scenario[field] === want;
+  });
 }
 
 module.exports = {
