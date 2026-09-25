@@ -828,28 +828,33 @@ describe("WebXR Placement and Tracking", () => {
     assert.notStrictEqual(ring.scale.x, 1.0);
   });
 
-  it("createFireMesh includes fire-flames-group and updates animation mixers", () => {
+  it("createFireMesh keeps a floor-level flames group and falls back to cones without shaders", () => {
     globalThis.window.THREE = mockTHREE;
     const mesh = createFireMesh();
     assert.ok(mesh);
     const flamesGroup = mesh.getObjectByName("fire-flames-group");
     assert.ok(flamesGroup);
     assert.strictEqual(flamesGroup.position.y, 0.00);
-    assert.ok(Array.isArray(mesh.userData.mixers));
+    // this mock has no InstancedMesh / ShaderMaterial, so the procedural cones carry the fire
+    assert.strictEqual(flamesGroup.children.length, 0);
+    assert.strictEqual(mesh.getObjectByName("fire-outer-cone").visible, true);
   });
 
-  it("createFireMesh loads 5 varied GLB fire instances with distinct offsets and anim offsets", async () => {
+  it("createFireMesh never downloads a fire model: the flames are procedural", async () => {
     globalThis.window.THREE = mockTHREE;
-    const mesh = createFireMesh();
-    assert.ok(mesh);
-    await new Promise((r) => setTimeout(r, 10));
-    const flamesGroup = mesh.getObjectByName("fire-flames-group");
-    assert.ok(flamesGroup);
-    assert.strictEqual(flamesGroup.children.length, 5, "5 varied fire instances must be loaded into flames group");
-    assert.strictEqual(mesh.userData.mixers.length, 5, "All 5 fire instances must have active animation mixers");
+    const urls = [];
+    const originalLoad = MockGLTFLoader.prototype.load;
+    MockGLTFLoader.prototype.load = function spy(url, ...rest) { urls.push(url); return originalLoad.call(this, url, ...rest); };
+    try {
+      createFireMesh();
+      await new Promise((r) => setTimeout(r, 10));
+    } finally {
+      MockGLTFLoader.prototype.load = originalLoad;
+    }
+    assert.deepStrictEqual(urls, [], "no glb load for the fire");
   });
 
-  it("animateFireMesh advances animation mixers and scales flames group with extinguishProgress", () => {
+  it("animateFireMesh scales flames group with extinguishProgress", () => {
     globalThis.window.THREE = mockTHREE;
     const fireGroup = new mockTHREE.Group();
     const flamesGroup = new mockTHREE.Group();
@@ -857,13 +862,9 @@ describe("WebXR Placement and Tracking", () => {
     fireGroup.add(flamesGroup);
     fireGroup.userData.flamesGroup = flamesGroup;
 
-    const mockMixer = new MockAnimationMixer();
-    fireGroup.userData.mixers = [mockMixer];
-
     // active fire
     fireGroup.userData.extinguishProgress = 0.5;
     animateFireMesh(fireGroup, 50);
-    assert.strictEqual(mockMixer.timeUpdated, 0.05);
     assert.strictEqual(flamesGroup.visible, true);
     assert.strictEqual(flamesGroup.scale.x, 0.5);
 

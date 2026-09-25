@@ -8,6 +8,7 @@ import { renderCompletionPanel } from "../../js/certificate-panel.js";
 import { buildFireGraphic, buildExitGraphic, buildExtinguisherGraphic, buildFireAlarmEntity, buildPeerAvatarEntity } from "./graphics.js";
 import { t } from "../../js/i18n.js";
 import { playNarration, stopNarration } from "../../js/audio.js";
+import { startFireAudio } from "../../js/sfx.js";
 import { cameraToMarkerSpace } from "../../ar/marker-pose.js";
 import { markerDistance, formatDistance, lerpPosition, lerpAngleDeg, MARKER_SIZE_CM } from "./distance.js";
 import {
@@ -66,6 +67,15 @@ const FIRE_BASE_TARGET_3D = { x: 0, y: 0.3, z: 0 };
 const AIM_BASE_POINT = Object.freeze({ x: 0, y: 0.16, z: 0 });
 
 let _exitGraphicEl = null;
+
+// fire bed audio while the fire burns, null when silent or no web audio
+let _fireAudio = null;
+
+// fade the fire bed out and forget it
+function _stopFireAudio() {
+  if (_fireAudio) _fireAudio.stop();
+  _fireAudio = null;
+}
 
 // track which step is active; steps are sequential — next only registers after prev passes
 let _currentStep = 0;
@@ -152,7 +162,7 @@ function _calcAimAccuracy(input, arg2, arg3) {
   return null;
 }
 
-// render 3D fire entity anchored to camera so AR.js shows it without printed marker
+// render 3D fire entity on the hiro marker (tier 2 tracking); camera anchored when no marker is in the scene
 function _renderFireGraphic(container) {
   const camera = typeof document !== "undefined" && typeof document.querySelector === "function"
     ? (document.querySelector("#main-camera") || document.querySelector("[camera]"))
@@ -160,11 +170,21 @@ function _renderFireGraphic(container) {
   const scene = typeof document !== "undefined" && typeof document.querySelector === "function"
     ? document.querySelector("a-scene")
     : null;
+  const marker = typeof document !== "undefined" && typeof document.querySelector === "function"
+    ? (document.querySelector("#hiro-marker") || document.querySelector("a-marker"))
+    : null;
 
-  const graphic = buildFireGraphic();
+  const graphic = buildFireGraphic(_scenario && _scenario.airflow);
 
-  // anchor to camera on the ground floor (SENAR markerless benchmark)
-  if (camera) {
+  // stands on the printed marker, so it stays put in the room while the phone moves
+  if (marker) {
+    graphic.setAttribute("position", "0 0.55 0");
+    graphic.setAttribute("rotation", "0 0 0");
+    graphic.setAttribute("scale", "0.8 0.8 0.8");
+    graphic.setAttribute("visible", "true");
+    graphic.setAttribute("data-anchor", "marker");
+    marker.appendChild(graphic);
+  } else if (camera) {
     graphic.setAttribute("position", "0 -1.15 -2.2");
     graphic.setAttribute("rotation", "0 0 0");
     graphic.setAttribute("scale", "0.60 0.60 0.60");
@@ -860,6 +880,8 @@ function _setupStep2(container, tierInfo) {
 
   const graphic = _renderFireGraphic(container);
   _renderExtinguisherGraphic(container);
+  _stopFireAudio();
+  _fireAudio = startFireAudio();
   const overlay = document.getElementById("fire-module-overlay");
 
   let _recordedAccuracy = null;
@@ -1196,8 +1218,12 @@ function _setupStep2(container, tierInfo) {
     const fireGraphic = document.getElementById("fire-graphic");
     if (fireGraphic && typeof fireGraphic.setAttribute === "function") {
       fireGraphic.setAttribute("visible", "true");
-      fireGraphic.setAttribute("position", "0 -1.15 -2.2");
-      fireGraphic.setAttribute("scale", "0.60 0.60 0.60");
+      // a fire standing on the marker keeps its place; only the camera-anchored one is re-seated
+      const onMarker = typeof fireGraphic.getAttribute === "function" && fireGraphic.getAttribute("data-anchor") === "marker";
+      if (!onMarker) {
+        fireGraphic.setAttribute("position", "0 -1.15 -2.2");
+        fireGraphic.setAttribute("scale", "0.60 0.60 0.60");
+      }
     }
 
     const bTitle = document.getElementById("billboard-step-title");
@@ -1685,6 +1711,12 @@ function _setupStep2(container, tierInfo) {
       if (statusText) {
         statusText.textContent = `↔ SWEEPING... (${Math.round(clamped * 100)}% EXTINGUISHED)`;
       }
+      // the procedural fire burns down with the sweep, and so does its roar
+      const proceduralFire = document.getElementById("procedural-fire");
+      if (proceduralFire && typeof proceduralFire.setAttribute === "function") {
+        proceduralFire.setAttribute("procedural-fire", "progress", clamped);
+      }
+      if (_fireAudio) _fireAudio.setIntensity(1 - clamped);
       // dynamically shrink flames
       const flameGroup = document.getElementById("fire-flames-group");
       if (flameGroup && typeof flameGroup.setAttribute === "function") {
@@ -1718,6 +1750,7 @@ function _setupStep2(container, tierInfo) {
       }
 
       updateExtinguishProgress(1.0);
+      _stopFireAudio();
 
       if (statusText) {
         statusText.textContent = "✔ FIRE EXTINGUISHED!";
@@ -2035,6 +2068,7 @@ function cleanupFireModule({ keepSession = false } = {}) {
   _alarmPulled = false;
   _decisionMade = null;
   _scenario = null;
+  _stopFireAudio();
   // reset team scenario state
   _teamAlarmSetup = false;
   _teamSelectSetup = false;

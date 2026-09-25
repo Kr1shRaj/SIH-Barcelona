@@ -3,7 +3,7 @@ import { registerCheckpoint, fireCheckpointResult } from "../../ar/interactions.
 import { unloadModule } from "../../js/module-loader.js";
 import { t } from "../../js/i18n.js";
 import {
-  createFireMesh, animateFireMesh,
+  createFireMesh, animateFireMesh, setFireAirflow,
   createExtinguisherMesh, animateExtinguisherMesh,
   createExitSignMesh, animateExitSignMesh,
   createAlarmStationMesh, animateAlarmStationMesh,
@@ -37,6 +37,7 @@ import {
   initOrientationNudge
 } from "./decision.js";
 import { renderGateCard, isFlameTipAim } from "./gates.js";
+import { startFireAudio } from "../../js/sfx.js";
 
 const logger = createLogger("FireModuleWebXR");
 
@@ -44,6 +45,14 @@ const logger = createLogger("FireModuleWebXR");
 let _currentStep = 0;
 let _controller = null;
 let _fireMesh = null;
+// fire bed audio while the fire burns, null when silent or no web audio
+let _fireAudio = null;
+
+// fade the fire bed out and forget it
+function _stopFireAudio() {
+  if (_fireAudio) _fireAudio.stop();
+  _fireAudio = null;
+}
 let _extMesh = null;
 let _exitMesh = null;
 let _alarmMesh = null;
@@ -701,6 +710,7 @@ function cleanupWebXRFireModule() {
   }
   _methaneReading = null;
   _scenario = null;
+  _stopFireAudio();
   _decisionMade = null;
   _currentBranch = null;
 
@@ -923,6 +933,14 @@ function _setupStep1WebXR(container) {
       _fireMesh = createFireMesh();
       if (_fireMesh && _controller) {
         _fireMesh.position.set(firePos.x, firePos.y, firePos.z);
+        // turn the fire to face the worker so "downwind" in the room matches gate 3's words
+        if (THREE && viewerQuat && THREE.Euler) {
+          const q = new THREE.Quaternion(viewerQuat.x, viewerQuat.y, viewerQuat.z, viewerQuat.w);
+          _fireMesh.rotation.y = new THREE.Euler().setFromQuaternion(q, "YXZ").y;
+        }
+        setFireAirflow(_fireMesh, _scenario && _scenario.airflow);
+        _stopFireAudio();
+        _fireAudio = startFireAudio();
         const s = BASE_FIRE_SCALE * _zoomScale;
         _fireMesh.scale.set(s, s, s);
         _controller.addToScene(_fireMesh);
@@ -2099,6 +2117,7 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
     if (_fireMesh && _fireMesh.userData) {
       _fireMesh.userData.extinguishProgress = progress;
     }
+    if (_fireAudio) _fireAudio.setIntensity(1 - progress);
     const fill = document.getElementById("sweep-progress-fill");
     if (fill) fill.style.width = `${Math.round(progress * 100)}%`;
     _setReticleSweep(progress);
@@ -2117,6 +2136,7 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
         _fireMesh.userData.extinguishProgress = 1.0;
       }
       logger.info({ event: "webxr_sweep_complete", coverage, sampleCount: sweepSamples.length }, "Sweep done (WebXR)");
+      _stopFireAudio();
 
       const passed = aimAccuracy >= AIM_PASS_THRESHOLD;
       fireCheckpointResult(
@@ -2210,6 +2230,7 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
     if (_fireMesh && _fireMesh.userData) {
       _fireMesh.userData.extinguishProgress = 1.0;
     }
+    _stopFireAudio();
     const passed = aimAccuracy >= AIM_PASS_THRESHOLD;
     // the sweep was skipped, so no coverage was observed. null, not 1.0.
     fireCheckpointResult(

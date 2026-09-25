@@ -20,6 +20,13 @@ function getAudioPath(locale, moduleId, stepKey, basePath = "./audio") {
   return `${basePath}/${resolvedLocale}/${cleanModule}_${cleanStep}.mp3`;
 }
 
+// tell anything playing underneath (the fire bed) whether a narrator is talking
+function _announceNarration(playing) {
+  if (typeof window !== "undefined" && typeof window.dispatchEvent === "function" && typeof CustomEvent === "function") {
+    window.dispatchEvent(new CustomEvent("safear:narration", { detail: { playing } }));
+  }
+}
+
 // get current audio narration state
 function getAudioStatus() {
   return { ..._currentStatus };
@@ -45,6 +52,7 @@ function stopNarration() {
     stepKey: null,
     src: null
   };
+  _announceNarration(false);
 }
 
 // play prerecorded narration clip with fallback handling
@@ -68,6 +76,7 @@ function playNarration({ locale, moduleId, stepKey, basePath = "./audio", onEnde
   };
 
   logger.info({ event: "audio_narration_start", path, locale: resolvedLocale, moduleId, stepKey }, "Playing narration");
+  _announceNarration(true);
 
   const AudioConstructor = (typeof window !== "undefined" && typeof window.Audio === "function")
     ? window.Audio
@@ -80,12 +89,14 @@ function playNarration({ locale, moduleId, stepKey, basePath = "./audio", onEnde
 
       audio.addEventListener("ended", () => {
         _currentStatus.playing = false;
+        _announceNarration(false);
         if (typeof onEnded === "function") onEnded();
       });
 
       audio.addEventListener("error", (err) => {
         logger.warn({ event: "audio_asset_unavailable", path, error: err }, "Prerecorded audio asset unavailable");
         _currentStatus.playing = false;
+        _announceNarration(false);
         if (typeof onError === "function") onError(err);
       });
 
@@ -94,12 +105,14 @@ function playNarration({ locale, moduleId, stepKey, basePath = "./audio", onEnde
         playPromise.catch((err) => {
           logger.warn({ event: "audio_play_prevented", path, error: err.message }, "Audio playback prevented");
           _currentStatus.playing = false;
+          _announceNarration(false);
           if (typeof onError === "function") onError(err);
         });
       }
     } catch (err) {
       logger.warn({ event: "audio_init_error", path, error: err.message }, "Audio constructor failed");
       _currentStatus.playing = false;
+      _announceNarration(false);
       if (typeof onError === "function") onError(err);
       return { success: false, path, reason: "audio_init_failed" };
     }
