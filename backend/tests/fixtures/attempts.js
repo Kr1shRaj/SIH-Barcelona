@@ -8,6 +8,9 @@
 // fixed clock for every skew test, sits after both fixtures complete
 const FIXED_NOW = Date.parse("2026-09-01T13:00:00.000Z");
 
+// gate answer keys straight from the seed, the fixture manifest must not drift from them
+const { FIRE_GATE_ANSWER_KEYS } = require("../../db/seed");
+
 const FIRE_ATTEMPT = {
   contractVersion: "2.0",
   attemptId: "a3f1c9e2-5b47-4d18-9e6a-2c8b7f0d4e51",
@@ -54,9 +57,44 @@ const FIRE_ATTEMPT = {
         kind: "selection_single",
         selected: "sound_alarm_then_evacuate"
       }
+    },
+    {
+      // attemptId a3f1c9e2 rolls methaneLevel "low" (0.84% CH4), so fight the fire.
+      // kept last so tests indexing exit/aim/evacuation as 0/1/2 stay put.
+      checkpointId: "fire_explosion_decision",
+      observedAt: "2026-09-01T10:14:52.310Z",
+      observation: {
+        kind: "selection_sequence",
+        tries: [{ selected: "extinguish", atMs: 4200 }]
+      }
+    },
+    {
+      // same roll is a diesel / hydraulic oil fire: foam is a right agent
+      checkpointId: "fire_g2_media",
+      observedAt: "2026-09-01T10:15:20.100Z",
+      observation: {
+        kind: "selection_sequence",
+        tries: [{ selected: "foam", atMs: 3600 }]
+      }
+    },
+    {
+      checkpointId: "fire_g3_stance",
+      observedAt: "2026-09-01T10:15:41.720Z",
+      observation: {
+        kind: "selection_sequence",
+        tries: [{ selected: "approach_upwind_2_3m", atMs: 2900 }]
+      }
+    },
+    {
+      checkpointId: "fire_g5_post",
+      observedAt: "2026-09-01T10:16:48.050Z",
+      observation: {
+        kind: "selection_sequence",
+        tries: [{ selected: "back_away_facing_fire", atMs: 2100 }]
+      }
     }
   ],
-  clientClaimedPercentage: 91.67,
+  clientClaimedPercentage: 95.83,
   clientClaimedPassed: true
 };
 
@@ -197,8 +235,90 @@ const MANIFEST_ROWS = [
     min_frame_count: null,
     gradeable: 0,
     weight: 1,
-    required: 1,
+    // optional until its angle is measured on a real phone, mirrors seed.js
+    required: 0,
     critical: 0
+  },
+  {
+    module_id: "fire-response",
+    checkpoint_id: "fire_explosion_decision",
+    checkpoint_type: "select",
+    observation_kind: "selection_sequence",
+    applies_to_tier: null,
+    expected_value: null,
+    allowed_values: JSON.stringify(["evacuate", "extinguish", "wait"]),
+    forbidden_values: null,
+    allowed_tracking_sources: null,
+    answer_key: JSON.stringify({
+      by: "methaneLevel",
+      cases: {
+        high: { expected: "evacuate", severity: { extinguish: "fatal", wait: "fatal" } },
+        low: { expected: "extinguish", severity: { evacuate: "procedural", wait: "procedural" } }
+      }
+    }),
+    applies_when: null,
+    anchor_id: null,
+    max_angular_error_rad: null,
+    max_distance_m: null,
+    pass_threshold: null,
+    min_sweep_coverage: null,
+    min_dwell_ms: null,
+    min_frame_count: null,
+    gradeable: 1,
+    weight: 1,
+    required: 1,
+    critical: 1
+  },
+  {
+    module_id: "fire-response",
+    checkpoint_id: "fire_g2_media",
+    checkpoint_type: "select",
+    observation_kind: "selection_sequence",
+    applies_to_tier: null,
+    expected_value: null,
+    allowed_values: JSON.stringify(["abc_powder", "co2", "water", "foam", "isolate_supply_then_evacuate"]),
+    forbidden_values: null,
+    allowed_tracking_sources: null,
+    answer_key: JSON.stringify(FIRE_GATE_ANSWER_KEYS.fire_g2_media),
+    applies_when: JSON.stringify({ methaneLevel: "low" }),
+    gradeable: 1,
+    weight: 1,
+    required: 1,
+    critical: 1
+  },
+  {
+    module_id: "fire-response",
+    checkpoint_id: "fire_g3_stance",
+    checkpoint_type: "select",
+    observation_kind: "selection_sequence",
+    applies_to_tier: null,
+    expected_value: null,
+    allowed_values: JSON.stringify(["approach_upwind_2_3m", "approach_downwind", "under_1m", "over_4m"]),
+    forbidden_values: null,
+    allowed_tracking_sources: null,
+    answer_key: JSON.stringify(FIRE_GATE_ANSWER_KEYS.fire_g3_stance),
+    applies_when: JSON.stringify({ methaneLevel: "low", fuel: ["conveyor_coal", "diesel_hydraulic", "electrical_switchgear"] }),
+    gradeable: 1,
+    weight: 1,
+    required: 1,
+    critical: 1
+  },
+  {
+    module_id: "fire-response",
+    checkpoint_id: "fire_g5_post",
+    checkpoint_type: "select",
+    observation_kind: "selection_sequence",
+    applies_to_tier: null,
+    expected_value: null,
+    allowed_values: JSON.stringify(["back_away_facing_fire", "turn_and_walk_away", "poke_debris"]),
+    forbidden_values: null,
+    allowed_tracking_sources: null,
+    answer_key: JSON.stringify(FIRE_GATE_ANSWER_KEYS.fire_g5_post),
+    applies_when: JSON.stringify({ methaneLevel: "low", fuel: ["conveyor_coal", "diesel_hydraulic", "electrical_switchgear"] }),
+    gradeable: 1,
+    weight: 1,
+    required: 1,
+    critical: 1
   },
   {
     module_id: "fire-response",
@@ -217,6 +337,8 @@ const MANIFEST_ROWS = [
     min_sweep_coverage: 0.75,
     min_dwell_ms: 800,
     min_frame_count: null,
+    // only asked when the worker actually fights the fire, mirrors seed.js
+    applies_when: JSON.stringify({ methaneLevel: "low", fuel: ["conveyor_coal", "diesel_hydraulic", "electrical_switchgear"] }),
     gradeable: 1,
     weight: 1,
     required: 1,

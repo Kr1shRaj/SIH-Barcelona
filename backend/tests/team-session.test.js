@@ -63,8 +63,8 @@ test("Team Session Realtime Server", async (t) => {
     const ws1 = new WebSocket(`ws://localhost:${port}`);
     const ws2 = new WebSocket(`ws://localhost:${port}`);
 
-    await new Promise((resolve) => ws1.on("open", resolve));
-    await new Promise((resolve) => ws2.on("open", resolve));
+    // listen on both at once, ws2 can open before ws1's await resolves and never fire again
+    await Promise.all([ws1, ws2].map((ws) => new Promise((resolve) => ws.once("open", resolve))));
 
     // Client 1 joins as alarm
     ws1.send(JSON.stringify({ type: "join", roomId: "test-room", role: "alarm" }));
@@ -153,8 +153,8 @@ test("Team Session Realtime Server", async (t) => {
     const roomId = `marker-room-${Date.now()}`;
     const ws1 = new WebSocket(`ws://localhost:${port}`);
     const ws2 = new WebSocket(`ws://localhost:${port}`);
-    await new Promise((resolve) => ws1.on("open", resolve));
-    await new Promise((resolve) => ws2.on("open", resolve));
+    // listen on both at once, ws2 can open before ws1's await resolves and never fire again
+    await Promise.all([ws1, ws2].map((ws) => new Promise((resolve) => ws.once("open", resolve))));
 
     // first joiner sets marker
     ws1.send(JSON.stringify({ type: "join", roomId, role: "alarm", markerId: "hiro", markerSizeCm: 16 }));

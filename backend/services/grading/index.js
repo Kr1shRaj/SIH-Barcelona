@@ -1,6 +1,6 @@
 const { GRADING_ERRORS, GradingError } = require("./errors");
 const { parseDefinition } = require("./definition");
-const { gradeSelectionSingle, gradeSelectionMulti } = require("./selection");
+const { gradeSelectionSingle, gradeSelectionMulti, gradeSelectionSequence } = require("./selection");
 const { gradeSpatialAlignment, gradeAimDwell } = require("./spatial");
 
 // stamped onto every attempt so a certificate issued under a weaker rule stays
@@ -10,13 +10,15 @@ const GRADER_VERSION = "2.0.0";
 const GRADERS = Object.freeze({
   selection_single: gradeSelectionSingle,
   selection_multi: gradeSelectionMulti,
+  selection_sequence: gradeSelectionSequence,
   spatial_alignment: gradeSpatialAlignment,
   aim_dwell: gradeAimDwell
 });
 
 // grade one raw observation against the rule this server holds for it.
+// context carries the scenario rolled from attemptId for scenario graded gates.
 // pure — no db, no express, safe to call from anywhere.
-function gradeCheckpoint(observation, definitionRow) {
+function gradeCheckpoint(observation, definitionRow, context = {}) {
   const definition = parseDefinition(definitionRow);
 
   if (observation.kind !== definition.observationKind) {
@@ -36,7 +38,7 @@ function gradeCheckpoint(observation, definitionRow) {
     );
   }
 
-  return grader(observation, definition);
+  return grader(observation, definition, context);
 }
 
 module.exports = {
@@ -44,6 +46,7 @@ module.exports = {
   parseDefinition,
   gradeSelectionSingle,
   gradeSelectionMulti,
+  gradeSelectionSequence,
   gradeSpatialAlignment,
   gradeAimDwell,
   GRADER_VERSION,

@@ -28,10 +28,11 @@ function rowsWith(overrides, rows) {
 }
 
 describe("Server side grading", () => {
-  describe("the shipped manifest cannot certify yet, and says so", () => {
+  describe("the shipped manifest and its unmeasured spatial checkpoints", () => {
     // fire_exit_identification and gas_hazard_zone_recognition have no measured
-    // angle, so the seed leaves them ungradeable. that must show up as a zero and
-    // an ungradeable attempt, never as a quiet pass.
+    // angle, so the seed leaves them ungradeable. the gas one is required, so it
+    // must show up as an ungradeable attempt, never a quiet pass. the fire one is
+    // optional (team ruling), so it is stored as evidence and left out of the score.
     it("scores an unconfigured spatial checkpoint zero", () => {
       const result = recomputeAttempt(fireAttempt(), manifestRows("fire-response"), FIRE_MODULE);
       const exit = result.checkpoints.find((c) => c.checkpointId === "fire_exit_identification");
@@ -41,11 +42,23 @@ describe("Server side grading", () => {
       assert.strictEqual(exit.gradeReason, "not_gradeable");
     });
 
-    it("marks the whole attempt ungradeable when one rule is unconfigured", () => {
+    it("leaves an optional unconfigured checkpoint out of the score instead of blocking", () => {
       const result = recomputeAttempt(fireAttempt(), manifestRows("fire-response"), FIRE_MODULE);
+      assert.strictEqual(result.gradingStatus, "graded");
+      assert.strictEqual(result.maxScore, 6, "exit weight is not counted");
+      assert.strictEqual(result.percentage, 95.83, "four gates 1 each + aim 0.75 + evacuation 1 out of 6");
+      assert.strictEqual(result.passed, true);
+    });
+
+    it("still marks the attempt ungradeable when a required rule is unconfigured", () => {
+      const rows = manifestRows("fire-response").map((row) =>
+        row.checkpoint_id === "fire_exit_identification" ? { ...row, required: 1 } : row
+      );
+      const result = recomputeAttempt(fireAttempt(), rows, FIRE_MODULE);
       assert.strictEqual(result.gradingStatus, "ungradeable");
-      assert.strictEqual(result.percentage, 58.33, "0 + 0.75 + 1 out of 3");
-      assert.strictEqual(result.passed, false);
+      assert.strictEqual(result.percentage, 82.14, "exit 0 + four gates + aim 0.75 + evacuation 1 out of 7");
+      // the aggregate clears 70, but an ungradeable run can never certify — the cert service reads grading_status
+      assert.strictEqual(result.passed, true);
     });
 
     it("does the same for the gas hazard zone", () => {
@@ -57,9 +70,9 @@ describe("Server side grading", () => {
   describe("recomputeAttempt with every rule configured", () => {
     it("reproduces the contract fire example exactly", () => {
       const result = recomputeAttempt(fireAttempt(), measuredManifestRows("fire-response"), FIRE_MODULE);
-      assert.strictEqual(result.totalScore, 2.75);
-      assert.strictEqual(result.maxScore, 3);
-      assert.strictEqual(result.percentage, 91.67);
+      assert.strictEqual(result.totalScore, 6.75);
+      assert.strictEqual(result.maxScore, 7);
+      assert.strictEqual(result.percentage, 96.43);
       assert.strictEqual(result.passed, true);
       assert.strictEqual(result.gradingStatus, "graded");
     });
@@ -90,24 +103,24 @@ describe("Server side grading", () => {
 
     it("uses server weights, the payload has none to offer", () => {
       const result = recomputeAttempt(fireAttempt(), measuredManifestRows("fire-response"), FIRE_MODULE);
-      assert.strictEqual(result.maxScore, 3, "maxScore comes from the manifest");
+      assert.strictEqual(result.maxScore, 7, "maxScore comes from the manifest");
     });
 
     it("uses the server threshold", () => {
-      const strictModule = { module_id: "fire-response", pass_threshold: 0.95 };
+      const strictModule = { module_id: "fire-response", pass_threshold: 0.97 };
       const result = recomputeAttempt(fireAttempt(), measuredManifestRows("fire-response"), strictModule);
 
-      assert.strictEqual(result.thresholdApplied, 0.95);
-      assert.strictEqual(result.passed, false, "91.67 percent must fail a 95 percent threshold");
+      assert.strictEqual(result.thresholdApplied, 0.97);
+      assert.strictEqual(result.passed, false, "96.43 percent must fail a 97 percent threshold");
     });
 
     it("honours a weighted manifest", () => {
       const rows = rowsWith({ fire_extinguisher_aim: { weight: 2 } });
       const result = recomputeAttempt(fireAttempt(), rows, FIRE_MODULE);
 
-      assert.strictEqual(result.maxScore, 4);
-      assert.strictEqual(result.totalScore, 3.5);
-      assert.strictEqual(result.percentage, 87.5);
+      assert.strictEqual(result.maxScore, 8);
+      assert.strictEqual(result.totalScore, 7.5);
+      assert.strictEqual(result.percentage, 93.75);
     });
 
     it("passes a run at exactly the threshold", () => {
@@ -134,13 +147,13 @@ describe("Server side grading", () => {
   });
 
   describe("critical checkpoints", () => {
-    it("stays dormant while every manifest critical flag is 0", () => {
+    it("stays dormant while every critical checkpoint passes", () => {
       const payload = fireAttempt();
       payload.checkpoints[1].observation.hitDistanceM = null;
 
       const result = recomputeAttempt(payload, measuredManifestRows("fire-response"), FIRE_MODULE);
       assert.deepStrictEqual(result.criticalFailures, []);
-      assert.strictEqual(result.percentage, 66.67);
+      assert.strictEqual(result.percentage, 85.71, "exit 1 + four gates + aim 0 + evacuation 1 out of 7");
     });
 
     it("fails the whole module when a critical checkpoint fails", () => {
@@ -175,13 +188,13 @@ describe("Server side grading", () => {
   describe("mismatch classification", () => {
     it("sees no mismatch when the client agrees", () => {
       const payload = fireAttempt();
-      const result = recomputeAttempt(payload, measuredManifestRows("fire-response"), FIRE_MODULE);
+      const result = recomputeAttempt(payload, manifestRows("fire-response"), FIRE_MODULE);
       assert.strictEqual(classifyMismatch(payload, result), "none");
     });
 
     it("tolerates rounding drift inside the epsilon", () => {
-      const payload = fireAttempt({ clientClaimedPercentage: 91.67 - PERCENTAGE_EPSILON / 2 });
-      const result = recomputeAttempt(payload, measuredManifestRows("fire-response"), FIRE_MODULE);
+      const payload = fireAttempt({ clientClaimedPercentage: 95.83 - PERCENTAGE_EPSILON / 2 });
+      const result = recomputeAttempt(payload, manifestRows("fire-response"), FIRE_MODULE);
       assert.strictEqual(classifyMismatch(payload, result), "none");
     });
 
@@ -193,8 +206,8 @@ describe("Server side grading", () => {
     });
 
     it("calls a claimed pass the server failed claim_inflation", () => {
-      const payload = fireAttempt({ clientClaimedPassed: true, clientClaimedPercentage: 91.67 });
-      const strictModule = { module_id: "fire-response", pass_threshold: 0.95 };
+      const payload = fireAttempt({ clientClaimedPassed: true, clientClaimedPercentage: 95.83 });
+      const strictModule = { module_id: "fire-response", pass_threshold: 0.97 };
       const result = recomputeAttempt(payload, measuredManifestRows("fire-response"), strictModule);
 
       assert.strictEqual(result.passed, false);

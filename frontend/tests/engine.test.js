@@ -706,7 +706,7 @@ describe("Module Manifest Integration — /api/modules", () => {
     assert.strictEqual(fire.moduleId, "fire-response");
     // four, because the evacuation question is split per AR tier and the offline
     // manifest has to mirror what /api/modules serves
-    assert.strictEqual(fire.requiredCheckpoints.length, 4);
+    assert.strictEqual(fire.requiredCheckpoints.length, 7);
     const evacIds = fire.requiredCheckpoints.map((c) => c.checkpointId).filter((id) => id.startsWith("fire_evacuation"));
     assert.deepStrictEqual(evacIds.sort(), ["fire_evacuation_sequence_marker", "fire_evacuation_sequence_webxr"]);
     assert.strictEqual(fire.passThreshold, 0.7);

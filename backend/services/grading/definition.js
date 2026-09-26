@@ -38,6 +38,8 @@ function parseDefinition(row) {
     "allowed_tracking_sources",
     checkpointId
   );
+  const answerKey = _parseJsonColumn(row.answer_key, "answer_key", checkpointId);
+  const appliesWhen = _parseJsonColumn(row.applies_when, "applies_when", checkpointId);
 
   return {
     moduleId: row.module_id,
@@ -52,6 +54,9 @@ function parseDefinition(row) {
     allowedValues: Array.isArray(allowedValues) ? allowedValues : null,
     forbiddenValues: Array.isArray(forbiddenValues) ? forbiddenValues : [],
     allowedTrackingSources: Array.isArray(trackingSources) ? trackingSources : null,
+
+    answerKey: answerKey && typeof answerKey === "object" ? answerKey : null,
+    appliesWhen: appliesWhen && typeof appliesWhen === "object" ? appliesWhen : null,
 
     anchorId: row.anchor_id === undefined ? null : row.anchor_id,
     maxAngularErrorRad: _number(row.max_angular_error_rad),

@@ -1,4 +1,4 @@
--- SafeAR SQLite schema. Version 4.
+-- SafeAR SQLite schema. Version 6.
 -- Runs on every boot, IF NOT EXISTS keeps it safe to re-run.
 -- Version bump is guarded in db/index.js — an older db on disk is rejected loud, never patched silently.
 --
@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS checkpoint_definition (
   checkpoint_id TEXT NOT NULL,
   checkpoint_type TEXT NOT NULL CHECK (checkpoint_type IN ('aim', 'proximity', 'select')),
   observation_kind TEXT NOT NULL CHECK (observation_kind IN
-    ('selection_single', 'selection_multi', 'spatial_alignment', 'aim_dwell')),
+    ('selection_single', 'selection_multi', 'spatial_alignment', 'aim_dwell', 'selection_sequence')),
 
   -- NULL = lives on every tier. a number pins it to one tier and the manifest
   -- check rejects an attempt that claims the other one.
@@ -75,6 +75,13 @@ CREATE TABLE IF NOT EXISTS checkpoint_definition (
   forbidden_values TEXT,
   -- json array of tracking sources allowed to certify
   allowed_tracking_sources TEXT,
+
+  -- selection_sequence only. json {"by": scenario field, "cases": {value: {"expected", "severity"}}}.
+  -- answer depend on the scenario the server roll from attemptId, so it cannot be one expected_value.
+  answer_key       TEXT,
+  -- json {scenario field: value}. NULL = every scenario. a row that does not apply
+  -- to this attempt's scenario is not required and must not be sent.
+  applies_when     TEXT,
 
   -- spatial_alignment. NULL max_angular_error_rad means nobody has measured this
   -- on a real device yet, so the grader scores it zero instead of guessing.
@@ -170,7 +177,7 @@ CREATE TABLE IF NOT EXISTS checkpoint_result (
   checkpoint_id   TEXT NOT NULL,
   checkpoint_type TEXT NOT NULL CHECK (checkpoint_type IN ('aim', 'proximity', 'select')),
   observation_kind TEXT NOT NULL CHECK (observation_kind IN
-    ('selection_single', 'selection_multi', 'spatial_alignment', 'aim_dwell')),
+    ('selection_single', 'selection_multi', 'spatial_alignment', 'aim_dwell', 'selection_sequence')),
   -- raw observation exactly as it arrived. evidence, never proof, never an answer key.
   observation_json TEXT NOT NULL,
 

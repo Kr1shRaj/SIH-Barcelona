@@ -9,6 +9,7 @@ const {
   positiveInt
 } = require("./primitives");
 const { ValidationError, issuesFromZod, makeIssue, STRUCTURAL, REFERENTIAL } = require("./errors");
+const { scenarioFor, appliesToScenario } = require("../services/grading/scenario");
 
 // payload shapes this build understands. v1.0 let the phone send its own score and
 // is gone on purpose — a server that still speaks it still accepts a forged mark.
@@ -18,7 +19,11 @@ const SUPPORTED_CONTRACT_VERSIONS = new Set(["2.0"]);
 const CHECKPOINT_TYPES = ["aim", "proximity", "select"];
 
 // mirrors the CHECK constraint on checkpoint_definition.observation_kind
-const OBSERVATION_KINDS = ["selection_single", "selection_multi", "spatial_alignment", "aim_dwell"];
+const OBSERVATION_KINDS = ["selection_single", "selection_multi", "spatial_alignment", "aim_dwell", "selection_sequence"];
+
+// a fail-to-learn gate lists every pick. the ui disable a tried option, so no gate
+// the team ship has more options than this
+const MAX_SEQUENCE_TRIES = 8;
 
 // how the phone says it knew where it was pointing. which of these may certify
 // is a per checkpoint decision held in checkpoint_definition, not here.
@@ -73,10 +78,29 @@ const aimDwellObservation = z
   })
   .strict();
 
+// every pick on a fail-to-learn gate in order, with ms since the gate showed
+const selectionSequenceObservation = z
+  .object({
+    kind: z.literal("selection_sequence"),
+    tries: z
+      .array(
+        z
+          .object({
+            selected: z.string().min(1).max(64),
+            atMs: z.number().int().min(0).max(MAX_DURATION_MS)
+          })
+          .strict()
+      )
+      .min(1)
+      .max(MAX_SEQUENCE_TRIES)
+  })
+  .strict();
+
 // raw observation only. no verdict, no score, no weight, no answer key.
 const observationSchema = z.discriminatedUnion("kind", [
   selectionSingleObservation,
   selectionMultiObservation,
+  selectionSequenceObservation,
   spatialAlignmentObservation,
   aimDwellObservation
 ]);
@@ -220,6 +244,15 @@ function _appliesToTier(row, arTier) {
     : Number(row.applies_to_tier) === arTier;
 }
 
+// a definition gated on the scenario only counts when that scenario rolled.
+// a broken applies_when is a server config bug, never a pass
+function _appliesToScenario(row, scenario) {
+  if (row.applies_when === null || row.applies_when === undefined || row.applies_when === "") {
+    return true;
+  }
+  return appliesToScenario(JSON.parse(row.applies_when), scenario);
+}
+
 // layer 2. does this attempt agree with the manifest the server holds.
 // definitions are checkpoint_definition rows as sqlite hands them back, snake_case.
 // caller reads them, this stays free of any db import.
@@ -243,6 +276,9 @@ function checkAgainstManifest(attempt, definitions) {
   const known = new Map(forModule.map((row) => [row.checkpoint_id, row]));
   const sent = new Set(attempt.checkpoints.map((checkpoint) => checkpoint.checkpointId));
   const issues = [];
+
+  // scenario rolled from attemptId, only needed when a row is scenario gated
+  const scenario = forModule.some((row) => row.applies_when) ? scenarioFor(attempt.attemptId) : null;
 
   attempt.checkpoints.forEach((checkpoint, index) => {
     const definition = known.get(checkpoint.checkpointId);
@@ -277,12 +313,23 @@ function checkAgainstManifest(attempt, definitions) {
         )
       );
     }
+
+    if (!_appliesToScenario(definition, scenario)) {
+      issues.push(
+        makeIssue(
+          `checkpoints.${index}.checkpointId`,
+          "checkpoint_scenario_mismatch",
+          `"${checkpoint.checkpointId}" does not happen in the scenario this attempt rolled`
+        )
+      );
+    }
   });
 
   // a completed attempt that skipped a required checkpoint must never certify.
-  // tier pinned rows only count when the attempt actually ran on that tier.
+  // tier pinned rows only count when the attempt actually ran on that tier,
+  // scenario gated rows only when that scenario rolled.
   forModule
-    .filter((row) => row.required === 1 && _appliesToTier(row, attempt.arTier))
+    .filter((row) => row.required === 1 && _appliesToTier(row, attempt.arTier) && _appliesToScenario(row, scenario))
     .forEach((row) => {
       if (!sent.has(row.checkpoint_id)) {
         issues.push(
@@ -313,6 +360,7 @@ module.exports = {
   OBSERVATION_KINDS,
   TRACKING_SOURCES,
   MAX_SELECTION_ITEMS,
+  MAX_SEQUENCE_TRIES,
   MAX_DURATION_MS,
   CLOCK_SKEW_TOLERANCE_MS
 };

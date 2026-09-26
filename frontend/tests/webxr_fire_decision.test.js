@@ -32,6 +32,18 @@ class MockVector3 {
       this.x = q._rotatesTo.x;
       this.y = q._rotatesTo.y;
       this.z = q._rotatesTo.z;
+      return this;
+    }
+    if (q) {
+      const x = this.x, y = this.y, z = this.z;
+      const qx = q.x || 0, qy = q.y || 0, qz = q.z || 0, qw = (q.w !== undefined) ? q.w : 1;
+      const ix = qw * x + qy * z - qz * y;
+      const iy = qw * y + qz * x - qx * z;
+      const iz = qw * z + qx * y - qy * x;
+      const iw = -qx * x - qy * y - qz * z;
+      this.x = ix * qw + iw * -qx + iy * -qz - iz * -qy;
+      this.y = iy * qw + iw * -qy + iz * -qx - ix * -qz;
+      this.z = iz * qw + iw * -qz + ix * -qy - iy * -qx;
     }
     return this;
   }
@@ -89,7 +101,7 @@ class MockGroup {
     this.userData = {};
     this.visible = true;
   }
-  lookAt() {}
+  lookAt(x, y, z) { this._lookAtTarget = { x, y, z }; }
   add(obj) { this.children.push(obj); }
   remove(obj) { this.children = this.children.filter((c) => c !== obj); }
   getObjectByName(name) {
@@ -246,27 +258,36 @@ import {
   _renderDebriefCardWebXR,
   _computePlacementPose,
   _raycastMesh,
+  calcAlarmFallbackPose,
+  calcExtinguishProgress,
+  EXTINGUISH_DURATION_MS,
   _showAimCrosshair,
   _hideAimCrosshair,
+  getExitSignScaleWebXR,
   CP_DECISION_ID,
   DECISION_CHOICES
 } from "../modules/fire-response/webxr_fire_module.js";
+import { startAssessmentSession, abortAssessmentSession } from "../assessment/engine.js";
+import { scenarioFor } from "../modules/fire-response/scenario.js";
+
+// the loader opens the session first, the gas reading is rolled from its attemptId
+const ATTEMPT_ID = "0b5e1a2c-3d4e-4f56-8a7b-9c0d1e2f3a4b";
 
 describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
   beforeEach(() => {
     Object.keys(_elements).forEach((k) => delete _elements[k]);
     Object.keys(_listeners).forEach((k) => delete _listeners[k]);
     cleanupWebXRFireModule();
+    abortAssessmentSession();
+    startAssessmentSession({ moduleId: "fire-response", arTier: 1, attemptId: ATTEMPT_ID });
   });
 
-  it("initializes with generated methane reading when not supplied", () => {
+  it("rolls the methane reading from the session attemptId when not supplied", () => {
     const container = _makeEl("container");
     const mockController = {};
     startFireModuleWebXR(container, mockController);
 
-    const reading = getMethaneReadingWebXR();
-    assert.ok(typeof reading === "number");
-    assert.ok(reading >= 0.5 && reading <= 9.5);
+    assert.strictEqual(getMethaneReadingWebXR(), scenarioFor(ATTEMPT_ID).reading, "server rolls the same reading");
   });
 
   it("respects explicit reading option injected at start", () => {
@@ -280,7 +301,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
   it("advances through 3 subscreens then displays explosion alert and decision wheel", (t, done) => {
     const container = _makeEl("container");
     const mockController = {};
-    startFireModuleWebXR(container, mockController, { reading: 6.8 });
+    startFireModuleWebXR(container, mockController, { reading: 1.8 });
 
     const overlay = document.getElementById("fire-module-overlay");
     assert.ok(overlay, "Overlay must be created");
@@ -310,7 +331,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     setTimeout(() => {
       const decisionPanel = document.getElementById("fire-decision-panel");
       assert.ok(decisionPanel, "Decision panel must be rendered after alert");
-      assert.ok(decisionPanel.innerHTML.includes("6.8% CH₄"));
+      assert.ok(decisionPanel.innerHTML.includes("1.8% VOL"));
 
       const btnEvac = document.getElementById("btn-decision-evacuate");
       const btnExt = document.getElementById("btn-decision-extinguish");
@@ -323,7 +344,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
   it("fires fire_explosion_decision checkpoint matching Tier 2 shape", (t, done) => {
     const container = _makeEl("container");
     const mockController = {};
-    startFireModuleWebXR(container, mockController, { reading: 3.4 });
+    startFireModuleWebXR(container, mockController, { reading: 0.9 });
 
     const checkpointsFired = [];
     window.addEventListener("safear:checkpoint", (ev) => {
@@ -341,7 +362,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     alertOverlay.click();
 
     setTimeout(() => {
-      // 3.4% < 5.0%, so EXTINGUISH is correct
+      // 0.9% < 1.25%, so EXTINGUISH is correct
       const btnExt = document.getElementById("btn-decision-extinguish");
       btnExt.click();
 
@@ -349,10 +370,10 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
       assert.ok(cp, "fire_explosion_decision checkpoint must fire");
       assert.strictEqual(cp.passed, true);
       assert.strictEqual(cp.context.choice, DECISION_CHOICES.EXTINGUISH);
-      assert.strictEqual(cp.context.reading, 3.4);
+      assert.strictEqual(cp.context.reading, 0.9);
       assert.strictEqual(cp.type, "select");
-      assert.strictEqual(cp.observation.kind, "selection_single");
-      assert.strictEqual(cp.observation.selected, DECISION_CHOICES.EXTINGUISH);
+      assert.strictEqual(cp.observation.kind, "selection_sequence");
+      assert.deepStrictEqual(cp.observation.tries.map((x) => x.selected), [DECISION_CHOICES.EXTINGUISH]);
 
       assert.strictEqual(getActiveBranchWebXR(), "suppress");
       done();
@@ -362,7 +383,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
   it("wrong choice blocks progress and displays retry explanation", (t, done) => {
     const container = _makeEl("container");
     const mockController = {};
-    startFireModuleWebXR(container, mockController, { reading: 7.2 });
+    startFireModuleWebXR(container, mockController, { reading: 2.1 });
 
     const checkpointsFired = [];
     window.addEventListener("safear:checkpoint", (ev) => {
@@ -377,16 +398,14 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     document.getElementById("fire-alert-overlay").click();
 
     setTimeout(() => {
-      // 7.2% >= 5.0%, so EXTINGUISH is wrong
+      // 2.1% >= 1.25%, so EXTINGUISH is wrong — and fatal
       const btnExt = document.getElementById("btn-decision-extinguish");
       btnExt.click();
 
-      const cp = checkpointsFired.find((c) => c.checkpointId === CP_DECISION_ID);
-      assert.ok(cp, "fire_explosion_decision checkpoint must fire on wrong attempt");
-      assert.strictEqual(cp.passed, false);
+      assert.ok(!checkpointsFired.some((c) => c.checkpointId === CP_DECISION_ID), "a wrong pick must not advance the gate");
 
       const feedback = document.getElementById("decision-feedback-slot");
-      assert.ok(feedback.innerHTML.includes("INCORRECT SAFETY ACTION"));
+      assert.ok(feedback.innerHTML.includes("FATAL MISTAKE"));
       assert.ok(feedback.innerHTML.includes("btn-decision-retry"));
 
       const retryBtn = document.getElementById("btn-decision-retry");
@@ -397,8 +416,11 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
       const btnEvac = document.getElementById("btn-decision-evacuate");
       btnEvac.click();
 
-      const cpPass = checkpointsFired.filter((c) => c.checkpointId === CP_DECISION_ID && c.passed === true);
-      assert.strictEqual(cpPass.length, 1);
+      // one checkpoint, carrying both tries. the fatal first pick keeps it failed
+      const cps = checkpointsFired.filter((c) => c.checkpointId === CP_DECISION_ID);
+      assert.strictEqual(cps.length, 1);
+      assert.strictEqual(cps[0].passed, false);
+      assert.deepStrictEqual(cps[0].observation.tries.map((x) => x.selected), ["extinguish", "evacuate"]);
       assert.strictEqual(getActiveBranchWebXR(), "evacuate");
       done();
     }, 300);
@@ -407,7 +429,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
   it("diagnostic HUD is present during gas meter, but automatically dismissed when proceeding to next step", (t, done) => {
     const container = _makeEl("container");
     const mockController = {};
-    startFireModuleWebXR(container, mockController, { reading: 2.8 });
+    startFireModuleWebXR(container, mockController, { reading: 0.7 });
 
     const overlay = document.getElementById("fire-module-overlay");
     for (let i = 0; i < 3; i++) {
@@ -441,7 +463,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
   it("diagnostic HUD close button [✕] dismisses HUD immediately", () => {
     const container = _makeEl("container");
     const mockController = {};
-    startFireModuleWebXR(container, mockController, { reading: 4.1 });
+    startFireModuleWebXR(container, mockController, { reading: 1.1 });
 
     const hudEl = document.getElementById("webxr-diag-hud");
     assert.ok(hudEl, "Diagnostic HUD mounted on module start");
@@ -456,7 +478,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
   it("dismissWebXRDiag prevents normal state updates from recreating HUD", () => {
     const container = _makeEl("container");
     const mockController = {};
-    startFireModuleWebXR(container, mockController, { reading: 3.5 });
+    startFireModuleWebXR(container, mockController, { reading: 0.95 });
 
     dismissWebXRDiag();
     assert.strictEqual(isDiagHudVisibleWebXR(), false);
@@ -470,7 +492,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
   it("diagnostic HUD is positioned at top:64px to clear header bar badges", () => {
     const container = _makeEl("container");
     const mockController = {};
-    startFireModuleWebXR(container, mockController, { reading: 2.5 });
+    startFireModuleWebXR(container, mockController, { reading: 0.6 });
 
     const hudEl = document.getElementById("webxr-diag-hud");
     assert.ok(hudEl, "Diagnostic HUD must be present on start");
@@ -480,7 +502,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
   it("mid-session rotation (resize / orientationchange) preserves decision panel, gauge, and state", (t, done) => {
     const container = _makeEl("container");
     const mockController = {};
-    startFireModuleWebXR(container, mockController, { reading: 6.2 });
+    startFireModuleWebXR(container, mockController, { reading: 1.7 });
 
     const overlay = document.getElementById("fire-module-overlay");
     for (let i = 0; i < 3; i++) {
@@ -498,7 +520,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
 
       // panel and options remain intact and functional without resetting
       assert.strictEqual(document.getElementById("fire-decision-panel"), panel);
-      assert.strictEqual(getMethaneReadingWebXR(), 6.2);
+      assert.strictEqual(getMethaneReadingWebXR(), 1.7);
 
       const btnEvac = document.getElementById("btn-decision-evacuate");
       assert.ok(btnEvac);
@@ -524,7 +546,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
       checkpointsFired.push(ev.detail);
     });
 
-    startFireModuleWebXR(container, mockController, { reading: 6.5 });
+    startFireModuleWebXR(container, mockController, { reading: 1.6 });
 
     const overlay = document.getElementById("fire-module-overlay");
     for (let i = 0; i < 3; i++) {
@@ -548,10 +570,11 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
       const hudCard = document.getElementById("fire-hud-card");
       assert.ok(hudCard);
       assert.ok(hudCard.innerHTML.includes("BRANCH A — IMMEDIATE EVACUATION"));
-      assert.ok(hudCard.innerHTML.includes("CRITICAL METHANE LEVEL (>= 5.0%)"));
+      assert.ok(hudCard.innerHTML.includes("METHANE AT WITHDRAWAL LIMIT (>= 1.25%)"));
 
       const btnConfirm = document.getElementById("btn-exit-found");
       assert.ok(btnConfirm);
+      btnConfirm.click();
       btnConfirm.click();
 
       // exit mesh cleaned up
@@ -560,8 +583,11 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
       // verify checkpoints
       const exitCp = checkpointsFired.find((c) => c.checkpointId === "fire_exit_identification");
       assert.ok(exitCp);
-      assert.strictEqual(exitCp.passed, true);
-      assert.strictEqual(exitCp.context.method, "branch_a_evacuate");
+      assert.ok(["branch_a_evacuate", "small_room_fallback", "physical_walk"].includes(exitCp.context.method));
+
+      // no evacuation answer is recorded until the worker gives one
+      assert.ok(!checkpointsFired.some((c) => c.checkpointId === "fire_evacuation_sequence_webxr"), "no evacuation answer may be faked");
+      document.getElementById("evacuation-opt-wind_based_upwind").click();
 
       const evacCp = checkpointsFired.find((c) => c.checkpointId === "fire_evacuation_sequence_webxr");
       assert.ok(evacCp);
@@ -571,7 +597,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
       // debrief card mounted
       const debrief = document.getElementById("debrief-summary-card");
       assert.ok(debrief, "Debrief summary card must be mounted");
-      assert.ok(debrief.innerHTML.includes("6.5% CH₄ (EXPLOSIVE)"));
+      assert.ok(debrief.innerHTML.includes("1.6% CH₄ (WITHDRAW)"));
       assert.ok(debrief.innerHTML.includes("Branch A (Immediate Evacuation)"));
       assert.ok(debrief.innerHTML.includes("N/A (Evacuated Immediately)"));
       assert.ok(debrief.innerHTML.includes("Training feedback"));
@@ -595,7 +621,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
       checkpointsFired.push(ev.detail);
     });
 
-    startFireModuleWebXR(container, mockController, { reading: 2.3 });
+    startFireModuleWebXR(container, mockController, { reading: 0.8 });
 
     const overlay = document.getElementById("fire-module-overlay");
     for (let i = 0; i < 3; i++) {
@@ -626,8 +652,8 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
 
       assert.strictEqual(getAlarmPulledWebXR(), true);
 
-      // alarm mesh cleaned up
-      assert.ok(removedMeshes.some((m) => m.name === "fire-alarm-station"), "3D Alarm station mesh must be removed after pulling");
+      // station stays up for the 1s pull payoff (lever, strobe, siren) before it is cleared
+      assert.ok(!removedMeshes.some((m) => m.name === "fire-alarm-station"), "Alarm station must stay visible during pull payoff");
 
       const exitCp = checkpointsFired.find((c) => c.checkpointId === "fire_exit_identification");
       assert.ok(exitCp);
@@ -635,11 +661,20 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
       assert.strictEqual(exitCp.context.method, "alarm_pull_activated");
 
       setTimeout(() => {
-        // after alarm, transitions to placement screen
+        // alarm mesh cleaned up once payoff is over
+        assert.ok(removedMeshes.some((m) => m.name === "fire-alarm-station"), "3D Alarm station mesh must be removed after pulling");
+        // after alarm, the agent and stance gates come before placement. this roll is a diesel fire
+        assert.ok(document.getElementById("gate-opt-foam"), "gate 2 must ask for the agent after the alarm");
+        assert.strictEqual(document.getElementById("btn-place-extinguisher"), null, "no placement before the gates");
+        document.getElementById("gate-opt-foam").click();
+        document.getElementById("btn-gate-continue").click();
+        document.getElementById("gate-opt-approach_upwind_2_3m").click();
+        document.getElementById("btn-gate-continue").click();
+        // then transitions to placement screen
         const placeBtn = document.getElementById("btn-place-extinguisher");
         assert.ok(placeBtn, "Must transition to extinguisher placement screen after alarm pull");
         done();
-      }, 500);
+      }, 1200);
     }, 300);
   });
 
@@ -659,7 +694,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
       checkpointsFired.push(ev.detail);
     });
 
-    startFireModuleWebXR(container, mockController, { reading: 1.8 });
+    startFireModuleWebXR(container, mockController, { reading: 0.8 });
 
     // direct invocation of Step 3
     _setupStep3WebXR(container, true);
@@ -679,7 +714,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
 
     const debrief = document.getElementById("debrief-summary-card");
     assert.ok(debrief, "Debrief card must render on step 3 completion");
-    assert.ok(debrief.innerHTML.includes("1.8% CH₄ (SAFE/INCIPIENT)"));
+    assert.ok(debrief.innerHTML.includes("0.8% CH₄ (BELOW LIMIT)"));
   });
 
   it("cleanupWebXRFireModule resets all 3D meshes, alarm state, and debrief card", () => {
@@ -692,7 +727,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
       offFrame() {}
     };
 
-    startFireModuleWebXR(container, mockController, { reading: 3.0 });
+    startFireModuleWebXR(container, mockController, { reading: 0.7 });
     _showAlarmPullStationWebXR(container, document.getElementById("fire-module-overlay"), () => {});
     _renderDebriefCardWebXR(document.getElementById("fire-module-overlay"));
 
@@ -773,6 +808,57 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     assert.strictEqual(result.pos.x, 0.5);
     assert.strictEqual(result.pos.y, 1.2);
     assert.strictEqual(result.pos.z, -2.1);
+    assert.ok(result.normal, "Wall surface normal must be returned");
+    assert.strictEqual(Math.round(result.normal.z), 1);
+    assert.strictEqual(result.normal.y, 0);
+  });
+
+  it("_computePlacementPose accepts 4m door when caller raises wall cap, rejects it at default 3.5m", () => {
+    const container = _makeEl("container");
+    const mockHitPose = {
+      transform: {
+        position: { x: 0, y: 2.0, z: -4.0 },
+        orientation: { x: Math.SQRT1_2, y: 0, z: 0, w: Math.SQRT1_2 }
+      }
+    };
+    const mockFrame = { getHitTestResults() { return [{ getPose() { return mockHitPose; } }]; } };
+    const mockController = {
+      hitTestSource: {},
+      getCamera() { return { position: new MockVector3(0, 1.5, 0), quaternion: new MockQuaternion() }; }
+    };
+    startFireModuleWebXR(container, mockController);
+
+    const capped = _computePlacementPose(mockFrame, {}, 2.0, false, 0, 0);
+    assert.strictEqual(capped.isVertical, false, "default cap must still drop far wall hits");
+
+    const far = _computePlacementPose(mockFrame, {}, 2.0, false, 0, 0, 8.0);
+    assert.strictEqual(far.isVertical, true);
+    assert.strictEqual(far.pos.z, -4.0, "sign must land on the door, not 2m ahead");
+  });
+
+  it("calcAlarmFallbackPose puts alarm left-front of viewer, below eye, facing viewer", () => {
+    const { pos, normal } = calcAlarmFallbackPose({ x: 0, y: 1.5, z: 0 }, { x: 0, y: 0, z: 0, w: 1 });
+    assert.ok(Math.abs(pos.x - -0.8) < 1e-9, "0.8m to the left");
+    assert.ok(Math.abs(pos.z - -1.0) < 1e-9, "1.0m forward");
+    assert.ok(Math.abs(pos.y - 1.35) < 1e-9, "just below eye level");
+    // normal must point back at the viewer
+    assert.ok(normal.x > 0 && normal.z > 0);
+
+    // viewer turned 90 deg left (facing -x): left is now +z
+    const yaw = Math.PI / 2;
+    const turned = calcAlarmFallbackPose({ x: 0, y: 1.5, z: 0 }, { x: 0, y: Math.sin(yaw / 2), z: 0, w: Math.cos(yaw / 2) });
+    assert.ok(Math.abs(turned.pos.x - -1.0) < 1e-9);
+    assert.ok(Math.abs(turned.pos.z - 0.8) < 1e-9);
+  });
+
+  it("calcExtinguishProgress needs full 5s spray and full sweep before fire is out", () => {
+    assert.strictEqual(EXTINGUISH_DURATION_MS, 5000);
+    assert.strictEqual(calcExtinguishProgress(0, 1), 0);
+    assert.strictEqual(calcExtinguishProgress(2500, 1), 0.5, "linear in time when sweep is ahead");
+    assert.ok(calcExtinguishProgress(3000, 1) < 1, "old 3s is no longer enough");
+    assert.strictEqual(calcExtinguishProgress(5000, 1), 1);
+    assert.strictEqual(calcExtinguishProgress(10000, 0), 0, "no sweep, fire does not shrink");
+    assert.ok(calcExtinguishProgress(10000, 0.375) === 0.5, "half the required sweep caps at half");
   });
 
   it("_computePlacementPose elevates position when horizontal floor hit detected", () => {
@@ -804,6 +890,9 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     assert.strictEqual(result.pos.x, 0);
     assert.strictEqual(result.pos.y, 1.15);
     assert.strictEqual(result.pos.z, -1.5);
+    assert.ok(result.normal, "Normal facing approaching user must be returned");
+    assert.strictEqual(result.normal.y, 0);
+    assert.strictEqual(Math.round(result.normal.z), 1);
   });
 
   it("_computePlacementPose projects forward along camera gaze when no hit results", () => {
@@ -822,6 +911,9 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     assert.strictEqual(result.pos.x, 1);
     assert.strictEqual(result.pos.y, 1.15); // 1.5 + (-0.35)
     assert.strictEqual(result.pos.z, -3.2); // -2 + (-1.2)
+    assert.ok(result.normal, "Normal facing back along gaze must be returned");
+    assert.strictEqual(result.normal.y, 0);
+    assert.strictEqual(Math.round(result.normal.z), 1);
   });
 
   it("_raycastMesh returns true on direct intersection and false on miss", () => {
@@ -851,7 +943,7 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
       checkpointsFired.push(ev.detail);
     });
 
-    startFireModuleWebXR(container, mockController, { reading: 2.5 });
+    startFireModuleWebXR(container, mockController, { reading: 0.6 });
     const overlay = document.getElementById("fire-module-overlay");
 
     _showAlarmPullStationWebXR(container, overlay, () => {
@@ -873,7 +965,66 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     globalThis.__mockRaycastHitTarget = null;
   });
 
-  it("Branch A: Tapping 3D exit sign directly via raycasting confirms evacuation route", (t, done) => {
+  it("Branch A: Physically walking toward placed exit sign triggers evacuation completion", (t, done) => {
+    const container = _makeEl("container");
+    let addedExitMesh = null;
+    const removedMeshes = [];
+    let activeWalkHandler = null;
+    const mockCamera = { position: new MockVector3(0, 1.5, 0), quaternion: new MockQuaternion() };
+    const mockController = {
+      addToScene(m) {
+        if (m.name === "exit-graphic") addedExitMesh = m;
+      },
+      removeFromScene(m) { removedMeshes.push(m); },
+      onFrame(fn) { activeWalkHandler = fn; },
+      offFrame() { activeWalkHandler = null; },
+      getCamera() { return mockCamera; }
+    };
+
+    const checkpointsFired = [];
+    window.addEventListener("safear:checkpoint", (ev) => {
+      checkpointsFired.push(ev.detail);
+    });
+
+    startFireModuleWebXR(container, mockController, { reading: 1.7 });
+    const overlay = document.getElementById("fire-module-overlay");
+
+    _showEvacuateConfirmationWebXR(container, overlay, 1.7);
+
+    assert.ok(addedExitMesh);
+
+    // simulate tapping screen to lock placement and start walk tracking
+    window.dispatchEvent(new CustomEvent("pointerdown", { detail: { clientX: 200, clientY: 300 } }));
+
+    const walkFeedback = document.getElementById("exit-walk-feedback");
+    assert.ok(walkFeedback, "Walk feedback HUD must be displayed after locking exit route");
+    const distText = document.getElementById("exit-walk-dist-text");
+    assert.ok(distText);
+    assert.ok(distText.textContent.includes("m"));
+
+    // User physically walks forward towards exit sign at (0, 1.8, -1.8)
+    // Distance from (0, 1.5, -1.2) to (0, 1.8, -1.8) is 0.6m in XZ <= 0.8m threshold
+    mockCamera.position.z = -1.2;
+    assert.ok(activeWalkHandler);
+    activeWalkHandler();
+
+    setTimeout(() => {
+      assert.ok(removedMeshes.some((m) => m.name === "exit-graphic"));
+      const exitCp = checkpointsFired.find((c) => c.checkpointId === "fire_exit_identification");
+      assert.ok(exitCp);
+      assert.strictEqual(exitCp.passed, true);
+      assert.ok(!checkpointsFired.some((c) => c.checkpointId === "fire_evacuation_sequence_webxr"), "no evacuation answer may be faked");
+      document.getElementById("evacuation-opt-wind_based_upwind").click();
+      const evacCp = checkpointsFired.find((c) => c.checkpointId === "fire_evacuation_sequence_webxr");
+      assert.ok(evacCp);
+      assert.strictEqual(evacCp.passed, true);
+      const debrief = document.getElementById("debrief-summary-card");
+      assert.ok(debrief, "Debrief summary card must be mounted after physical walk completion");
+      done();
+    }, 100);
+  });
+
+  it("Branch A: Small-room fallback button confirms evacuation when physical walking is restricted", (t, done) => {
     const container = _makeEl("container");
     let addedExitMesh = null;
     const removedMeshes = [];
@@ -892,28 +1043,35 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
       checkpointsFired.push(ev.detail);
     });
 
-    startFireModuleWebXR(container, mockController, { reading: 6.2 });
+    startFireModuleWebXR(container, mockController, { reading: 1.7 });
     const overlay = document.getElementById("fire-module-overlay");
 
-    _showEvacuateConfirmationWebXR(container, overlay, 6.2);
-
+    _showEvacuateConfirmationWebXR(container, overlay, 1.7);
     assert.ok(addedExitMesh);
 
-    // simulate direct tap on 3D exit sign mesh
-    globalThis.__mockRaycastHitTarget = addedExitMesh;
+    // Tap to lock exit sign
     window.dispatchEvent(new CustomEvent("pointerdown", { detail: { clientX: 200, clientY: 300 } }));
-    globalThis.__mockRaycastHitTarget = null;
+
+    const fallbackBtn = document.getElementById("btn-exit-found");
+    assert.ok(fallbackBtn);
+    assert.ok(fallbackBtn.textContent.includes("Restricted") || fallbackBtn.textContent.includes("complete"));
+
+    // Click small-room fallback
+    fallbackBtn.click();
 
     setTimeout(() => {
       assert.ok(removedMeshes.some((m) => m.name === "exit-graphic"));
       const exitCp = checkpointsFired.find((c) => c.checkpointId === "fire_exit_identification");
       assert.ok(exitCp);
       assert.strictEqual(exitCp.passed, true);
+      assert.ok(!checkpointsFired.some((c) => c.checkpointId === "fire_evacuation_sequence_webxr"), "no evacuation answer may be faked");
+      document.getElementById("evacuation-opt-wind_based_upwind").click();
       const evacCp = checkpointsFired.find((c) => c.checkpointId === "fire_evacuation_sequence_webxr");
       assert.ok(evacCp);
       assert.strictEqual(evacCp.passed, true);
+      assert.strictEqual(evacCp.context.branch, "evacuate");
       const debrief = document.getElementById("debrief-summary-card");
-      assert.ok(debrief, "Debrief summary card must be mounted after 3D exit sign tap");
+      assert.ok(debrief, "Debrief summary card must be mounted after fallback button tap");
       done();
     }, 100);
   });
@@ -943,4 +1101,109 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     cleanupWebXRFireModule();
     assert.strictEqual(document.getElementById("webxr-aim-crosshair"), null);
   });
+
+  it("Branch A: Locking exit sign mounts real-time +/- zoom controls and scales placed mesh", () => {
+    const container = _makeEl("container");
+    let addedExitMesh = null;
+    const mockController = {
+      addToScene(m) {
+        if (m.name === "exit-graphic") addedExitMesh = m;
+      },
+      removeFromScene() {},
+      onFrame() {},
+      offFrame() {},
+      getCamera() { return { position: new MockVector3(0, 1.5, 0), quaternion: new MockQuaternion() }; }
+    };
+
+    startFireModuleWebXR(container, mockController, { reading: 1.7 });
+    const overlay = document.getElementById("fire-module-overlay");
+
+    _showEvacuateConfirmationWebXR(container, overlay, 1.7);
+    assert.ok(addedExitMesh);
+
+    // simulate tapping screen to lock the exit sign in place
+    window.dispatchEvent(new CustomEvent("pointerdown", { detail: { clientX: 200, clientY: 300 } }));
+
+    const zoomDiv = document.getElementById("safear-zoom-controls");
+    assert.ok(zoomDiv, "Zoom controls must be mounted once exit sign is placed");
+    const btnIn = document.getElementById("btn-zoom-in");
+    const btnOut = document.getElementById("btn-zoom-out");
+    assert.ok(btnIn, "Zoom In button must be present");
+    assert.ok(btnOut, "Zoom Out button must be present");
+
+    // Initial scale is 1.0
+    assert.strictEqual(getExitSignScaleWebXR(), 1.0);
+
+    // Tap zoom in
+    btnIn.click();
+    assert.strictEqual(Math.round(getExitSignScaleWebXR() * 10) / 10, 1.2);
+    assert.strictEqual(Math.round(addedExitMesh.scale.x * 10) / 10, 1.2);
+
+    // Tap zoom out twice
+    btnOut.click();
+    btnOut.click();
+    assert.strictEqual(Math.round(getExitSignScaleWebXR() * 10) / 10, 0.8);
+    assert.strictEqual(Math.round(addedExitMesh.scale.x * 10) / 10, 0.8);
+
+    cleanupWebXRFireModule();
+    assert.strictEqual(document.getElementById("safear-zoom-controls"), null);
+    assert.strictEqual(getExitSignScaleWebXR(), 1.0);
+  });
+
+  it("Branch A: Exit sign rotates to align flush with detected wall angle in live preview", () => {
+    const container = _makeEl("container");
+    let addedExitMesh = null;
+    let registeredFrameHandler = null;
+    const mockHitPose = {
+      transform: {
+        position: { x: 0.8, y: 1.8, z: -2.0 },
+        // normal rotated 90 deg around X
+        orientation: { x: Math.SQRT1_2, y: 0, z: 0, w: Math.SQRT1_2 }
+      }
+    };
+    const mockFrame = {
+      getHitTestResults() {
+        return [{ getPose() { return mockHitPose; } }];
+      }
+    };
+    const mockController = {
+      hitTestSource: {},
+      addToScene(m) {
+        if (m.name === "exit-graphic") addedExitMesh = m;
+      },
+      removeFromScene() {},
+      onFrame(fn) { registeredFrameHandler = fn; },
+      offFrame() { registeredFrameHandler = null; },
+      getCamera() { return { position: new MockVector3(0, 1.5, 0), quaternion: new MockQuaternion() }; }
+    };
+
+    startFireModuleWebXR(container, mockController, { reading: 1.7 });
+    const overlay = document.getElementById("fire-module-overlay");
+
+    _showEvacuateConfirmationWebXR(container, overlay, 1.7);
+    assert.ok(addedExitMesh);
+    assert.ok(registeredFrameHandler);
+
+    // run frame handler to simulate camera scanning wall
+    registeredFrameHandler({ frame: mockFrame, referenceSpace: {} });
+
+    // exit mesh position set to hit pos
+    assert.strictEqual(addedExitMesh.position.x, 0.8);
+    assert.strictEqual(addedExitMesh.position.y, 1.8);
+    assert.strictEqual(addedExitMesh.position.z, -2.0);
+
+    // exit mesh lookAt called with pos + normal to sit flush with wall
+    assert.ok(addedExitMesh._lookAtTarget);
+    assert.strictEqual(addedExitMesh._lookAtTarget.x, 0.8);
+    assert.strictEqual(addedExitMesh._lookAtTarget.y, 1.8);
+    assert.strictEqual(Math.round(addedExitMesh._lookAtTarget.z), -1); // -2.0 + 1.0 = -1.0 (looking along outward wall normal)
+
+    // locking placement switches from placement preview to walk tracking
+    window.dispatchEvent(new CustomEvent("pointerdown", { detail: { clientX: 200, clientY: 300 } }));
+    assert.ok(registeredFrameHandler);
+    assert.ok(document.getElementById("exit-walk-feedback"));
+
+    cleanupWebXRFireModule();
+  });
 });
+

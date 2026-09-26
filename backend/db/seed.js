@@ -60,6 +60,59 @@ const AIM_PASS_THRESHOLD = 0.6;
 // lifted from fire-response.js SWEEP_MIN_COVERAGE
 const AIM_MIN_SWEEP_COVERAGE = 0.75;
 
+// fire gates only. every gate is life critical: a fatal or critical pick fails the
+// run even when the worker corrects it. team ruling.
+const CRITICAL_GATE = 1;
+
+// methane decision key, one case per scenario methaneLevel. at or above 1.25% CH4
+// (METHANE_WITHDRAWAL_PCT) the worker withdraws. fighting the fire or staying put
+// there is fatal. below it, walking off or waiting is a procedural slip.
+// frontend/modules/fire-response/scenario.js carries the same key for offline
+// feedback, golden_fire_contract.test.js keeps the two in step.
+const FIRE_DECISION_ANSWER_KEY = {
+  by: "methaneLevel",
+  cases: {
+    high: { expected: "evacuate", severity: { extinguish: "fatal", wait: "fatal" } },
+    low: { expected: "extinguish", severity: { evacuate: "procedural", wait: "procedural" } }
+  }
+};
+
+// fuels a worker may fight. a pressurised methane jet is isolated and walked away from
+const FIGHTABLE_FUELS = ["conveyor_coal", "diesel_hydraulic", "electrical_switchgear"];
+
+// checkpoints that only happen below the withdrawal limit
+const SUPPRESS_BRANCH_ONLY = JSON.stringify({ methaneLevel: "low" });
+
+// checkpoints that only happen when the worker actually fights the fire
+const FIGHTING_ONLY = JSON.stringify({ methaneLevel: "low", fuel: FIGHTABLE_FUELS });
+
+// gate 2 key, one case per scenario fuel. expected lists every right agent. team ruling.
+// frontend/modules/fire-response/scenario.js carries the same keys for offline feedback,
+// scenario_parity.test.js keeps them in step.
+const FIRE_GATE_ANSWER_KEYS = {
+  fire_g2_media: {
+    by: "fuel",
+    cases: {
+      conveyor_coal: { expected: ["water", "abc_powder"], severity: { co2: "procedural" } },
+      diesel_hydraulic: { expected: ["foam", "abc_powder"], severity: { water: "fatal" } },
+      electrical_switchgear: { expected: ["co2", "abc_powder"], severity: { water: "fatal", foam: "fatal" } },
+      pressurized_methane: {
+        expected: ["isolate_supply_then_evacuate"],
+        severity: { abc_powder: "fatal", co2: "fatal", water: "fatal", foam: "fatal" }
+      }
+    }
+  },
+  // stance reads the same whichever side the intake is on, so no scenario case
+  fire_g3_stance: {
+    expected: "approach_upwind_2_3m",
+    severity: { approach_downwind: "fatal", under_1m: "critical", over_4m: "procedural" }
+  },
+  fire_g5_post: {
+    expected: "back_away_facing_fire",
+    severity: { turn_and_walk_away: "critical", poke_debris: "procedural" }
+  }
+};
+
 // checkpoint ids and option lists read straight out of the AR modules. these are
 // facts, not choices — they must stay in step with fire-response.js, gas-leak.js
 // and webxr_fire_module.js. the answer keys live here and nowhere on a phone.
@@ -77,7 +130,53 @@ const CHECKPOINT_DEFINITIONS = [
     maxAngularErrorRad: ANGULAR_ERROR_UNMEASURED,
     minFrameCount: FRAME_COUNT_UNMEASURED,
     allowedTrackingSources: CERTIFYING_TRACKING_SOURCES,
-    gradeable: 0
+    gradeable: 0,
+    // team ruling: exit sighting is recorded, not scored, until the angle is
+    // measured on a real phone. optional + ungradeable never blocks a cert.
+    required: 0
+  },
+  {
+    moduleId: "fire-response",
+    checkpointId: "fire_explosion_decision",
+    type: "select",
+    observationKind: "selection_sequence",
+    allowedValues: JSON.stringify(["evacuate", "extinguish", "wait"]),
+    answerKey: JSON.stringify(FIRE_DECISION_ANSWER_KEY),
+    gradeable: 1,
+    critical: CRITICAL_GATE
+  },
+  {
+    moduleId: "fire-response",
+    checkpointId: "fire_g2_media",
+    type: "select",
+    observationKind: "selection_sequence",
+    allowedValues: JSON.stringify(["abc_powder", "co2", "water", "foam", "isolate_supply_then_evacuate"]),
+    answerKey: JSON.stringify(FIRE_GATE_ANSWER_KEYS.fire_g2_media),
+    appliesWhen: SUPPRESS_BRANCH_ONLY,
+    gradeable: 1,
+    critical: CRITICAL_GATE
+  },
+  {
+    moduleId: "fire-response",
+    checkpointId: "fire_g3_stance",
+    type: "select",
+    observationKind: "selection_sequence",
+    allowedValues: JSON.stringify(["approach_upwind_2_3m", "approach_downwind", "under_1m", "over_4m"]),
+    answerKey: JSON.stringify(FIRE_GATE_ANSWER_KEYS.fire_g3_stance),
+    appliesWhen: FIGHTING_ONLY,
+    gradeable: 1,
+    critical: CRITICAL_GATE
+  },
+  {
+    moduleId: "fire-response",
+    checkpointId: "fire_g5_post",
+    type: "select",
+    observationKind: "selection_sequence",
+    allowedValues: JSON.stringify(["back_away_facing_fire", "turn_and_walk_away", "poke_debris"]),
+    answerKey: JSON.stringify(FIRE_GATE_ANSWER_KEYS.fire_g5_post),
+    appliesWhen: FIGHTING_ONLY,
+    gradeable: 1,
+    critical: CRITICAL_GATE
   },
   {
     moduleId: "fire-response",
@@ -90,6 +189,7 @@ const CHECKPOINT_DEFINITIONS = [
     minDwellMs: AIM_DWELL_MS,
     minFrameCount: FRAME_COUNT_UNMEASURED,
     allowedTrackingSources: CERTIFYING_TRACKING_SOURCES,
+    appliesWhen: FIGHTING_ONLY,
     gradeable: 1
   },
   {
@@ -99,6 +199,7 @@ const CHECKPOINT_DEFINITIONS = [
     observationKind: "selection_single",
     expectedValue: JSON.stringify("alarm_pull"),
     allowedValues: JSON.stringify(["alarm_pull"]),
+    appliesWhen: SUPPRESS_BRANCH_ONLY,
     gradeable: 1,
     required: 0
   },
@@ -273,6 +374,7 @@ function seedDatabase(db) {
     `INSERT INTO checkpoint_definition
        (module_id, checkpoint_id, checkpoint_type, observation_kind, applies_to_tier,
         expected_value, allowed_values, forbidden_values, allowed_tracking_sources,
+        answer_key, applies_when,
         anchor_id, max_angular_error_rad,
         max_distance_m, pass_threshold, min_sweep_coverage,
         min_dwell_ms, min_frame_count,
@@ -280,6 +382,7 @@ function seedDatabase(db) {
      VALUES (
         @module_id, @checkpoint_id, @checkpoint_type, @observation_kind, @applies_to_tier,
         @expected_value, @allowed_values, @forbidden_values, @allowed_tracking_sources,
+        @answer_key, @applies_when,
         @anchor_id, @max_angular_error_rad,
         @max_distance_m, @pass_threshold, @min_sweep_coverage,
         @min_dwell_ms, @min_frame_count,
@@ -292,6 +395,8 @@ function seedDatabase(db) {
        allowed_values = excluded.allowed_values,
        forbidden_values = excluded.forbidden_values,
        allowed_tracking_sources = excluded.allowed_tracking_sources,
+       answer_key = excluded.answer_key,
+       applies_when = excluded.applies_when,
        anchor_id = excluded.anchor_id,
        max_angular_error_rad = excluded.max_angular_error_rad,
        max_distance_m = excluded.max_distance_m,
@@ -333,6 +438,8 @@ function seedDatabase(db) {
         forbidden_values: c.forbiddenValues === undefined ? null : c.forbiddenValues,
         allowed_tracking_sources:
           c.allowedTrackingSources === undefined ? null : c.allowedTrackingSources,
+        answer_key: c.answerKey === undefined ? null : c.answerKey,
+        applies_when: c.appliesWhen === undefined ? null : c.appliesWhen,
         anchor_id: c.anchorId === undefined ? null : c.anchorId,
         max_angular_error_rad: c.maxAngularErrorRad === undefined ? null : c.maxAngularErrorRad,
         max_distance_m: c.maxDistanceM === undefined ? null : c.maxDistanceM,
@@ -391,5 +498,8 @@ module.exports = {
   CONTRACTORS,
   MODULES,
   WORKERS,
-  CHECKPOINT_DEFINITIONS
+  CHECKPOINT_DEFINITIONS,
+  FIRE_DECISION_ANSWER_KEY,
+  FIRE_GATE_ANSWER_KEYS,
+  FIGHTABLE_FUELS
 };

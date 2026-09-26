@@ -59,14 +59,12 @@ import {
   buildFireEntity,
   buildExitEntity,
   buildExtinguisherEntity,
-  buildFireClusterEntity,
   buildFireAlarmEntity
 } from "../modules/fire-response/graphics.js";
 
 describe("Phase 2 — 3D Asset Integration & Clustered Fire", () => {
   it("verifies all required GLB asset files exist on disk", () => {
     const requiredModels = [
-      "animated_fire.glb",
       "fire_extinguisher.glb",
       "low_poly_green_running_man_exit_sign.glb",
       "notifier_rsg_t-bar_fire_alarm_pull_station.glb"
@@ -88,31 +86,22 @@ describe("Phase 2 — 3D Asset Integration & Clustered Fire", () => {
     assert.ok(!graphicsCode.includes("electrical_breaker_panel_box"), "Breaker box is unused in fire flow");
   });
 
-  it("buildFireClusterEntity creates 5 varied animated fire instances", () => {
-    const cluster = buildFireClusterEntity();
-    assert.strictEqual(cluster.id, "fire-cluster");
-    assert.ok(cluster.innerHTML.includes("animated_fire.glb"), "Cluster must use animated_fire.glb");
-    assert.ok(cluster.innerHTML.includes("fire-instance-1"));
-    assert.ok(cluster.innerHTML.includes("fire-instance-5"));
-    // check rotation variation
-    assert.ok(cluster.innerHTML.includes('rotation="0 0 0"'));
-    assert.ok(cluster.innerHTML.includes('rotation="0 45 0"'));
-    assert.ok(cluster.innerHTML.includes('rotation="0 110 0"'));
-    assert.ok(cluster.innerHTML.includes('rotation="0 230 0"'));
-    assert.ok(cluster.innerHTML.includes('rotation="0 160 0"'));
-    // check scale variation
-    assert.ok(cluster.innerHTML.includes('scale="1 1 1"') || cluster.innerHTML.includes('scale="1.0 1.0 1.0"'));
-    assert.ok(cluster.innerHTML.includes("0.85"));
-    assert.ok(cluster.innerHTML.includes("1.25"));
+  it("no fire code or offline cache pulls the animated fire model any more: the flames are procedural", () => {
+    ["modules/fire-response/graphics.js", "ar/webxr_render.js", "sw.js"].forEach((rel) => {
+      const code = fs.readFileSync(path.join(FRONTEND_DIR, rel), "utf8");
+      assert.ok(!code.includes("animated_fire.glb"), `${rel} must not reference animated_fire.glb`);
+    });
   });
 
-  it("buildFireEntity attaches fire cluster, scorch decal, embers and reticle", () => {
-    const fire = buildFireEntity();
+  it("buildFireEntity hosts the shared procedural fire, the aim target and the reticle", () => {
+    const fire = buildFireEntity("intake_left");
     assert.strictEqual(fire.id, "fire-graphic");
     assert.strictEqual(fire.getAttribute("data-raycast-target"), "fire");
-    assert.ok(fire.innerHTML.includes("floor-scorch-decal"), "Floor scorch decal must exist");
+    assert.ok(fire.innerHTML.includes('procedural-fire="airflow: intake_left; progress: 0"'), "tier 2 renders the tier 1 fire, drifting with the run's airflow");
     assert.ok(fire.innerHTML.includes("fire-target-base"), "Aim collision cylinder must exist");
-    assert.ok(fire.innerHTML.includes("fire-embers"), "Embers must exist");
+    assert.ok(!fire.innerHTML.includes("gltf-model"), "no fire model download");
+    // anything that is not a known airflow falls back to still air, never into the markup
+    assert.ok(buildFireEntity('x" onload="bad').innerHTML.includes('procedural-fire="airflow: none;'));
     // aim reticle child must be attached
     const aimReticle = fire.children.find((c) => c.id === "aim-reticle");
     assert.ok(aimReticle, "Aim reticle must be appended as child");

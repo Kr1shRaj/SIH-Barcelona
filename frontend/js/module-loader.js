@@ -8,6 +8,7 @@ import {
   getEffectiveWorkerId
 } from "../assessment/engine.js";
 import { isPrerequisiteComplete, isStage2Passed } from "../prerequisite/progress.js";
+import { getLocale } from "./i18n.js";
 
 const logger = createLogger("ModuleLoader");
 
@@ -79,9 +80,11 @@ async function loadModule(moduleId, options = {}) {
     throw new Error("no tier loader set — call setTierLoaders after boot");
   }
 
-  // bind checkpoint listener and initialize assessment session for this module run
+  // bind checkpoint listener and initialize assessment session for this module run.
+  // tier and locale go on the record — left out, a tier 1 run was filed as tier 2
+  // and the server refused its webxr checkpoints
   bindAssessmentSessionListeners();
-  startAssessmentSession({ moduleId });
+  startAssessmentSession({ moduleId, arTier: _sceneLoaders.tier || undefined, locale: getLocale() || undefined });
 
   _activeModule = moduleId;
 

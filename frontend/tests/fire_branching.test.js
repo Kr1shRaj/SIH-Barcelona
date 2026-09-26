@@ -129,6 +129,17 @@ import {
   CP_DECISION_ID,
   DECISION_CHOICES
 } from "../modules/fire-response/fire-response.js";
+import { startAssessmentSession, abortAssessmentSession } from "../assessment/engine.js";
+
+// the loader opens the session first; the fire itself is rolled from its attemptId.
+// 0b5e1a2c rolls a diesel / hydraulic oil fire with fresh air from the right
+const DIESEL_FIRE_ATTEMPT_ID = "0b5e1a2c-3d4e-4f56-8a7b-9c0d1e2f3a4b";
+
+// pass one gate card: the right pick, then continue
+function passGate(choice) {
+  _elements[`gate-opt-${choice}`]?.click();
+  _elements["btn-gate-continue"]?.click();
+}
 
 // helper: collect safear:checkpoint events during callback
 function collectCheckpointEvents(fn) {
@@ -157,13 +168,14 @@ describe("Fire Response Branching Scenario Drill", () => {
     Object.keys(_listeners).forEach((k) => delete _listeners[k]);
     clearCheckpoints();
     cleanupFireModule();
+    startAssessmentSession({ moduleId: "fire-response", attemptId: DIESEL_FIRE_ATTEMPT_ID });
   });
 
   it("initializes module with specified reading and renders decision wheel", () => {
     const container = _makeEl("ar-viewport");
-    startFireModule(container, null, { reading: 6.8 });
+    startFireModule(container, null, { reading: 1.9 });
 
-    assert.strictEqual(getMethaneReading(), 6.8, "reading must equal option reading");
+    assert.strictEqual(getMethaneReading(), 1.9, "reading must equal option reading");
     assert.strictEqual(getCurrentStep(), 1, "step must be 1 on start");
     assert.strictEqual(getActiveBranch(), null, "initial branch must be null");
 
@@ -177,9 +189,9 @@ describe("Fire Response Branching Scenario Drill", () => {
     assert.strictEqual(getMethaneReading(), 5.5, "setMethaneReading updates reading");
   });
 
-  it("Branch A: allows immediate evacuation on high methane (CH4 >= 5.0%) and completes drill", () => {
+  it("Branch A: allows immediate evacuation at the withdrawal limit (CH4 >= 1.25%) and completes drill", () => {
     const container = _makeEl("ar-viewport");
-    startFireModule(container, null, { reading: 7.2 });
+    startFireModule(container, null, { reading: 1.9 });
 
     const events = collectCheckpointEvents(() => {
       // 1. Trainee evaluates monitor and chooses to evacuate
@@ -194,7 +206,7 @@ describe("Fire Response Branching Scenario Drill", () => {
     // verify CP_DECISION_ID fired
     const decisionEv = events.find((e) => e.checkpointId === CP_DECISION_ID);
     assert.ok(decisionEv, "decision checkpoint event must be emitted");
-    assert.strictEqual(decisionEv.passed, true, "evacuate at 7.2% must be correct");
+    assert.strictEqual(decisionEv.passed, true, "evacuate at 1.9% must be correct");
     assert.strictEqual(decisionEv.context.choice, DECISION_CHOICES.EVACUATE);
 
     // 2. Emergency exit confirmation button should appear
@@ -205,80 +217,89 @@ describe("Fire Response Branching Scenario Drill", () => {
       btnExit.click();
     });
 
-    // verify CP_EXIT_ID and CP_EVACUATION_ID were fired
+    // exit sighting fires, but the evacuation answer is never recorded for the worker
     assert.ok(completeEvents.some((e) => e.checkpointId === CP_EXIT_ID), "exit cp must fire");
-    assert.ok(completeEvents.some((e) => e.checkpointId === CP_EVACUATION_ID), "evacuation cp must fire");
+    assert.ok(!completeEvents.some((e) => e.checkpointId === CP_EVACUATION_ID), "no evacuation answer may be faked");
+
+    // the worker answers the evacuation question themselves
+    clickThroughSubscreens();
+    const btnEvac = _elements["evacuation-opt-sound_alarm_then_evacuate"];
+    assert.ok(btnEvac, "branch A must still ask the evacuation question");
+    const evacEvents = collectCheckpointEvents(() => btnEvac.click());
+    const evacEv = evacEvents.find((e) => e.checkpointId === CP_EVACUATION_ID);
+    assert.ok(evacEv, "evacuation cp fires on the worker pick");
+    assert.strictEqual(evacEv.observation.selected, "sound_alarm_then_evacuate");
 
     // debrief summary card must be present
     assert.ok(_elements["debrief-summary-card"], "debrief card must be rendered");
   });
 
-  it("Wrong Choice: premature evacuation on low methane (CH4 < 5.0%) is rejected in favor of suppression", () => {
+  it("Wrong Choice: premature evacuation below the withdrawal limit (CH4 < 1.25%) is rejected in favor of suppression", () => {
     const container = _makeEl("ar-viewport");
-    startFireModule(container, null, { reading: 1.8 });
+    startFireModule(container, null, { reading: 0.8 });
 
     const events = collectCheckpointEvents(() => {
       _elements["btn-decision-evacuate"]?.click();
     });
 
     assert.notStrictEqual(getActiveBranch(), "evacuate", "cannot activate evacuate on low methane");
-    const decisionEv = events.find((e) => e.checkpointId === CP_DECISION_ID);
-    assert.strictEqual(decisionEv.passed, false, "evacuating on low methane is incorrect per protocol");
+    assert.ok(!events.some((e) => e.checkpointId === CP_DECISION_ID), "a wrong pick blocks the gate, the checkpoint waits for the right one");
     assert.ok(_elements["btn-decision-retry"], "retry button must be displayed");
   });
 
-  it("Wrong Choice: blocks suppression drill when methane is explosive (CH4 >= 5.0%)", () => {
+  it("Wrong Choice: blocks suppression drill at the withdrawal limit (CH4 >= 1.25%)", () => {
     const container = _makeEl("ar-viewport");
-    startFireModule(container, null, { reading: 8.4 });
+    startFireModule(container, null, { reading: 2.4 });
 
     const events = collectCheckpointEvents(() => {
       _elements["btn-decision-extinguish"]?.click();
     });
 
     // should NOT set branch to suppress
-    assert.notStrictEqual(getActiveBranch(), "suppress", "must NOT activate suppress branch on 8.4%");
-
-    // decision checkpoint should be recorded as failed
-    const decisionEv = events.find((e) => e.checkpointId === CP_DECISION_ID);
-    assert.ok(decisionEv, "decision event must fire");
-    assert.strictEqual(decisionEv.passed, false, "attempting fire suppression at 8.4% must fail");
+    assert.notStrictEqual(getActiveBranch(), "suppress", "must NOT activate suppress branch on 2.4%");
+    assert.ok(!events.some((e) => e.checkpointId === CP_DECISION_ID), "wrong pick must not advance the gate");
 
     // retry button must appear
     const retryBtn = _elements["btn-decision-retry"];
     assert.ok(retryBtn, "retry button must be displayed");
     retryBtn.click();
 
-    // trainee now picks evacuate
-    _elements["btn-decision-evacuate"]?.click();
+    // trainee now picks evacuate. the gate fires once, carrying the fatal first try
+    const fixEvents = collectCheckpointEvents(() => {
+      _elements["btn-decision-evacuate"]?.click();
+    });
     assert.strictEqual(getActiveBranch(), "evacuate");
+    const decisionEv = fixEvents.find((e) => e.checkpointId === CP_DECISION_ID);
+    assert.ok(decisionEv, "decision event fires on the right pick");
+    assert.strictEqual(decisionEv.passed, false, "fighting the fire at 2.4% was fatal, the fix does not erase it");
+    assert.deepStrictEqual(decisionEv.observation.tries.map((x) => x.selected), ["extinguish", "evacuate"]);
   });
 
   it("Wrong Choice: waiting is never an acceptable protocol", () => {
     const container = _makeEl("ar-viewport");
-    startFireModule(container, null, { reading: 2.5 });
+    startFireModule(container, null, { reading: 0.9 });
 
     const events = collectCheckpointEvents(() => {
       _elements["btn-decision-wait"]?.click();
     });
 
     assert.strictEqual(getActiveBranch(), null, "waiting does not select branch");
-    const decisionEv = events.find((e) => e.checkpointId === CP_DECISION_ID);
-    assert.strictEqual(decisionEv.passed, false, "waiting must fail");
+    assert.ok(!events.some((e) => e.checkpointId === CP_DECISION_ID), "waiting never advances the gate");
     assert.ok(_elements["btn-decision-retry"], "retry button must exist");
   });
 
   it("Branch B: requires pull alarm first, then PASS drill and post-extinguish evacuation", () => {
     const container = _makeEl("ar-viewport");
-    startFireModule(container, null, { reading: 2.2 });
+    startFireModule(container, null, { reading: 0.8 });
 
-    // 1. Choose suppression drill (valid since 2.2% < 5.0%)
+    // 1. Choose suppression drill (valid since 0.8% < 1.25%)
     const decisionEvents = collectCheckpointEvents(() => {
       _elements["btn-decision-extinguish"]?.click();
     });
 
     assert.strictEqual(getActiveBranch(), "suppress", "suppress branch activated");
     const decEv = decisionEvents.find((e) => e.checkpointId === CP_DECISION_ID);
-    assert.strictEqual(decEv.passed, true, "extinguish decision is valid for 2.2%");
+    assert.strictEqual(decEv.passed, true, "extinguish decision is valid for 0.8%");
 
     // 2. Alarm pull station should be rendered first
     assert.strictEqual(getAlarmPulled(), false, "alarm not yet pulled");
@@ -292,6 +313,19 @@ describe("Fire Response Branching Scenario Drill", () => {
 
     assert.strictEqual(getAlarmPulled(), true, "alarm must be pulled");
     assert.ok(alarmEvents.some((e) => e.checkpointId === CP_ALARM_ID), "alarm cp must fire on pull");
+
+    // gates 2 and 3 before the drill: a wrong agent first, then foam; then the upwind stance
+    assert.ok(!_elements["extinguisher-pin"], "no extinguisher before the agent gate");
+    const gateEvents = collectCheckpointEvents(() => {
+      _elements["gate-opt-water"]?.click();
+      passGate("foam");
+      passGate("approach_upwind_2_3m");
+    });
+    const agentGate = gateEvents.find((e) => e.checkpointId === "fire_g2_media");
+    assert.ok(agentGate, "agent gate fires once the right agent is picked");
+    assert.deepStrictEqual(agentGate.observation.tries.map((x) => x.selected), ["water", "foam"]);
+    assert.strictEqual(agentGate.passed, false, "water on burning oil is fatal even after the fix");
+    assert.ok(gateEvents.some((e) => e.checkpointId === "fire_g3_stance" && e.passed === true));
 
     // 4. Extinguisher PASS step 2: Pull pin
     const pin = _elements["extinguisher-pin"];
@@ -322,6 +356,10 @@ describe("Fire Response Branching Scenario Drill", () => {
 
     assert.ok(passEvents.some((e) => e.checkpointId === CP_EXTINGUISHER_ID), "PASS extinguisher CP must fire");
 
+    // gate 5 before the evacuation question
+    assert.ok(!_elements["evacuation-opt-sound_alarm_then_evacuate"], "no evacuation before the post-fire gate");
+    passGate("back_away_facing_fire");
+
     // 5. Mandatory post-extinguish evacuation in Step 3
     clickThroughSubscreens();
     const btnEvac = _elements["evacuation-opt-sound_alarm_then_evacuate"];
@@ -336,13 +374,40 @@ describe("Fire Response Branching Scenario Drill", () => {
     // 6. Debrief summary card verification
     const debrief = _elements["debrief-summary-card"];
     assert.ok(debrief, "debrief card must be present");
-    assert.ok(debrief.innerHTML.includes("2.2% CH₄"), "debrief must include 2.2% CH4 reading");
+    assert.ok(debrief.innerHTML.includes("0.8% CH₄"), "debrief must include 0.8% CH4 reading");
     assert.ok(debrief.innerHTML.includes("Branch B"), "debrief must indicate Branch B");
+  });
+
+  it("a pressurised gas jet is isolated and walked away from: no drill, straight to evacuation", () => {
+    abortAssessmentSession();
+    // f6623a9b rolls 0.9% CH4 and a pressurised methane jet
+    startAssessmentSession({ moduleId: "fire-response", attemptId: "f6623a9b-7c1d-4e2f-9a3b-5c6d7e8f9a0b" });
+    const container = _makeEl("ar-viewport");
+    startFireModule(container, null);
+
+    _elements["btn-decision-extinguish"]?.click();
+    _elements["btn-pull-alarm"]?.click();
+    const events = collectCheckpointEvents(() => {
+      _elements["gate-opt-co2"]?.click();
+      passGate("isolate_supply_then_evacuate");
+    });
+
+    const agentGate = events.find((e) => e.checkpointId === "fire_g2_media");
+    assert.strictEqual(agentGate.passed, false, "putting out a gas jet without isolating it is fatal");
+    assert.strictEqual(getActiveBranch(), "isolate");
+    assert.ok(!_elements["gate-opt-approach_upwind_2_3m"], "no stance gate: the fire is not fought");
+    assert.ok(!_elements["extinguisher-pin"], "no extinguisher drill on a gas jet");
+
+    clickThroughSubscreens();
+    const btnEvac = _elements["evacuation-opt-sound_alarm_then_evacuate"];
+    assert.ok(btnEvac, "evacuation question follows the isolation");
+    btnEvac.click();
+    assert.ok(_elements["debrief-summary-card"].innerHTML.includes("Gas Isolation"));
   });
 
   it("cleanupFireModule resets branch state and clears all overlay elements", () => {
     const container = _makeEl("ar-viewport");
-    startFireModule(container, null, { reading: 3.1 });
+    startFireModule(container, null, { reading: 1.1 });
 
     _elements["btn-decision-extinguish"]?.click();
     assert.strictEqual(getActiveBranch(), "suppress");

@@ -3,17 +3,22 @@ import { registerCheckpoint, fireCheckpointResult } from "../../ar/interactions.
 import { unloadModule } from "../../js/module-loader.js";
 import { t } from "../../js/i18n.js";
 import {
-  createFireMesh, animateFireMesh,
+  createFireMesh, animateFireMesh, setFireAirflow,
   createExtinguisherMesh, animateExtinguisherMesh,
   createExitSignMesh, animateExitSignMesh,
   createAlarmStationMesh, animateAlarmStationMesh,
-  calcFireOffsetPosition
+  calcFireOffsetPosition,
+  triggerAlarmPullVisual, ALARM_PULL_PAYOFF_MS,
+  createRouteChevronStrip, layoutRouteChevronStrip, scrollRouteChevronStrip,
+  createExitBeacon, animateExitBeacon,
+  createConfettiBurst, animateConfettiBurst
 } from "../../ar/webxr_render.js";
+import { vibrate, playSiren, playLockBlip } from "../../js/sfx.js";
 import {
   calcDragDistance, isPinPullComplete,
   calcRaycastAimAccuracy,
   evaluateGazeAimProgress,
-  isSqueezeComplete, calcMotionSweepCoverage, isSweepComplete,
+  isSqueezeComplete, calcMotionSweepCoverage, isSweepComplete, SWEEP_MIN_COVERAGE,
   AIM_PASS_THRESHOLD, FIRE_BASE_MAX_DISTANCE_3D,
   CP_EXIT_ID, CP_EXTINGUISHER_ID, CP_EVACUATION_WEBXR_ID, EXIT_ANCHOR_ID
 } from "./fire-response.js";
@@ -21,15 +26,18 @@ import { selectionSingle, aimDwell, spatialAlignment } from "../../assessment/ob
 import {
   renderAlertFlash,
   renderGasGaugeSvg,
-  generateMethaneReading,
+  scenarioForRun,
+  methaneReadingForRun,
   isCorrectDecision,
   getDecisionExplanation,
   renderDecisionWheel,
   CP_DECISION_ID,
   DECISION_CHOICES,
-  METHANE_EXPLOSIVE_THRESHOLD,
+  METHANE_WITHDRAWAL_THRESHOLD,
   initOrientationNudge
 } from "./decision.js";
+import { renderGateCard, isFlameTipAim } from "./gates.js";
+import { startFireAudio } from "../../js/sfx.js";
 
 const logger = createLogger("FireModuleWebXR");
 
@@ -37,6 +45,14 @@ const logger = createLogger("FireModuleWebXR");
 let _currentStep = 0;
 let _controller = null;
 let _fireMesh = null;
+// fire bed audio while the fire burns, null when silent or no web audio
+let _fireAudio = null;
+
+// fade the fire bed out and forget it
+function _stopFireAudio() {
+  if (_fireAudio) _fireAudio.stop();
+  _fireAudio = null;
+}
 let _extMesh = null;
 let _exitMesh = null;
 let _alarmMesh = null;
@@ -49,10 +65,20 @@ let _placementScreenTap = null;
 let _placementConfirmedHandler = null;
 let _alarmPlacementFrameHandler = null;
 let _exitPlacementFrameHandler = null;
+let _exitWalkFrameHandler = null;
 let _alarmPointerTapHandler = null;
 let _exitPointerTapHandler = null;
-let _step3ExitTapHandler = null;
 let _interactionState = null;
+let _routeStrip = null;
+let _confetti = null;
+let _alarmPayoffTimer = null;
+let _drillBadgeTimer = null;
+// where drill-complete confetti burst (exit sign spot in branch a)
+let _celebrationFocus = null;
+
+// reticle ring circumferences (svg r=16 dwell, r=21 sweep)
+const RETICLE_DWELL_C = 2 * Math.PI * 16;
+const RETICLE_SWEEP_C = 2 * Math.PI * 21;
 
 // show center screen crosshair for aiming and raycasting
 function _showAimCrosshair(container) {
@@ -62,13 +88,17 @@ function _showAimCrosshair(container) {
     crosshair = document.createElement("div");
     crosshair.id = "webxr-aim-crosshair";
     crosshair.innerHTML = `
-      <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="16" cy="16" r="10" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-dasharray="3 3"/>
-        <circle cx="16" cy="16" r="2.2" fill="#2f9e63"/>
-        <line x1="16" y1="2" x2="16" y2="7" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
-        <line x1="16" y1="25" x2="16" y2="30" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
-        <line x1="2" y1="16" x2="7" y2="16" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
-        <line x1="25" y1="16" x2="30" y2="16" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
+      <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <circle cx="24" cy="24" r="10" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-dasharray="3 3"/>
+        <circle id="webxr-reticle-dwell" class="reticle-dwell" cx="24" cy="24" r="16" stroke="#facc15" stroke-width="2.5"
+          stroke-linecap="round" stroke-dasharray="${RETICLE_DWELL_C.toFixed(2)}" stroke-dashoffset="${RETICLE_DWELL_C.toFixed(2)}" transform="rotate(-90 24 24)"/>
+        <circle id="webxr-reticle-sweep" class="reticle-sweep" cx="24" cy="24" r="21" stroke="#06b6d4" stroke-width="2"
+          stroke-linecap="round" stroke-dasharray="${RETICLE_SWEEP_C.toFixed(2)}" stroke-dashoffset="${RETICLE_SWEEP_C.toFixed(2)}" transform="rotate(-90 24 24)"/>
+        <circle class="reticle-core" cx="24" cy="24" r="2.2" fill="#2f9e63"/>
+        <line x1="24" y1="10" x2="24" y2="15" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="24" y1="33" x2="24" y2="38" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="10" y1="24" x2="15" y2="24" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="33" y1="24" x2="38" y2="24" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
       </svg>
     `;
     const targetParent = container || document.getElementById("fire-module-overlay") || document.body;
@@ -77,6 +107,37 @@ function _showAimCrosshair(container) {
     }
   }
   crosshair.style.display = "flex";
+}
+
+// fill ring 0..1 by shrinking dash offset
+function _setReticleRing(id, circumference, progress) {
+  if (typeof document === "undefined") return;
+  const ring = document.getElementById(id);
+  if (!ring || typeof ring.setAttribute !== "function") return;
+  const p = Math.max(0, Math.min(1, Number(progress) || 0));
+  ring.setAttribute("stroke-dashoffset", (circumference * (1 - p)).toFixed(2));
+}
+
+// aim dwell ring around crosshair
+function _setReticleDwell(progress) {
+  _setReticleRing("webxr-reticle-dwell", RETICLE_DWELL_C, progress);
+}
+
+// sweep coverage arc around crosshair
+function _setReticleSweep(progress) {
+  _setReticleRing("webxr-reticle-sweep", RETICLE_SWEEP_C, progress);
+}
+
+// lock-on: shrink, go green, one buzz + blip
+function _setReticleLocked() {
+  if (typeof document === "undefined") return;
+  const crosshair = document.getElementById("webxr-aim-crosshair");
+  if (!crosshair || !crosshair.classList || typeof crosshair.classList.add !== "function") return;
+  if (typeof crosshair.classList.contains === "function" && crosshair.classList.contains("reticle-locked")) return;
+  crosshair.classList.add("reticle-locked");
+  _setReticleDwell(1);
+  vibrate(10);
+  playLockBlip();
 }
 
 // remove center screen crosshair
@@ -110,11 +171,52 @@ function _raycastMesh(event, targetMesh) {
   return Array.isArray(hits) && hits.length > 0;
 }
 
-// find wall or floor spot from xr hit test or look straight ahead
-function _computePlacementPose(frame, referenceSpace, defaultDist, elevateIfFloor, floorElevateY, camYOffset = 0) {
+// up-component of hit surface normal from hit orientation quaternion
+function _hitNormalY(q) {
+  if (!q) return 1;
+  const hx = Number(q.x) || 0;
+  const hz = Number(q.z) || 0;
+  return 1 - 2 * (hx * hx + hz * hz);
+}
+
+// find wall or floor spot and normal from xr hit test or look straight ahead
+function _computePlacementPose(frame, referenceSpace, defaultDist = 2.0, elevateIfFloor = false, floorElevateY = 0, camYOffset = 0, maxWallDist = 3.5) {
   const THREE = typeof window !== "undefined" && window.THREE;
   let hitPos = null;
   let isVertical = false;
+  let normal = null;
+  let camPos = { x: 0, y: 1.5, z: 0 };
+  let camQuat = { x: 0, y: 0, z: 0, w: 1 };
+
+  if (_controller && typeof _controller.getViewerPosition === "function") {
+    const vp = _controller.getViewerPosition();
+    if (vp) camPos = { x: vp.x, y: vp.y, z: vp.z };
+  } else {
+    const camera = _controller && _controller.getCamera ? _controller.getCamera() : null;
+    if (camera && camera.position) camPos = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+  }
+
+  if (_controller && typeof _controller.getViewerQuaternion === "function") {
+    const vq = _controller.getViewerQuaternion();
+    if (vq) camQuat = { x: vq.x, y: vq.y, z: vq.z, w: vq.w };
+  } else {
+    const camera = _controller && _controller.getCamera ? _controller.getCamera() : null;
+    if (camera && camera.quaternion) camQuat = { x: camera.quaternion.x, y: camera.quaternion.y, z: camera.quaternion.z, w: camera.quaternion.w };
+  }
+
+  let fwd = null;
+  if (THREE && THREE.Vector3) {
+    fwd = new THREE.Vector3(0, 0, -1);
+    if (THREE.Quaternion) {
+      const q = new THREE.Quaternion(camQuat.x, camQuat.y, camQuat.z, camQuat.w);
+      fwd.applyQuaternion(q);
+    } else {
+      const qx = camQuat.x || 0, qy = camQuat.y || 0, qz = camQuat.z || 0, qw = (camQuat.w !== undefined) ? camQuat.w : 1;
+      fwd.x = -2 * (qx * qz + qw * qy);
+      fwd.y = 2 * (qw * qx - qy * qz);
+      fwd.z = 2 * (qx * qx + qy * qy) - 1;
+    }
+  }
 
   if (frame && _controller && _controller.hitTestSource && referenceSpace) {
     try {
@@ -125,21 +227,44 @@ function _computePlacementPose(frame, referenceSpace, defaultDist, elevateIfFloo
           const hp = hitPose.transform.position;
           const hq = hitPose.transform.orientation;
 
-          let normalY = 1.0;
+          let surfaceNormal = null;
           if (hq) {
             const hx = Number(hq.x) || 0;
+            const hy = Number(hq.y) || 0;
             const hz = Number(hq.z) || 0;
-            normalY = 1 - 2 * (hx * hx + hz * hz);
+            const hw = (hq.w !== undefined && hq.w !== null) ? Number(hq.w) : 1;
+            surfaceNormal = {
+              x: 2 * (hx * hy - hw * hz),
+              y: 1 - 2 * (hx * hx + hz * hz),
+              z: 2 * (hy * hz + hw * hx)
+            };
           }
 
-          // vertical wall or door if normal Y near zero
-          if (Math.abs(normalY) < 0.5) {
-            isVertical = true;
-            hitPos = { x: hp.x, y: hp.y, z: hp.z };
-          } else if (elevateIfFloor) {
-            hitPos = { x: hp.x, y: hp.y + floorElevateY, z: hp.z };
-          } else {
-            hitPos = { x: hp.x, y: hp.y, z: hp.z };
+          if (surfaceNormal) {
+            const ny = surfaceNormal.y !== undefined ? surfaceNormal.y : 1;
+            const isVert = Math.abs(ny) < 0.70;
+            const hitDist = Math.hypot(hp.x - camPos.x, hp.z - camPos.z);
+
+            if (isVert && (hitDist <= maxWallDist || !frame)) {
+              isVertical = true;
+              hitPos = { x: hp.x, y: hp.y, z: hp.z };
+              const len = Math.hypot(surfaceNormal.x, surfaceNormal.z) || 1;
+              let wallNx = surfaceNormal.x / len;
+              let wallNz = surfaceNormal.z / len;
+              const toCamX = camPos.x - hp.x;
+              const toCamZ = camPos.z - hp.z;
+              if (wallNx * toCamX + wallNz * toCamZ < 0) {
+                wallNx = -wallNx;
+                wallNz = -wallNz;
+              }
+              normal = { x: wallNx, y: 0, z: wallNz };
+            } else if (elevateIfFloor && hitDist <= 3.5) {
+              hitPos = { x: hp.x, y: hp.y + floorElevateY, z: hp.z };
+              const toCamX = camPos.x - hp.x;
+              const toCamZ = camPos.z - hp.z;
+              const len = Math.hypot(toCamX, toCamZ) || 1;
+              normal = { x: toCamX / len, y: 0, z: toCamZ / len };
+            }
           }
         }
       }
@@ -149,33 +274,32 @@ function _computePlacementPose(frame, referenceSpace, defaultDist, elevateIfFloo
   }
 
   if (!hitPos) {
-    const camera = _controller && _controller.getCamera ? _controller.getCamera() : null;
-    if (camera && THREE && THREE.Vector3) {
-      const fwd = new THREE.Vector3(0, 0, -1);
-      if (camera.quaternion && fwd.applyQuaternion) {
-        fwd.applyQuaternion(camera.quaternion);
-      }
-      fwd.y = 0;
-      fwd.normalize();
-      const dist = defaultDist || 1.2;
-      const camY = camera.position ? camera.position.y : 1.5;
+    if (fwd) {
+      const dist = defaultDist || 2.0;
+      const camY = camPos.y !== undefined ? camPos.y : 1.5;
       hitPos = {
-        x: (camera.position ? camera.position.x : 0) + fwd.x * dist,
-        y: camY + camYOffset,
-        z: (camera.position ? camera.position.z : 0) + fwd.z * dist
+        x: (camPos.x || 0) + fwd.x * dist,
+        y: camY + fwd.y * dist + camYOffset,
+        z: (camPos.z || 0) + fwd.z * dist
       };
+      const lenH = Math.hypot(fwd.x, fwd.z) || 1;
+      normal = { x: -fwd.x / lenH, y: 0, z: -fwd.z / lenH };
     } else {
-      hitPos = { x: 0, y: floorElevateY || 0, z: -(defaultDist || 1.2) };
+      hitPos = { x: 0, y: floorElevateY || 0, z: -(defaultDist || 2.0) };
+      normal = { x: 0, y: 0, z: 1 };
     }
   }
 
-  return { pos: hitPos, isVertical };
+  return { pos: hitPos, isVertical, normal };
 }
 
 // keep frame loop ticking all active 3d models
 function _ensureFrameHandler() {
   if (_frameHandler || !_controller || typeof _controller.onFrame !== "function") return;
   _frameHandler = ({ deltaMs }) => {
+    if (_fireMesh && _fireMesh.userData) {
+      _fireMesh.userData.sprayHitting = Boolean(_extMesh && _extMesh.userData && _extMesh.userData._discharging);
+    }
     if (_fireMesh) animateFireMesh(_fireMesh, deltaMs);
     if (_extMesh) {
       let targetPos = _extMesh.userData ? _extMesh.userData.targetWorldPos : null;
@@ -188,13 +312,18 @@ function _ensureFrameHandler() {
       }
       animateExtinguisherMesh(_extMesh, deltaMs, false, targetPos);
     }
-    if (_exitMesh) animateExitSignMesh(_exitMesh, deltaMs);
+    if (_exitMesh && (!_exitMesh.userData || !_exitMesh.userData.isLocked)) animateExitSignMesh(_exitMesh, deltaMs);
     if (_alarmMesh) animateAlarmStationMesh(_alarmMesh, deltaMs);
+    if (_confetti && !animateConfettiBurst(_confetti, deltaMs)) {
+      if (_controller && typeof _controller.removeFromScene === "function") _controller.removeFromScene(_confetti);
+      _confetti = null;
+    }
   };
   _controller.onFrame(_frameHandler);
 }
 
-// hazard decision state
+// hazard decision state. _scenario is rolled from the attemptId at start
+let _scenario = null;
 let _methaneReading = null;
 let _decisionMade = null;
 let _currentBranch = null;
@@ -308,6 +437,44 @@ function _initDiagErrorTraps() {
 
 // zoom state
 let _zoomScale = 1.0;
+let _exitSignScale = 1.0;
+// door can be far down corridor, accept wall hit this far for exit sign
+const EXIT_MAX_WALL_DIST_M = 8.0;
+// full powder discharge time before fire count as out
+const EXTINGUISH_DURATION_MS = 5000;
+// no wall found, alarm sit left-front of worker
+const ALARM_FALLBACK_LEFT_M = 0.8;
+const ALARM_FALLBACK_FWD_M = 1.0;
+const ALARM_BELOW_EYE_M = 0.15;
+
+// no wall hit: put alarm left-front of viewer, face viewer
+function calcAlarmFallbackPose(camPos, camQuat) {
+  const qx = camQuat.x || 0, qy = camQuat.y || 0, qz = camQuat.z || 0, qw = camQuat.w !== undefined ? camQuat.w : 1;
+  let fx = -2 * (qx * qz + qw * qy);
+  let fz = 2 * (qx * qx + qy * qy) - 1;
+  const len = Math.hypot(fx, fz) || 1;
+  fx /= len;
+  fz /= len;
+  // left of forward (fx, fz) is (fz, -fx)
+  const pos = {
+    x: camPos.x + fx * ALARM_FALLBACK_FWD_M + fz * ALARM_FALLBACK_LEFT_M,
+    y: camPos.y - ALARM_BELOW_EYE_M,
+    z: camPos.z + fz * ALARM_FALLBACK_FWD_M - fx * ALARM_FALLBACK_LEFT_M
+  };
+  const toCamX = camPos.x - pos.x;
+  const toCamZ = camPos.z - pos.z;
+  const nLen = Math.hypot(toCamX, toCamZ) || 1;
+  return { pos, normal: { x: toCamX / nLen, y: 0, z: toCamZ / nLen } };
+}
+
+// fire shrink only as fast as both spray time and sweep allow
+function calcExtinguishProgress(elapsedMs, sweepCoverage, durationMs = EXTINGUISH_DURATION_MS) {
+  const byTime = Math.max(0, elapsedMs) / durationMs;
+  const bySweep = Math.max(0, sweepCoverage) / SWEEP_MIN_COVERAGE;
+  return Math.min(1, byTime, bySweep);
+}
+const MIN_EXIT_SCALE = 0.5;
+const MAX_EXIT_SCALE = 2.0;
 const BASE_EXT_SCALE = 0.35;
 const BASE_FIRE_SCALE = 0.35;
 let _zoomControlsEl = null;
@@ -334,26 +501,70 @@ function getZoomScaleWebXR() {
   return _zoomScale;
 }
 
-// create floating zoom in/out controls
-function _setupZoomControls() {
-  if (_zoomControlsEl || typeof document === "undefined") return;
+// scale placed exit sign within sane bounds
+function setExitSignScaleWebXR(targetScale) {
+  _exitSignScale = Math.max(MIN_EXIT_SCALE, Math.min(MAX_EXIT_SCALE, Number(targetScale) || 1.0));
+  if (_exitMesh) {
+    _exitMesh.scale.set(_exitSignScale, _exitSignScale, _exitSignScale);
+  }
+  return _exitSignScale;
+}
+
+// read current exit sign scale
+function getExitSignScaleWebXR() {
+  return _exitSignScale;
+}
+
+// remove zoom buttons and pinch listeners
+function _teardownZoomControls() {
+  if (_zoomControlsEl && _zoomControlsEl.parentNode) {
+    _zoomControlsEl.parentNode.removeChild(_zoomControlsEl);
+    _zoomControlsEl = null;
+  }
+  if (_touchZoomHandler && typeof window !== "undefined") {
+    window.removeEventListener("touchstart", _touchZoomHandler.start);
+    window.removeEventListener("touchmove", _touchZoomHandler.move);
+    window.removeEventListener("touchend", _touchZoomHandler.end);
+    _touchZoomHandler = null;
+  }
+}
+
+// spawn floating zoom buttons and pinch tracker
+function _setupZoomControls(options = {}) {
+  if (typeof document === "undefined") return;
+  const target = (options && options.target) || "extinguisher";
+  if (_zoomControlsEl) {
+    _teardownZoomControls();
+  }
   const zoomDiv = document.createElement("div");
   zoomDiv.id = "safear-zoom-controls";
   zoomDiv.style.cssText = "position:fixed;top:64px;right:16px;z-index:150;display:flex;flex-direction:column;gap:6px;pointer-events:auto;";
 
   const btnIn = document.createElement("button");
   btnIn.id = "btn-zoom-in";
-  btnIn.title = "Zoom In";
+  btnIn.title = target === "exit" ? "Scale Exit Sign Up" : "Zoom In";
   btnIn.style.cssText = "background:transparent !important;border:none !important;outline:none !important;box-shadow:none !important;color:#fff;font-size:1.5rem;font-weight:bold;cursor:pointer;padding:6px;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);line-height:1;";
   btnIn.textContent = "🔍 +";
-  btnIn.addEventListener("click", () => setZoomScaleWebXR(_zoomScale + 0.2));
+  btnIn.addEventListener("click", () => {
+    if (target === "exit") {
+      setExitSignScaleWebXR(_exitSignScale + 0.2);
+    } else {
+      setZoomScaleWebXR(_zoomScale + 0.2);
+    }
+  });
 
   const btnOut = document.createElement("button");
   btnOut.id = "btn-zoom-out";
-  btnOut.title = "Zoom Out";
+  btnOut.title = target === "exit" ? "Scale Exit Sign Down" : "Zoom Out";
   btnOut.style.cssText = "background:transparent !important;border:none !important;outline:none !important;box-shadow:none !important;color:#fff;font-size:1.5rem;font-weight:bold;cursor:pointer;padding:6px;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);line-height:1;";
   btnOut.textContent = "🔍 −";
-  btnOut.addEventListener("click", () => setZoomScaleWebXR(_zoomScale - 0.2));
+  btnOut.addEventListener("click", () => {
+    if (target === "exit") {
+      setExitSignScaleWebXR(_exitSignScale - 0.2);
+    } else {
+      setZoomScaleWebXR(_zoomScale - 0.2);
+    }
+  });
 
   zoomDiv.appendChild(btnIn);
   zoomDiv.appendChild(btnOut);
@@ -367,7 +578,7 @@ function _setupZoomControls() {
           const t0 = e.touches[0];
           const t1 = e.touches[1];
           _pinchStartDist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
-          _pinchStartScale = _zoomScale;
+          _pinchStartScale = target === "exit" ? _exitSignScale : _zoomScale;
         }
       },
       move: (e) => {
@@ -377,7 +588,11 @@ function _setupZoomControls() {
           const currentDist = Math.hypot(t0.clientX - t1.clientX, t0.clientY - t1.clientY);
           if (_pinchStartDist > 10) {
             const factor = currentDist / _pinchStartDist;
-            setZoomScaleWebXR(_pinchStartScale * factor);
+            if (target === "exit") {
+              setExitSignScaleWebXR(_pinchStartScale * factor);
+            } else {
+              setZoomScaleWebXR(_pinchStartScale * factor);
+            }
           }
         }
       },
@@ -400,6 +615,24 @@ function getCurrentStepWebXR() {
 
 // clean up all webxr fire module state
 function cleanupWebXRFireModule() {
+  if (_alarmPayoffTimer) {
+    clearTimeout(_alarmPayoffTimer);
+    _alarmPayoffTimer = null;
+  }
+  if (_drillBadgeTimer) {
+    clearTimeout(_drillBadgeTimer);
+    _drillBadgeTimer = null;
+  }
+  if (typeof document !== "undefined") {
+    const badge = document.getElementById("drill-complete-badge");
+    if (badge && typeof badge.remove === "function") badge.remove();
+  }
+  _removeRouteStrip();
+  _celebrationFocus = null;
+  if (_confetti && _controller && typeof _controller.removeFromScene === "function") {
+    _controller.removeFromScene(_confetti);
+  }
+  _confetti = null;
   if (_frameHandler && _controller) {
     _controller.offFrame(_frameHandler);
     _frameHandler = null;
@@ -433,6 +666,10 @@ function cleanupWebXRFireModule() {
     _controller.offFrame(_exitPlacementFrameHandler);
     _exitPlacementFrameHandler = null;
   }
+  if (_exitWalkFrameHandler && _controller && typeof _controller.offFrame === "function") {
+    _controller.offFrame(_exitWalkFrameHandler);
+    _exitWalkFrameHandler = null;
+  }
   if (_alarmPointerTapHandler && typeof window !== "undefined") {
     window.removeEventListener("pointerdown", _alarmPointerTapHandler);
     window.removeEventListener("click", _alarmPointerTapHandler);
@@ -443,22 +680,9 @@ function cleanupWebXRFireModule() {
     window.removeEventListener("click", _exitPointerTapHandler);
     _exitPointerTapHandler = null;
   }
-  if (_step3ExitTapHandler && typeof window !== "undefined") {
-    window.removeEventListener("pointerdown", _step3ExitTapHandler);
-    window.removeEventListener("click", _step3ExitTapHandler);
-    _step3ExitTapHandler = null;
-  }
-  if (_zoomControlsEl && _zoomControlsEl.parentNode) {
-    _zoomControlsEl.parentNode.removeChild(_zoomControlsEl);
-    _zoomControlsEl = null;
-  }
-  if (_touchZoomHandler && typeof window !== "undefined") {
-    window.removeEventListener("touchstart", _touchZoomHandler.start);
-    window.removeEventListener("touchmove", _touchZoomHandler.move);
-    window.removeEventListener("touchend", _touchZoomHandler.end);
-    _touchZoomHandler = null;
-  }
+  _teardownZoomControls();
   _zoomScale = 1.0;
+  _exitSignScale = 1.0;
   if (_fireMesh && _controller && typeof _controller.removeFromScene === "function") {
     _controller.removeFromScene(_fireMesh);
     _fireMesh = null;
@@ -485,6 +709,8 @@ function cleanupWebXRFireModule() {
     _alertStrobe = null;
   }
   _methaneReading = null;
+  _scenario = null;
+  _stopFireAudio();
   _decisionMade = null;
   _currentBranch = null;
 
@@ -611,12 +837,18 @@ function _setupStep1WebXR(container) {
       }
     }
 
+    // lowest flat hit seen = floor, table sit higher
+    let floorY = null;
+
     // preview extinguisher sitting on detected surface while scanning
     if (_controller && typeof _controller.onFrame === "function") {
       _scanFrameHandler = () => {
         if (placed) return;
         if (_controller._lastHitPose && _controller.state === "surface_found") {
           const hp = _controller._lastHitPose.transform.position;
+          if (_hitNormalY(_controller._lastHitPose.transform.orientation) > 0.75) {
+            floorY = floorY === null ? hp.y : Math.min(floorY, hp.y);
+          }
           if (_extMesh) {
             _extMesh.visible = true;
             _extMesh.position.set(hp.x, hp.y, hp.z);
@@ -668,7 +900,8 @@ function _setupStep1WebXR(container) {
         _placementConfirmedHandler = null;
       }
 
-      const finalPos = pos || { x: 0, y: -0.45, z: -1.20 };
+      const finalPos = { ...(pos || { x: 0, y: -0.45, z: -1.20 }) };
+      if (floorY !== null) finalPos.y = floorY;
       logger.info({ event: "extinguisher_placed", position: finalPos }, "Extinguisher placed on surface");
       _updateWebXRDiag("Extinguisher Placed on Surface -> Ready for Step 2");
 
@@ -684,12 +917,13 @@ function _setupStep1WebXR(container) {
         _extMesh.scale.set(s, s, s);
       }
 
-      // spawn fire 1.8m in front
+      // spawn fire on floor 2m in front of worker, not 2m past extinguisher
       const THREE = typeof window !== "undefined" && window.THREE;
       let firePos;
+      const vp = _controller && _controller.getViewerPosition ? _controller.getViewerPosition() : null;
       if (THREE && viewerQuat) {
         const q = new THREE.Quaternion(viewerQuat.x, viewerQuat.y, viewerQuat.z, viewerQuat.w);
-        const p = new THREE.Vector3(finalPos.x, finalPos.y, finalPos.z);
+        const p = vp ? new THREE.Vector3(vp.x, finalPos.y, vp.z) : new THREE.Vector3(finalPos.x, finalPos.y, finalPos.z);
         firePos = calcFireOffsetPosition(p, q);
       }
       if (!firePos) {
@@ -699,6 +933,14 @@ function _setupStep1WebXR(container) {
       _fireMesh = createFireMesh();
       if (_fireMesh && _controller) {
         _fireMesh.position.set(firePos.x, firePos.y, firePos.z);
+        // turn the fire to face the worker so "downwind" in the room matches gate 3's words
+        if (THREE && viewerQuat && THREE.Euler) {
+          const q = new THREE.Quaternion(viewerQuat.x, viewerQuat.y, viewerQuat.z, viewerQuat.w);
+          _fireMesh.rotation.y = new THREE.Euler().setFromQuaternion(q, "YXZ").y;
+        }
+        setFireAirflow(_fireMesh, _scenario && _scenario.airflow);
+        _stopFireAudio();
+        _fireAudio = startFireAudio();
         const s = BASE_FIRE_SCALE * _zoomScale;
         _fireMesh.scale.set(s, s, s);
         _controller.addToScene(_fireMesh);
@@ -827,12 +1069,30 @@ function _setupStep1WebXR(container) {
       });
     } else {
       _triggerHazardDecisionPhase(container, overlay, () => {
-        showPlacementScreen();
+        _runSuppressionGatesWebXR(container, showPlacementScreen);
       });
     }
   }
 
   renderCurrentSubscreen();
+}
+
+// gate 2 picks the agent. a gas jet is isolated and walked away from; any other
+// fire gets gate 3 (stance) and then the placement + PASS drill
+function _runSuppressionGatesWebXR(container, onFight) {
+  renderGateCard(container, "fire_g2_media", _scenario, ({ choice }) => {
+    if (choice === "isolate_supply_then_evacuate") {
+      _currentBranch = "isolate";
+      _setupStep3WebXR(container, true, { reason: "isolated" });
+      return;
+    }
+    renderGateCard(container, "fire_g3_stance", _scenario, () => onFight());
+  });
+}
+
+// gate 5 after the flames are out, then the evacuation question
+function _runPostSuppressionGateWebXR(container, passed) {
+  renderGateCard(container, "fire_g5_post", _scenario, () => _setupStep3WebXR(container, passed));
 }
 
 // strobe emergency flash then show gas gauge wheel
@@ -861,7 +1121,7 @@ function _showDecisionWheelStep(container, overlay, onExtinguishProceed) {
     if (overlay) overlay.innerHTML = "";
 
     if (_methaneReading === null || typeof _methaneReading !== "number") {
-      _methaneReading = generateMethaneReading();
+      _methaneReading = methaneReadingForRun();
     }
 
     // append to viewport container rather than overlay to avoid transform clipping
@@ -937,12 +1197,20 @@ function _showAlarmPullStationWebXR(container, overlay, onDone) {
   if (_controller && typeof _controller.onFrame === "function") {
     _alarmPlacementFrameHandler = ({ frame, referenceSpace }) => {
       if (alarmPlaced || !_alarmMesh) return;
-      const { pos, isVertical } = _computePlacementPose(frame, referenceSpace, 1.2, true, 1.15, -0.35);
+      const hit = _computePlacementPose(frame, referenceSpace, 1.2, false, 0, 0);
+      let pose = hit;
+      if (!hit.isVertical) {
+        const vp = _controller.getViewerPosition ? _controller.getViewerPosition() : null;
+        const vq = _controller.getViewerQuaternion ? _controller.getViewerQuaternion() : null;
+        pose = calcAlarmFallbackPose(vp || { x: 0, y: 1.5, z: 0 }, vq || { x: 0, y: 0, z: 0, w: 1 });
+      }
+      const isVertical = hit.isVertical;
+      const { pos, normal } = pose;
       if (pos && _alarmMesh.position && _alarmMesh.position.set) {
         _alarmMesh.position.set(pos.x, pos.y, pos.z);
-        const camera = _controller.getCamera ? _controller.getCamera() : null;
-        if (camera && camera.position && typeof _alarmMesh.lookAt === "function") {
-          _alarmMesh.lookAt(camera.position.x, _alarmMesh.position.y, camera.position.z);
+        // +z face point out of wall, flush against it
+        if (normal && typeof _alarmMesh.lookAt === "function") {
+          _alarmMesh.lookAt(pos.x + normal.x, pos.y, pos.z + normal.z);
         }
       }
       const statusEl = document.getElementById("alarm-status-hint");
@@ -995,14 +1263,18 @@ function _showAlarmPullStationWebXR(container, overlay, onDone) {
       })
     );
 
-    if (_alarmMesh && _controller && typeof _controller.removeFromScene === "function") {
-      _controller.removeFromScene(_alarmMesh);
-      _alarmMesh = null;
-    }
-
-    setTimeout(() => {
+    // payoff: lever drop, ring green, strobe, siren; then clear station and move on
+    triggerAlarmPullVisual(_alarmMesh);
+    playSiren(ALARM_PULL_PAYOFF_MS);
+    vibrate([60, 40, 60]);
+    _alarmPayoffTimer = setTimeout(() => {
+      _alarmPayoffTimer = null;
+      if (_alarmMesh && _controller && typeof _controller.removeFromScene === "function") {
+        _controller.removeFromScene(_alarmMesh);
+        _alarmMesh = null;
+      }
       if (typeof onDone === "function") onDone();
-    }, 350);
+    }, ALARM_PULL_PAYOFF_MS);
   };
 
   const handleAlarmTap = (e) => {
@@ -1017,6 +1289,10 @@ function _showAlarmPullStationWebXR(container, overlay, onDone) {
 
     if (!alarmPlaced) {
       alarmPlaced = true;
+      if (_alarmMesh) {
+        if (!_alarmMesh.userData) _alarmMesh.userData = {};
+        _alarmMesh.userData.isLocked = true;
+      }
       if (_alarmPlacementFrameHandler && _controller && typeof _controller.offFrame === "function") {
         _controller.offFrame(_alarmPlacementFrameHandler);
         _alarmPlacementFrameHandler = null;
@@ -1044,7 +1320,7 @@ function _showAlarmPullStationWebXR(container, overlay, onDone) {
     hudCard.innerHTML = `
       <div class="hud-eyebrow">🔔 STEP 1 / 3 — SOUND ALARM (BRANCH B)</div>
       <div class="hud-title">Pull Fire Alarm Station</div>
-      <div class="hud-instruction">Methane is below 5.0% LEL. Before attacking the fire with an extinguisher, sound the mine section alarm to alert all miners!</div>
+      <div class="hud-instruction">${t("fire.alarm_desc_low", "Methane is below the 1.25% withdrawal limit. Before attacking the fire with an extinguisher, sound the mine section alarm to alert all miners!")}</div>
       <div id="alarm-status-hint" style="margin:0.4rem 0 0.5rem 0;font-size:0.92rem;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">
         ${t("fire.alarm_wall_hint", "Aim at wall/door and tap screen to mount alarm, or tap 3D model directly to pull.")}
       </div>
@@ -1058,6 +1334,47 @@ function _showAlarmPullStationWebXR(container, overlay, onDone) {
     btn.addEventListener("click", triggerPull);
     overlay.appendChild(btn);
   }
+}
+
+// check physical walk toward placed exit sign
+function checkEvacuationPhysicalExit(userPos, signPos, wallNormal, options = {}) {
+  const proximityThreshold = typeof options.proximityThreshold === "number" ? options.proximityThreshold : 0.80;
+  const crossingThreshold = typeof options.crossingThreshold === "number" ? options.crossingThreshold : 0.10;
+  const lateralTolerance = typeof options.lateralTolerance === "number" ? options.lateralTolerance : 1.20;
+
+  const uX = (userPos && typeof userPos.x === "number") ? userPos.x : 0;
+  const uZ = (userPos && typeof userPos.z === "number") ? userPos.z : 0;
+  const sX = (signPos && typeof signPos.x === "number") ? signPos.x : 0;
+  const sZ = (signPos && typeof signPos.z === "number") ? signPos.z : 0;
+
+  const dx = uX - sX;
+  const dz = uZ - sZ;
+  const horizontalDist = Math.hypot(dx, dz);
+
+  let crossed = false;
+  if (wallNormal && (wallNormal.x !== 0 || wallNormal.z !== 0)) {
+    const len = Math.hypot(wallNormal.x, wallNormal.z) || 1;
+    const nx = wallNormal.x / len;
+    const nz = wallNormal.z / len;
+
+    // signed distance from sign along outward wall normal
+    const dotNormal = dx * nx + dz * nz;
+    // lateral distance perpendicular to wall normal in horizontal plane
+    const dotLateral = Math.abs(dx * (-nz) + dz * nx);
+
+    if (dotNormal <= crossingThreshold && dotLateral <= lateralTolerance) {
+      crossed = true;
+    }
+  }
+
+  const reached = horizontalDist <= proximityThreshold || crossed;
+
+  return {
+    distance: horizontalDist,
+    reached,
+    crossed,
+    threshold: proximityThreshold
+  };
 }
 
 // show exit sign in 3d and confirm run path
@@ -1077,47 +1394,94 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
 
   let exitPlaced = false;
   let confirmed = false;
+  let lastNormal = { x: 0, y: 0, z: 1 };
+  let _placedSignPos = null;
+  let _placedWallNormal = null;
+  let _initialWalkDist = 2.0;
+
   _showAimCrosshair(container);
 
   if (!_exitMesh && _controller && typeof _controller.addToScene === "function") {
     _exitMesh = createExitSignMesh({ position: { x: 0, y: 1.8, z: -1.8 } });
     if (_exitMesh) {
+      if (_exitSignScale !== 1.0) {
+        _exitMesh.scale.set(_exitSignScale, _exitSignScale, _exitSignScale);
+      }
       _controller.addToScene(_exitMesh);
       _ensureFrameHandler();
     }
   }
 
+  let _lastSmoothedExitPos = null;
+  let _lastSmoothedExitNormal = null;
+  // hit test drop a frame, keep sign at last wall depth, not snap to 2m
+  let _lastWallDist = 2.0;
+
   // live preview frame handler: detect door/wall or project forward
   if (_controller && typeof _controller.onFrame === "function") {
     _exitPlacementFrameHandler = ({ frame, referenceSpace }) => {
       if (exitPlaced || !_exitMesh) return;
-      const { pos, isVertical } = _computePlacementPose(frame, referenceSpace, 1.8, true, 1.80, 0.30);
+      const { pos, isVertical, normal } = _computePlacementPose(frame, referenceSpace, _lastWallDist, false, 0, 0.0, EXIT_MAX_WALL_DIST_M);
+      if (normal) lastNormal = normal;
+      if (isVertical && pos) {
+        const vp = _controller.getViewerPosition ? _controller.getViewerPosition() : null;
+        const d = vp ? Math.hypot(pos.x - vp.x, pos.z - vp.z) : 0;
+        if (d > 0.3) _lastWallDist = d;
+      }
       if (pos && _exitMesh.position && _exitMesh.position.set) {
-        _exitMesh.position.set(pos.x, pos.y, pos.z);
-        const camera = _controller.getCamera ? _controller.getCamera() : null;
-        if (camera && camera.position && typeof _exitMesh.lookAt === "function") {
-          _exitMesh.lookAt(camera.position.x, _exitMesh.position.y, camera.position.z);
+        if (!_lastSmoothedExitPos) {
+          _lastSmoothedExitPos = { x: pos.x, y: pos.y, z: pos.z };
+        } else {
+          _lastSmoothedExitPos.x += (pos.x - _lastSmoothedExitPos.x) * 0.45;
+          _lastSmoothedExitPos.y += (pos.y - _lastSmoothedExitPos.y) * 0.45;
+          _lastSmoothedExitPos.z += (pos.z - _lastSmoothedExitPos.z) * 0.45;
+        }
+        _exitMesh.position.set(_lastSmoothedExitPos.x, _lastSmoothedExitPos.y, _lastSmoothedExitPos.z);
+
+        if (normal) {
+          if (!_lastSmoothedExitNormal) {
+            _lastSmoothedExitNormal = { x: normal.x, y: 0, z: normal.z };
+          } else {
+            _lastSmoothedExitNormal.x += (normal.x - _lastSmoothedExitNormal.x) * 0.45;
+            _lastSmoothedExitNormal.z += (normal.z - _lastSmoothedExitNormal.z) * 0.45;
+          }
+          const nLen = Math.hypot(_lastSmoothedExitNormal.x, _lastSmoothedExitNormal.z) || 1;
+          const nx = _lastSmoothedExitNormal.x / nLen;
+          const nz = _lastSmoothedExitNormal.z / nLen;
+          if (typeof _exitMesh.lookAt === "function") {
+            _exitMesh.lookAt(_lastSmoothedExitPos.x + nx, _lastSmoothedExitPos.y, _lastSmoothedExitPos.z + nz);
+          }
+        } else {
+          const camera = _controller.getCamera ? _controller.getCamera() : null;
+          if (camera && camera.position && typeof _exitMesh.lookAt === "function") {
+            _exitMesh.lookAt(camera.position.x, _exitMesh.position.y, camera.position.z);
+          }
         }
       }
       const statusEl = document.getElementById("exit-status-hint");
       if (statusEl && isVertical && !statusEl.dataset.wallDetected) {
         statusEl.dataset.wallDetected = "true";
         statusEl.style.color = "#2f9e63";
-        statusEl.textContent = t("fire.exit_door_found", "Door/wall surface detected! Tap screen or exit sign to lock.");
+        statusEl.textContent = t("fire.exit_door_found", "Door/wall surface detected! Tap button or screen to anchor.");
       }
     };
     _controller.onFrame(_exitPlacementFrameHandler);
   }
 
-  const confirmEvac = () => {
+  const confirmEvac = (opts = {}) => {
     if (confirmed) return;
     confirmed = true;
     exitPlaced = true;
     _hideAimCrosshair();
+    _teardownZoomControls();
 
     if (_exitPlacementFrameHandler && _controller && typeof _controller.offFrame === "function") {
       _controller.offFrame(_exitPlacementFrameHandler);
       _exitPlacementFrameHandler = null;
+    }
+    if (_exitWalkFrameHandler && _controller && typeof _controller.offFrame === "function") {
+      _controller.offFrame(_exitWalkFrameHandler);
+      _exitWalkFrameHandler = null;
     }
     if (_exitPointerTapHandler && typeof window !== "undefined") {
       window.removeEventListener("pointerdown", _exitPointerTapHandler);
@@ -1129,11 +1493,13 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
       _controller.removeFromScene(_exitMesh);
       _exitMesh = null;
     }
+    _removeRouteStrip();
 
+    const method = (opts && opts.method) || "branch_a_evacuate";
     fireCheckpointResult(
       CP_EXIT_ID,
       true,
-      { method: "branch_a_evacuate", measured: false, reading },
+      { method, measured: false, reading },
       spatialAlignment({
         anchorId: EXIT_ANCHOR_ID,
         angularErrorRad: null,
@@ -1142,37 +1508,177 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
         trackingSource: "webxr_pose"
       })
     );
-    fireCheckpointResult(
-      CP_EVACUATION_WEBXR_ID,
-      true,
-      { selected: "wind_based_upwind", branch: "evacuate", reading },
-      typeof selectionSingle === "function" ? selectionSingle("wind_based_upwind") : null
-    );
-    _showCompletionWebXR(overlay, container, true);
+    // the worker still answers the evacuation question — never record an answer they did not give
+    _setupStep3WebXR(container, true, { reason: "withdraw" });
+  };
+
+  const lockPlacementAndStartWalk = () => {
+    if (exitPlaced) return;
+    exitPlaced = true;
+    _hideAimCrosshair();
+    if (_exitPlacementFrameHandler && _controller && typeof _controller.offFrame === "function") {
+      _controller.offFrame(_exitPlacementFrameHandler);
+      _exitPlacementFrameHandler = null;
+    }
+
+    if (_exitMesh) {
+      if (!_exitMesh.userData) _exitMesh.userData = {};
+      _exitMesh.userData.isLocked = true;
+    }
+
+    _placedSignPos = {
+      x: _exitMesh ? _exitMesh.position.x : 0,
+      y: _exitMesh ? _exitMesh.position.y : 1.8,
+      z: _exitMesh ? _exitMesh.position.z : -2.0
+    };
+    _placedWallNormal = lastNormal || { x: 0, y: 0, z: 1 };
+    _celebrationFocus = { ..._placedSignPos };
+
+    // light beacon on sign + green chevron route on floor
+    if (_exitMesh && typeof _exitMesh.add === "function") {
+      const beacon = createExitBeacon();
+      if (beacon) {
+        beacon.visible = true;
+        _exitMesh.add(beacon);
+      }
+    }
+    if (!_routeStrip && _controller && typeof _controller.addToScene === "function") {
+      _routeStrip = createRouteChevronStrip();
+      if (_routeStrip) _controller.addToScene(_routeStrip);
+    }
+
+    let camPos = { x: 0, y: 1.5, z: 0 };
+    if (_controller && typeof _controller.getViewerPosition === "function") {
+      const vp = _controller.getViewerPosition();
+      if (vp) camPos = { x: vp.x, y: vp.y, z: vp.z };
+    } else {
+      const camera = _controller && _controller.getCamera ? _controller.getCamera() : null;
+      if (camera && camera.position) camPos = { x: camera.position.x, y: camera.position.y, z: camera.position.z };
+    }
+    const initDx = camPos.x - _placedSignPos.x;
+    const initDz = camPos.z - _placedSignPos.z;
+    _initialWalkDist = Math.max(0.81, Math.min(EXIT_MAX_WALL_DIST_M, Math.hypot(initDx, initDz)));
+
+    _setupZoomControls({ target: "exit" });
+
+    const statusEl = document.getElementById("exit-status-hint");
+    if (statusEl) {
+      statusEl.style.color = "#2f9e63";
+      statusEl.textContent = t("fire.exit_walk_hint", "✔ Route locked! Physically walk toward doorway to evacuate.");
+    }
+
+    const walkFeedback = document.getElementById("exit-walk-feedback");
+    if (walkFeedback) {
+      walkFeedback.style.display = "block";
+    }
+    const distText = document.getElementById("exit-walk-dist-text");
+    if (distText) {
+      distText.textContent = `${_initialWalkDist.toFixed(1)}m`;
+    }
+
+    const btn = document.getElementById("btn-exit-found");
+    if (btn) {
+      btn.textContent = t("fire.exit_fallback_btn", "🚪 Small Room / Obstacle? Tap to complete");
+      btn.style.background = "#334155";
+      btn.style.color = "#f1f5f9";
+      btn.style.border = "1px solid #64748b";
+      btn.style.boxShadow = "none";
+    }
+
+    _updateWebXRDiag("Exit Sign Locked -> Walk Toward Door (<= 0.8m)");
+
+    let _recentWalkSamples = [];
+    let _lastSpeedCalcTime = 0;
+    let _currentWalkingSpeed = 0;
+    let _routeFrom = null;
+
+    if (_controller && typeof _controller.onFrame === "function") {
+      _exitWalkFrameHandler = (frameInfo = {}) => {
+        if (confirmed || !exitPlaced || !_exitMesh) return;
+        const frameDeltaMs = frameInfo.deltaMs || 16;
+        let currentPos = null;
+        if (_controller && typeof _controller.getViewerPosition === "function") {
+          currentPos = _controller.getViewerPosition();
+        } else {
+          const currentCam = _controller && _controller.getCamera ? _controller.getCamera() : null;
+          if (currentCam && currentCam.position) currentPos = currentCam.position;
+        }
+        if (!currentPos) return;
+
+        const res = checkEvacuationPhysicalExit(currentPos, _placedSignPos, _placedWallNormal);
+        const now = Date.now();
+
+        // re-lay route only after 0.25m of walking; scroll every frame
+        if (_routeStrip) {
+          if (!_routeFrom || Math.hypot(currentPos.x - _routeFrom.x, currentPos.z - _routeFrom.z) > 0.25) {
+            _routeFrom = { x: currentPos.x, z: currentPos.z };
+            const doorFloor = {
+              x: _placedSignPos.x + _placedWallNormal.x * 0.35,
+              z: _placedSignPos.z + _placedWallNormal.z * 0.35
+            };
+            // ponytail: floor guessed as 1.3m below phone (0 on local-floor); pass tracked floor y if scan phase ever feeds branch a
+            layoutRouteChevronStrip(_routeStrip, _routeFrom, doorFloor, Math.min(0, (currentPos.y || 0) - 1.3));
+          }
+          scrollRouteChevronStrip(_routeStrip, frameDeltaMs);
+        }
+        const beacon = _exitMesh && typeof _exitMesh.getObjectByName === "function" ? _exitMesh.getObjectByName("exit-beacon") : null;
+        if (beacon) animateExitBeacon(beacon, frameDeltaMs, res.distance);
+
+        _recentWalkSamples.push({ t: now, d: res.distance });
+        _recentWalkSamples = _recentWalkSamples.filter(s => now - s.t <= 1200);
+
+        if (_recentWalkSamples.length >= 2 && now - _lastSpeedCalcTime >= 200) {
+          _lastSpeedCalcTime = now;
+          const s0 = _recentWalkSamples[0];
+          const sLatest = _recentWalkSamples[_recentWalkSamples.length - 1];
+          const dtSec = (sLatest.t - s0.t) / 1000;
+          if (dtSec >= 0.20) {
+            const speedMps = (s0.d - sLatest.d) / dtSec;
+            _currentWalkingSpeed = Math.round(speedMps * 10) / 10;
+          }
+        }
+
+        const liveDistText = document.getElementById("exit-walk-dist-text");
+        if (liveDistText) {
+          liveDistText.textContent = `${res.distance.toFixed(1)}m`;
+        }
+        const liveDistBar = document.getElementById("exit-walk-bar");
+        if (liveDistBar) {
+          const pct = Math.max(0, Math.min(100, Math.round(((_initialWalkDist - res.distance) / (_initialWalkDist - 0.8)) * 100)));
+          liveDistBar.style.width = `${pct}%`;
+        }
+
+        const livePaceText = document.getElementById("exit-walk-pace-text");
+        if (livePaceText) {
+          if (_currentWalkingSpeed > 0.20) {
+            livePaceText.innerHTML = `🟢 <span>Walking forward (${_currentWalkingSpeed.toFixed(1)} m/s)</span>`;
+          } else if (_currentWalkingSpeed < -0.20) {
+            livePaceText.innerHTML = `⚠️ <span style="color:#f87171;">Moving away from exit (${Math.abs(_currentWalkingSpeed).toFixed(1)} m/s) — Turn toward door</span>`;
+          } else {
+            livePaceText.innerHTML = `🟡 <span style="color:#fde047;">Step forward toward doorway (${res.distance.toFixed(1)}m remaining)</span>`;
+          }
+        }
+
+        if (res.reached) {
+          confirmEvac({ method: "physical_walk", distance: res.distance, speed: _currentWalkingSpeed });
+        }
+      };
+      _controller.onFrame(_exitWalkFrameHandler);
+    }
   };
 
   const handleExitTap = (e) => {
     if (confirmed) return;
     if (e && e.target && e.target.closest && e.target.closest("button")) return;
 
-    const hitExit = _raycastMesh(e, _exitMesh);
-    if (hitExit) {
-      confirmEvac();
-      return;
-    }
-
     if (!exitPlaced) {
-      exitPlaced = true;
-      if (_exitPlacementFrameHandler && _controller && typeof _controller.offFrame === "function") {
-        _controller.offFrame(_exitPlacementFrameHandler);
-        _exitPlacementFrameHandler = null;
-      }
+      lockPlacementAndStartWalk();
+    } else {
       const statusEl = document.getElementById("exit-status-hint");
       if (statusEl) {
         statusEl.style.color = "#2f9e63";
-        statusEl.textContent = t("fire.exit_mounted", "✔ Route marked above door! Tap 3D exit sign or button below to confirm.");
+        statusEl.textContent = t("fire.exit_walk_hint_again", "🚶 Walk toward the exit doorway (<= 0.8m)! Or tap button below if space restricted.");
       }
-      _updateWebXRDiag("Exit Sign Anchored to Door/Wall -> Ready to Confirm");
     }
   };
 
@@ -1182,17 +1688,29 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
     window.addEventListener("click", _exitPointerTapHandler);
   }
 
-  const isHigh = reading >= METHANE_EXPLOSIVE_THRESHOLD;
+  const isHigh = reading >= METHANE_WITHDRAWAL_THRESHOLD;
   overlay.innerHTML = "";
   const hudCard = document.createElement("div");
   hudCard.id = "fire-hud-card";
   hudCard.className = "fire-hud-card";
   hudCard.innerHTML = `
-    <div class="hud-eyebrow">🚨 BRANCH A — IMMEDIATE EVACUATION</div>
-    <div class="hud-title">${isHigh ? "CRITICAL METHANE LEVEL (>= 5.0%)" : "PRECAUTIONARY EVACUATION"}</div>
-    <div class="hud-instruction">${isHigh ? "Atmosphere is explosive. Fire suppression is strictly forbidden under mining regulations. Follow emergency route immediately." : "Evacuation selected. Move promptly along marked emergency path to the nearest safe surface exit."}</div>
+    <div class="hud-eyebrow">${t("fire.branch_a_badge", "🚨 BRANCH A — IMMEDIATE EVACUATION")}</div>
+    <div class="hud-title">${isHigh ? t("fire.branch_a_title_high", "METHANE AT WITHDRAWAL LIMIT (>= 1.25%)") : t("fire.branch_a_title_low", "PRECAUTIONARY EVACUATION")}</div>
+    <div class="hud-instruction">${isHigh ? t("fire.branch_a_desc_high", "Methane is at or above the 1.25% withdrawal limit. Power is cut and firefighting is forbidden. Follow the emergency route immediately.") : t("fire.branch_a_desc_low", "Evacuation selected. Move promptly along marked emergency path to the nearest safe surface exit.")}</div>
     <div id="exit-status-hint" style="margin:0.4rem 0 0.5rem 0;font-size:0.92rem;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">
-      ${t("fire.exit_door_hint", "Aim at exit door / frame and tap to lock route, or tap 3D sign directly to confirm.")}
+      ${t("fire.exit_door_hint", "Aim crosshair at exit door / frame and tap button or screen to anchor.")}
+    </div>
+    <div id="exit-walk-feedback" style="display:none;margin:0.4rem 0;padding:0.6rem;background:rgba(15,23,42,0.92);border:1.5px solid #2f9e63;border-radius:10px;box-shadow:0 0 16px rgba(47,158,99,0.25);">
+      <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.88rem;font-weight:600;color:#f1f5f9;">
+        <span>🚪 Distance to Door:</span>
+        <span id="exit-walk-dist-text" style="color:#2f9e63;font-size:1.15rem;font-weight:bold;">--</span>
+      </div>
+      <div style="margin:0.4rem 0 0.25rem 0;height:10px;background:#334155;border-radius:5px;overflow:hidden;">
+        <div id="exit-walk-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#2f9e63,var(--brand-yellow));transition:width 0.15s ease;"></div>
+      </div>
+      <div id="exit-walk-pace-text" style="font-size:0.82rem;font-weight:600;color:var(--brand-yellow);margin-top:0.35rem;display:flex;align-items:center;gap:0.3rem;">
+        <span>🚶</span> <span>Step forward toward exit door...</span>
+      </div>
     </div>
   `;
   overlay.appendChild(hudCard);
@@ -1200,8 +1718,14 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
   const btn = document.createElement("button");
   btn.id = "btn-exit-found";
   btn.style.cssText = "margin-top:0.6rem;padding:0.8rem 1.5rem;background:#2f9e63;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;";
-  btn.textContent = "✔ Confirm Evacuation Route";
-  btn.addEventListener("click", confirmEvac);
+  btn.textContent = "📍 Lock Exit Sign on Door";
+  btn.addEventListener("click", () => {
+    if (!exitPlaced) {
+      lockPlacementAndStartWalk();
+    } else {
+      confirmEvac({ method: "small_room_fallback" });
+    }
+  });
   overlay.appendChild(btn);
 }
 
@@ -1366,6 +1890,7 @@ function _showAimPhase(overlay, container) {
     <div id="aim-progress-bar" style="width:100%;max-width:320px;height:8px;background:rgba(30,41,59,0.7);border-radius:4px;overflow:hidden;margin-top:0.5rem;">
       <div id="aim-progress-fill" style="width:0%;height:100%;background:#2f9e63;transition:width 0.1s;"></div>
     </div>
+    <div id="aim-tip-warning" style="display:none;margin-top:0.4rem;font-size:0.88rem;font-weight:bold;color:#f59e0b;text-shadow:0 1px 3px #000;">${t("fire.pass_aim_tips", "Flame tips — the powder passes straight through. 0% progress. Aim lower, at the base.")}</div>
   `;
 
   // raycaster for aim detection against fire mesh
@@ -1391,6 +1916,7 @@ function _showAimPhase(overlay, container) {
 
     const targetBase = _fireMesh.getObjectByName("fire-target-base");
     let hitDistance = null;
+    let tipAim = false;
 
     if (intersects.length > 0) {
       const hitPoint = intersects[0].point;
@@ -1402,9 +1928,14 @@ function _showAimPhase(overlay, container) {
         baseWorldPos.y += 0.12 * _fireMesh.scale.y;
       }
       hitDistance = hitPoint.distanceTo(baseWorldPos);
+      // gate 4: the core flame stands 1.6 local units tall. spray on its tips passes through
+      tipAim = isFlameTipAim(hitPoint.y - baseWorldPos.y, 1.6 * _fireMesh.scale.y);
     }
 
-    if (hitDistance !== null && hitDistance < FIRE_BASE_MAX_DISTANCE_3D * _fireMesh.scale.x * 2) {
+    const tipWarn = document.getElementById("aim-tip-warning");
+    if (tipWarn) tipWarn.style.display = tipAim ? "block" : "none";
+
+    if (!tipAim && hitDistance !== null && hitDistance < FIRE_BASE_MAX_DISTANCE_3D * _fireMesh.scale.x * 2) {
       if (!aimActive) {
         aimActive = true;
         aimStartMs = 0;
@@ -1416,8 +1947,10 @@ function _showAimPhase(overlay, container) {
       const { progress, isComplete } = evaluateGazeAimProgress(true, aimStartMs, 800);
       const fill = document.getElementById("aim-progress-fill");
       if (fill) fill.style.width = `${Math.round(progress * 100)}%`;
+      _setReticleDwell(progress);
 
       if (isComplete) {
+        _setReticleLocked();
         if (_controller && _aimFrameHandler) {
           _controller.offFrame(_aimFrameHandler);
           _aimFrameHandler = null;
@@ -1432,6 +1965,7 @@ function _showAimPhase(overlay, container) {
       aimFrames = 0;
       const fill = document.getElementById("aim-progress-fill");
       if (fill) fill.style.width = "0%";
+      _setReticleDwell(0);
     }
   };
 
@@ -1451,7 +1985,8 @@ function _showAimFallback(overlay, container) {
       _controller.offFrame(_aimFrameHandler);
       _aimFrameHandler = null;
     }
-    _onAimComplete(overlay, container, 0.85);
+    // a button press is not a measurement: no aim score
+    _onAimComplete(overlay, container, null);
   });
   overlay.appendChild(btn);
 }
@@ -1553,6 +2088,7 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
       <div class="hud-eyebrow">${t("fire.pass_sweep_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (4/4)")}</div>
       <div class="hud-title">${t("fire.pass_sweep_title", "S — Sweep Side to Side")}</div>
       <div class="hud-instruction">${t("fire.pass_sweep_desc", "Move your device left and right to sweep the fire base. Cover at least 75% of the fire width.")}</div>
+      <div class="hud-instruction">${t("fire.pass_sweep_timer", "Keep spraying for 5 seconds until the fire is out.")}</div>
       <div id="sweep-progress-bar" style="width:100%;height:8px;background:rgba(30,41,59,0.7);border-radius:4px;overflow:hidden;margin-top:0.5rem;">
         <div id="sweep-progress-fill" style="width:0%;height:100%;background:#06b6d4;transition:width 0.1s;"></div>
       </div>
@@ -1560,6 +2096,7 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
   `;
 
   const sweepSamples = [];
+  const sprayStart = Date.now();
 
   // discharge white gas particles during sweeping
   if (_extMesh && _extMesh.userData) {
@@ -1577,13 +2114,16 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
 
   const processSweep = () => {
     const coverage = calcMotionSweepCoverage(sweepSamples);
+    const progress = calcExtinguishProgress(Date.now() - sprayStart, coverage);
     if (_fireMesh && _fireMesh.userData) {
-      _fireMesh.userData.extinguishProgress = coverage;
+      _fireMesh.userData.extinguishProgress = progress;
     }
+    if (_fireAudio) _fireAudio.setIntensity(1 - progress);
     const fill = document.getElementById("sweep-progress-fill");
-    if (fill) fill.style.width = `${Math.round(coverage * 100)}%`;
+    if (fill) fill.style.width = `${Math.round(progress * 100)}%`;
+    _setReticleSweep(progress);
 
-    if (isSweepComplete(coverage)) {
+    if (progress >= 1 && isSweepComplete(coverage)) {
       _hideAimCrosshair();
       if (_controller && _sweepFrameHandler) {
         _controller.offFrame(_sweepFrameHandler);
@@ -1597,6 +2137,7 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
         _fireMesh.userData.extinguishProgress = 1.0;
       }
       logger.info({ event: "webxr_sweep_complete", coverage, sampleCount: sweepSamples.length }, "Sweep done (WebXR)");
+      _stopFireAudio();
 
       const passed = aimAccuracy >= AIM_PASS_THRESHOLD;
       fireCheckpointResult(
@@ -1618,7 +2159,7 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
         })
       );
 
-      _setupStep3WebXR(container, passed);
+      _runPostSuppressionGateWebXR(container, passed);
     }
   };
 
@@ -1690,6 +2231,7 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
     if (_fireMesh && _fireMesh.userData) {
       _fireMesh.userData.extinguishProgress = 1.0;
     }
+    _stopFireAudio();
     const passed = aimAccuracy >= AIM_PASS_THRESHOLD;
     // the sweep was skipped, so no coverage was observed. null, not 1.0.
     fireCheckpointResult(
@@ -1710,13 +2252,22 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
         trackingSource: "webxr_pose"
       })
     );
-    _setupStep3WebXR(container, passed);
+    _runPostSuppressionGateWebXR(container, passed);
   });
   overlay.appendChild(btn);
 }
 
-// step 3: evacuation route selection with 3d exit sign
-function _setupStep3WebXR(container, _step2Passed) {
+// the evacuation prompt says why the worker is leaving: after the fight, gas at the
+// withdrawal limit, or a gas jet they isolated and never fought
+function _evacPrompt(reason) {
+  if (reason === "withdraw") return t("fire.evac_desc_3_withdraw", "Gas is at the withdrawal limit, so you do not fight the fire. Select the safest way out:");
+  if (reason === "isolated") return t("fire.evac_desc_3_isolate", "Supply isolated. You never fight a gas jet. Select the safest way out:");
+  return t("fire.evac_desc_3", "After using the extinguisher, you must evacuate. Select the safest option:");
+}
+
+// step 3: evacuation route selection with 3d exit sign.
+// reason: "suppressed" (default), "withdraw" (branch A) or "isolated" (gas jet)
+function _setupStep3WebXR(container, _step2Passed, { reason = "suppressed" } = {}) {
   _currentStep = 3;
   logger.info({ event: "webxr_fire_step_start", step: 3 }, "Evacuation (WebXR)");
   _showAimCrosshair(container);
@@ -1761,7 +2312,7 @@ function _setupStep3WebXR(container, _step2Passed) {
     <div class="fire-hud-card">
       <div class="hud-eyebrow">${t("fire.evac_badge_3", "🔥 STEP 3 / 3 — EVACUATION ROUTE")}</div>
       <div class="hud-title">${t("fire.evac_title_3", "Choose Safest Evacuation Path")}</div>
-      <div class="hud-instruction">${t("fire.evac_desc_3", "After using the extinguisher, you must evacuate. Select the safest option:")}</div>
+      <div class="hud-instruction">${_evacPrompt(reason)}</div>
       <div id="webxr-evac-options" style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.4rem;width:100%;"></div>
     </div>
   `;
@@ -1778,7 +2329,7 @@ function _setupStep3WebXR(container, _step2Passed) {
     fireCheckpointResult(
       CP_EVACUATION_WEBXR_ID,
       correct,
-      { selected: id, correct: CORRECT, tier: 1 },
+      { selected: id, correct: CORRECT, tier: 1, branch: _currentBranch },
       selectionSingle(id)
     );
     const allPassed = Boolean(_step2Passed && correct);
@@ -1801,24 +2352,7 @@ function _setupStep3WebXR(container, _step2Passed) {
     wrapper.appendChild(btn);
   });
 
-  const handleStep3ExitTap = (e) => {
-    if (e && e.target && e.target.closest && e.target.closest("button")) return;
-    const hitExit = _raycastMesh(e, _exitMesh);
-    if (hitExit) {
-      if (_step3ExitTapHandler && typeof window !== "undefined") {
-        window.removeEventListener("pointerdown", _step3ExitTapHandler);
-        window.removeEventListener("click", _step3ExitTapHandler);
-        _step3ExitTapHandler = null;
-      }
-      onSelect(CORRECT, true);
-    }
-  };
-
-  _step3ExitTapHandler = handleStep3ExitTap;
-  if (typeof window !== "undefined") {
-    window.addEventListener("pointerdown", _step3ExitTapHandler);
-    window.addEventListener("click", _step3ExitTapHandler);
-  }
+  // no tap-the-sign shortcut: tapping the exit is not choosing a route, the worker must answer
 
   overlay.appendChild(wrapper);
 }
@@ -1830,9 +2364,10 @@ function _renderDebriefCardWebXR(overlay, passed = true) {
   if (existing && existing.remove) existing.remove();
 
   const reading = typeof _methaneReading === "number" ? _methaneReading : 0;
-  const isExplosive = reading >= METHANE_EXPLOSIVE_THRESHOLD;
+  const isExplosive = reading >= METHANE_WITHDRAWAL_THRESHOLD;
   const card = document.createElement("div");
   card.id = "debrief-summary-card";
+  card.className = "debrief-enter";
   card.style.cssText = [
     "background:#0f172a", "border:2px solid " + (isExplosive ? "#ef4444" : "#10b981"),
     "border-radius:10px", "padding:0.5rem 0.65rem", "margin:0 auto",
@@ -1841,9 +2376,10 @@ function _renderDebriefCardWebXR(overlay, passed = true) {
     "box-sizing:border-box", "overflow:hidden", "word-break:break-word"
   ].join(";");
 
-  const branchLabel = _currentBranch === "evacuate"
-    ? "Branch A (Immediate Evacuation)"
-    : (_currentBranch === "suppress" ? "Branch B (Alarm & Suppression Drill)" : "Standard Sequence");
+  let branchLabel = "Standard Sequence";
+  if (_currentBranch === "evacuate") branchLabel = "Branch A (Immediate Evacuation)";
+  if (_currentBranch === "suppress") branchLabel = "Branch B (Alarm & Suppression Drill)";
+  if (_currentBranch === "isolate") branchLabel = t("fire.debrief_branch_isolate", "Branch B (Alarm & Gas Isolation)");
 
   const alarmStatus = _alarmPulled ? "✔ Sounded & Activated" : (_currentBranch === "evacuate" ? "N/A (Evacuated Immediately)" : "Completed");
 
@@ -1857,7 +2393,7 @@ function _renderDebriefCardWebXR(overlay, passed = true) {
     <div class="debrief-kpi-grid" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0.35rem;margin:0.3rem 0;font-size:0.76rem;width:100%;box-sizing:border-box;">
       <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;min-width:0;overflow:hidden;box-sizing:border-box;">
         <span style="color:#94a3b8;display:block;font-size:0.68rem;">Methane Level:</span>
-        <strong style="color:${isExplosive ? "#ef4444" : "#10b981"};display:block;word-break:break-word;overflow-wrap:break-word;">${reading.toFixed(1)}% CH₄ (${isExplosive ? "EXPLOSIVE" : "SAFE/INCIPIENT"})</strong>
+        <strong style="color:${isExplosive ? "#ef4444" : "#10b981"};display:block;word-break:break-word;overflow-wrap:break-word;">${reading.toFixed(1)}% CH₄ (${isExplosive ? t("fire.debrief_level_high", "WITHDRAW") : t("fire.debrief_level_low", "BELOW LIMIT")})</strong>
       </div>
       <div style="background:#1e293b;padding:0.35rem 0.45rem;border-radius:6px;min-width:0;overflow:hidden;box-sizing:border-box;">
         <span style="color:#94a3b8;display:block;font-size:0.68rem;">Action Taken:</span>
@@ -1874,8 +2410,10 @@ function _renderDebriefCardWebXR(overlay, passed = true) {
     </div>
     <div style="font-size:0.71rem;color:#cbd5e1;line-height:1.3;margin:0.25rem 0 0.35rem 0;word-break:break-word;overflow-wrap:break-word;">
       ${isExplosive
-        ? t("fire.training_feedback_explosive", "Training feedback: Trainee recognized explosive atmosphere above 5.0% LEL and executed immediate evacuation without risking secondary blast.")
-        : t("fire.training_feedback_standard", "Training feedback: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit.")
+        ? t("fire.training_feedback_explosive", "Training feedback: Trainee recognized methane at or above the 1.25% withdrawal limit and evacuated immediately without fighting the fire.")
+        : _currentBranch === "isolate"
+          ? t("fire.training_feedback_isolate", "Training feedback: Trainee sounded the alarm, recognised a pressurised gas fire, isolated the supply and evacuated without fighting it.")
+          : t("fire.training_feedback_standard", "Training feedback: Trainee activated alarm pull station, successfully extinguished incipient flames using PASS technique, and evacuated to designated exit.")
       }
     </div>
   `;
@@ -1893,9 +2431,21 @@ function _renderDebriefCardWebXR(overlay, passed = true) {
     "letter-spacing:0.5px !important", "margin-top:0.3rem !important"
   ].join(";");
   btnExit.textContent = "✔ Finish & Exit Drill";
-  btnExit.addEventListener("click", () => {
+  btnExit.addEventListener("click", async () => {
     cleanupWebXRFireModule();
     unloadModule();
+    if (_controller && typeof _controller.end === "function") {
+      await _controller.end();
+    } else if (_controller && _controller.session && typeof _controller.session.end === "function") {
+      try {
+        await _controller.session.end();
+      } catch {
+        // ignore already ended session
+      }
+    }
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("safear:return_to_menu"));
+    }
   });
   card.appendChild(btnExit);
 
@@ -1911,8 +2461,56 @@ function _showCompletionWebXR(overlay, container, passed) {
   overlay.style.boxSizing = "border-box";
   _updateWebXRDiag(`Module Complete | Passed: ${passed}`);
   overlay.innerHTML = "";
+  _showDrillCompleteCelebration(container, passed);
   _renderDebriefCardWebXR(overlay, passed);
   logger.info({ event: "webxr_fire_module_complete", passed }, "Fire module complete (WebXR)");
+}
+
+// pull route strip out of scene
+function _removeRouteStrip() {
+  if (_routeStrip && _controller && typeof _controller.removeFromScene === "function") {
+    _controller.removeFromScene(_routeStrip);
+  }
+  _routeStrip = null;
+}
+
+// "drill complete" badge + confetti burst at scene focus, debrief fade in under it
+function _showDrillCompleteCelebration(container, passed) {
+  if (typeof document !== "undefined") {
+    const old = document.getElementById("drill-complete-badge");
+    if (old && typeof old.remove === "function") old.remove();
+    const badge = document.createElement("div");
+    badge.id = "drill-complete-badge";
+    badge.className = "drill-complete-badge";
+    badge.textContent = passed
+      ? t("fire.drill_complete", "✔ DRILL COMPLETE")
+      : t("fire.drill_complete_review", "DRILL COMPLETE — REVIEW NEEDED");
+    const parent = container || document.body;
+    if (parent && typeof parent.appendChild === "function") parent.appendChild(badge);
+    if (_drillBadgeTimer) clearTimeout(_drillBadgeTimer);
+    _drillBadgeTimer = setTimeout(() => {
+      _drillBadgeTimer = null;
+      if (badge && typeof badge.remove === "function") badge.remove();
+    }, 1700);
+  }
+  vibrate(passed ? [30, 50, 30] : 30);
+
+  if (!passed || !_controller || typeof _controller.addToScene !== "function") return;
+  if (_confetti && typeof _controller.removeFromScene === "function") _controller.removeFromScene(_confetti);
+  _confetti = createConfettiBurst(30);
+  if (!_confetti) return;
+  let focus = null;
+  if (_fireMesh && _fireMesh.position) {
+    focus = { x: _fireMesh.position.x, y: _fireMesh.position.y + 0.4, z: _fireMesh.position.z };
+  } else if (_celebrationFocus) {
+    focus = { ..._celebrationFocus };
+  } else {
+    const vp = _controller.getViewerPosition ? _controller.getViewerPosition() : null;
+    focus = vp ? { x: vp.x, y: vp.y - 0.2, z: vp.z - 1.5 } : { x: 0, y: 1.3, z: -1.5 };
+  }
+  if (_confetti.position && typeof _confetti.position.set === "function") _confetti.position.set(focus.x, focus.y, focus.z);
+  _controller.addToScene(_confetti);
+  _ensureFrameHandler();
 }
 
 // entry point for tier 1 webxr fire module
@@ -1924,11 +2522,9 @@ function startFireModuleWebXR(container, controller, options = {}) {
   cleanupWebXRFireModule();
   _controller = controller;
 
-  if (options && typeof options.reading === "number" && !isNaN(options.reading)) {
-    _methaneReading = options.reading;
-  } else {
-    _methaneReading = generateMethaneReading();
-  }
+  // rolled from this run's attemptId so the server grades against the same fire
+  _scenario = scenarioForRun(options);
+  _methaneReading = _scenario.reading;
 
   _initDiagErrorTraps();
   _updateWebXRDiag(`Module Start (Tier 1 WebXR) | Reading: ${_methaneReading}%`);
@@ -1973,6 +2569,8 @@ export {
   isDiagHudVisibleWebXR,
   setZoomScaleWebXR,
   getZoomScaleWebXR,
+  setExitSignScaleWebXR,
+  getExitSignScaleWebXR,
   getMethaneReadingWebXR,
   setMethaneReadingWebXR,
   getActiveBranchWebXR,
@@ -1991,12 +2589,16 @@ export {
   renderDecisionWheel,
   renderAlertFlash,
   renderGasGaugeSvg,
-  generateMethaneReading,
+  methaneReadingForRun,
   isCorrectDecision,
   getDecisionExplanation,
   CP_DECISION_ID,
   DECISION_CHOICES,
-  METHANE_EXPLOSIVE_THRESHOLD,
+  METHANE_WITHDRAWAL_THRESHOLD,
   _computePlacementPose,
-  _raycastMesh
+  _raycastMesh,
+  checkEvacuationPhysicalExit,
+  calcAlarmFallbackPose,
+  calcExtinguishProgress,
+  EXTINGUISH_DURATION_MS
 };

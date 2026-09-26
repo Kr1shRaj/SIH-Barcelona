@@ -161,6 +161,29 @@ carries them better than the screen does.
 | `prerequisite.tap_to_dismantle` | Tap the equipment to take it apart | उपकरण खोलने के लिए उस पर टैप करें |
 | `prerequisite.translation_pending` | Santali translation pending | संताली अनुवाद लंबित |
 
+## Fire decision — 1.25% methane withdrawal limit
+
+The fire module moved its evacuate line from 5.0% (LEL) to the 1.25% CH₄ withdrawal
+limit. `fire.training_feedback_explosive` was removed from `sat.json` because its Ol
+Chiki text still said "5.0% LEL", which is now false. These keys show English until a
+human translation lands. The narration mp3s for the decision step also need re-recording
+with the new number.
+
+| Key | English source | Hindi reference |
+|---|---|---|
+| `fire.training_feedback_explosive` | Training feedback: Trainee recognized methane at or above the 1.25% withdrawal limit and evacuated immediately without fighting the fire. | प्रशिक्षण प्रतिक्रिया: प्रशिक्षु ने 1.25% निकासी सीमा पर या उससे ऊपर मीथेन पहचानी और आग से लड़े बिना तुरंत निकासी की। |
+| `fire.gate_fatal_title` | ✖ FATAL MISTAKE | ✖ घातक गलती |
+| `fire.branch_a_badge` | 🚨 BRANCH A — IMMEDIATE EVACUATION | 🚨 शाखा A — तुरंत निकासी |
+| `fire.branch_a_title_high` | METHANE AT WITHDRAWAL LIMIT (>= 1.25%) | मीथेन निकासी सीमा पर (>= 1.25%) |
+| `fire.branch_a_title_low` | PRECAUTIONARY EVACUATION | एहतियाती निकासी |
+| `fire.branch_a_desc_high` | Methane is at or above the 1.25% withdrawal limit. Power is cut and firefighting is forbidden. Follow the emergency route immediately. | मीथेन 1.25% निकासी सीमा पर या उससे ऊपर है। बिजली कट जाती है और आग बुझाना मना है। तुरंत आपातकालीन रास्ते पर चलें। |
+| `fire.branch_a_desc_low` | Evacuation selected. Move promptly along marked emergency path to the nearest safe surface exit. | निकासी चुनी गई। चिह्नित आपातकालीन रास्ते से सबसे पास के सुरक्षित निकास तक जल्दी जाएं। |
+| `fire.alarm_desc_low` | Methane is below the 1.25% withdrawal limit. Before attacking the fire with an extinguisher, sound the mine section alarm to alert all miners! | मीथेन 1.25% निकासी सीमा से नीचे है। अग्निशामक से आग बुझाने से पहले, सभी खनिकों को सचेत करने के लिए खदान सेक्शन का अलार्म बजाएं! |
+| `fire.evac_desc_3_withdraw` | Gas is at the withdrawal limit, so you do not fight the fire. Select the safest way out: | गैस निकासी सीमा पर है, इसलिए आग से न लड़ें। बाहर निकलने का सबसे सुरक्षित रास्ता चुनें: |
+| `fire.debrief_level_high` | WITHDRAW | निकासी |
+| `fire.debrief_level_low` | BELOW LIMIT | सीमा से नीचे |
+| `fire.exit_then_decide` | Exit located. Now read the gas meter and choose your action. | निकास मिल गया। अब गैस मीटर पढ़ें और अपना कदम चुनें। |
+
 ## Related
 
 - Audio for these items: `frontend/audio/RECORDING_MANIFEST.md`

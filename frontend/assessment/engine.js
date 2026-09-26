@@ -13,7 +13,7 @@ const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 const IDENTIFIER = /^[a-z][a-z0-9_-]{1,63}$/;
 const CHECKPOINT_TYPES = ["aim", "proximity", "select"];
 // mirrors OBSERVATION_KINDS in backend/models/attempt.js
-const OBSERVATION_KINDS = ["selection_single", "selection_multi", "spatial_alignment", "aim_dwell"];
+const OBSERVATION_KINDS = ["selection_single", "selection_multi", "spatial_alignment", "aim_dwell", "selection_sequence"];
 const MAX_CONTEXT_BYTES = 4096;
 const MAX_DURATION_MS = 4 * 60 * 60 * 1000;
 const QUEUE_STORAGE_KEY = "safear_attempt_sync_queue";
@@ -41,7 +41,10 @@ const DEFAULT_LOCAL_MANIFESTS = [
     passThreshold: 0.7,
     recertMonths: null,
     requiredCheckpoints: [
-      { checkpointId: "fire_exit_identification", type: "proximity", weight: 1, required: true, critical: false },
+      { checkpointId: "fire_explosion_decision", type: "select", weight: 1, required: true, critical: true },
+      { checkpointId: "fire_g2_media", type: "select", weight: 1, required: true, critical: true },
+      { checkpointId: "fire_g3_stance", type: "select", weight: 1, required: true, critical: true },
+      { checkpointId: "fire_g5_post", type: "select", weight: 1, required: true, critical: true },
       { checkpointId: "fire_extinguisher_aim", type: "aim", weight: 1, required: true, critical: false },
       { checkpointId: "fire_evacuation_sequence_marker", type: "select", weight: 1, required: true, critical: false },
       { checkpointId: "fire_evacuation_sequence_webxr", type: "select", weight: 1, required: true, critical: false }

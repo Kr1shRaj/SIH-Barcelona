@@ -130,140 +130,154 @@ globalThis.document = {
 };
 
 import {
-  generateMethaneReading,
+  methaneReadingForRun,
   isCorrectDecision,
+  decisionSeverity,
   getDecisionExplanation,
   renderGasGaugeSvg,
   renderAlertFlash,
   renderDecisionWheel,
   CP_DECISION_ID,
   DECISION_CHOICES,
+  METHANE_WITHDRAWAL_THRESHOLD,
   initOrientationNudge
 } from "../modules/fire-response/decision.js";
+import { scenarioFor, GATE_ANSWER_KEYS, gateSeverity } from "../modules/fire-response/scenario.js";
+import { renderGateCard, isFlameTipAim, gateExplanation, GATE_OPTIONS } from "../modules/fire-response/gates.js";
+import { startAssessmentSession, abortAssessmentSession } from "../assessment/engine.js";
 
 describe("Fire & Explosion Scenario: Methane Reading & Decision Logic (Phase 1)", () => {
   beforeEach(() => {
     Object.keys(_elements).forEach((k) => delete _elements[k]);
   });
 
-  describe("generateMethaneReading", () => {
-    it("generates reading within 0.5% and 9.5% range", () => {
-      for (let i = 0; i < 50; i++) {
-        const val = generateMethaneReading();
-        assert.ok(typeof val === "number");
-        assert.ok(val >= 0.5 && val <= 9.5, `Reading ${val} should be between 0.5 and 9.5`);
-        // confirms 1 decimal place precision
-        assert.strictEqual(Math.round(val * 10) / 10, val);
+  describe("methaneReadingForRun", () => {
+    it("rolls the reading from the active session attemptId, the same one the server rolls", () => {
+      const attemptId = "5d2c9a10-7e41-4b8f-9a3c-12ab34cd56ef";
+      startAssessmentSession({ moduleId: "fire-response", attemptId });
+      try {
+        assert.strictEqual(methaneReadingForRun(), scenarioFor(attemptId).reading);
+        assert.strictEqual(methaneReadingForRun(), methaneReadingForRun(), "same run, same reading");
+      } finally {
+        abortAssessmentSession();
       }
     });
 
-    it("respects deterministic random function injection", () => {
-      // 0.5 + 0 * 9 = 0.5
-      assert.strictEqual(generateMethaneReading(() => 0.0), 0.5);
-      // 0.5 + 0.5 * 9 = 5.0
-      assert.strictEqual(generateMethaneReading(() => 0.5), 5.0);
-      // 0.5 + 1.0 * 9 = 9.5
-      assert.strictEqual(generateMethaneReading(() => 1.0), 9.5);
+    it("lets a test pin the reading", () => {
+      assert.strictEqual(methaneReadingForRun({ reading: 0.7 }), 0.7);
+    });
+
+    it("throws instead of inventing a reading when no run is active", () => {
+      abortAssessmentSession();
+      assert.throws(() => methaneReadingForRun(), /uuid attemptId/);
     });
   });
 
   describe("isCorrectDecision boundary and choice verification", () => {
-    it("at exactly 5.0% threshold (explosive lower limit), evacuate is correct and others fail", () => {
-      assert.strictEqual(isCorrectDecision(5.0, DECISION_CHOICES.EVACUATE), true);
-      assert.strictEqual(isCorrectDecision(5.0, DECISION_CHOICES.EXTINGUISH), false);
-      assert.strictEqual(isCorrectDecision(5.0, DECISION_CHOICES.WAIT), false);
+    it("withdrawal limit is 1.25% CH4", () => {
+      assert.strictEqual(METHANE_WITHDRAWAL_THRESHOLD, 1.25);
     });
 
-    it("just above 5.0% (e.g. 5.1%, 5.01%), evacuate is correct and others fail", () => {
-      assert.strictEqual(isCorrectDecision(5.01, DECISION_CHOICES.EVACUATE), true);
-      assert.strictEqual(isCorrectDecision(5.1, DECISION_CHOICES.EVACUATE), true);
+    it("at exactly 1.25% (withdrawal limit), evacuate is correct and others fail", () => {
+      assert.strictEqual(isCorrectDecision(1.25, DECISION_CHOICES.EVACUATE), true);
+      assert.strictEqual(isCorrectDecision(1.25, DECISION_CHOICES.EXTINGUISH), false);
+      assert.strictEqual(isCorrectDecision(1.25, DECISION_CHOICES.WAIT), false);
+    });
+
+    it("above 1.25% (e.g. 1.3%, 2.8%), evacuate is correct and others fail", () => {
+      assert.strictEqual(isCorrectDecision(1.26, DECISION_CHOICES.EVACUATE), true);
+      assert.strictEqual(isCorrectDecision(1.3, DECISION_CHOICES.EVACUATE), true);
+      assert.strictEqual(isCorrectDecision(2.8, DECISION_CHOICES.EVACUATE), true);
       assert.strictEqual(isCorrectDecision(7.5, DECISION_CHOICES.EVACUATE), true);
-      assert.strictEqual(isCorrectDecision(10.0, DECISION_CHOICES.EVACUATE), true);
 
-      assert.strictEqual(isCorrectDecision(5.1, DECISION_CHOICES.EXTINGUISH), false);
-      assert.strictEqual(isCorrectDecision(5.1, DECISION_CHOICES.WAIT), false);
+      assert.strictEqual(isCorrectDecision(1.3, DECISION_CHOICES.EXTINGUISH), false);
+      assert.strictEqual(isCorrectDecision(1.3, DECISION_CHOICES.WAIT), false);
     });
 
-    it("just below 5.0% (e.g. 4.9%, 4.99%), extinguish is correct and others fail", () => {
-      assert.strictEqual(isCorrectDecision(4.99, DECISION_CHOICES.EXTINGUISH), true);
-      assert.strictEqual(isCorrectDecision(4.9, DECISION_CHOICES.EXTINGUISH), true);
-      assert.strictEqual(isCorrectDecision(2.4, DECISION_CHOICES.EXTINGUISH), true);
+    it("below 1.25% (e.g. 1.2%, 0.5%), extinguish is correct and others fail", () => {
+      assert.strictEqual(isCorrectDecision(1.24, DECISION_CHOICES.EXTINGUISH), true);
+      assert.strictEqual(isCorrectDecision(1.2, DECISION_CHOICES.EXTINGUISH), true);
       assert.strictEqual(isCorrectDecision(0.5, DECISION_CHOICES.EXTINGUISH), true);
       assert.strictEqual(isCorrectDecision(0.0, DECISION_CHOICES.EXTINGUISH), true);
 
-      assert.strictEqual(isCorrectDecision(4.9, DECISION_CHOICES.EVACUATE), false);
-      assert.strictEqual(isCorrectDecision(4.9, DECISION_CHOICES.WAIT), false);
+      assert.strictEqual(isCorrectDecision(1.2, DECISION_CHOICES.EVACUATE), false);
+      assert.strictEqual(isCorrectDecision(1.2, DECISION_CHOICES.WAIT), false);
     });
 
     it("'wait' is always wrong regardless of reading value", () => {
-      assert.strictEqual(isCorrectDecision(1.0, DECISION_CHOICES.WAIT), false);
-      assert.strictEqual(isCorrectDecision(4.9, DECISION_CHOICES.WAIT), false);
-      assert.strictEqual(isCorrectDecision(5.0, DECISION_CHOICES.WAIT), false);
-      assert.strictEqual(isCorrectDecision(7.2, DECISION_CHOICES.WAIT), false);
-      assert.strictEqual(isCorrectDecision(9.5, DECISION_CHOICES.WAIT), false);
+      assert.strictEqual(isCorrectDecision(0.4, DECISION_CHOICES.WAIT), false);
+      assert.strictEqual(isCorrectDecision(1.24, DECISION_CHOICES.WAIT), false);
+      assert.strictEqual(isCorrectDecision(1.25, DECISION_CHOICES.WAIT), false);
+      assert.strictEqual(isCorrectDecision(2.8, DECISION_CHOICES.WAIT), false);
     });
 
     it("rejects invalid, NaN, or non-numeric readings", () => {
       assert.strictEqual(isCorrectDecision(NaN, DECISION_CHOICES.EVACUATE), false);
       assert.strictEqual(isCorrectDecision(null, DECISION_CHOICES.EXTINGUISH), false);
       assert.strictEqual(isCorrectDecision(undefined, DECISION_CHOICES.EVACUATE), false);
-      assert.strictEqual(isCorrectDecision("5.0", DECISION_CHOICES.EVACUATE), false);
-      assert.strictEqual(isCorrectDecision(5.0, "unknown_action"), false);
+      assert.strictEqual(isCorrectDecision("1.5", DECISION_CHOICES.EVACUATE), false);
+      assert.strictEqual(isCorrectDecision(1.5, "unknown_action"), false);
+    });
+  });
+
+  describe("decisionSeverity (local copy of the server key)", () => {
+    it("fighting the fire or staying put at the withdrawal limit is fatal", () => {
+      assert.strictEqual(decisionSeverity(1.8, DECISION_CHOICES.EXTINGUISH), "fatal");
+      assert.strictEqual(decisionSeverity(1.8, DECISION_CHOICES.WAIT), "fatal");
+      assert.strictEqual(decisionSeverity(1.8, DECISION_CHOICES.EVACUATE), null);
+    });
+
+    it("walking off or waiting below the limit is a procedural slip", () => {
+      assert.strictEqual(decisionSeverity(0.6, DECISION_CHOICES.EVACUATE), "procedural");
+      assert.strictEqual(decisionSeverity(0.6, DECISION_CHOICES.WAIT), "procedural");
+      assert.strictEqual(decisionSeverity(0.6, DECISION_CHOICES.EXTINGUISH), null);
     });
   });
 
   describe("getDecisionExplanation feedback messages", () => {
     it("explains why waiting for supervisor is hazardous", () => {
-      const exp = getDecisionExplanation(4.2, DECISION_CHOICES.WAIT);
-      assert.ok(exp.includes("4.2% CH₄"));
+      const exp = getDecisionExplanation(0.8, DECISION_CHOICES.WAIT);
+      assert.ok(exp.includes("0.8% CH₄"));
       assert.ok(exp.includes("waiting for a supervisor"));
     });
 
-    it("explains why attempting to extinguish above 5.0% is hazardous", () => {
-      const exp = getDecisionExplanation(7.2, DECISION_CHOICES.EXTINGUISH);
-      assert.ok(exp.includes("7.2% CH₄"));
-      assert.ok(exp.includes("above the 5.0% lower explosive limit"));
+    it("explains why attempting to extinguish at the withdrawal limit is hazardous", () => {
+      const exp = getDecisionExplanation(1.8, DECISION_CHOICES.EXTINGUISH);
+      assert.ok(exp.includes("1.8% CH₄"));
+      assert.ok(exp.includes("1.25% withdrawal limit"));
       assert.ok(exp.includes("evacuate immediately"));
     });
 
-    it("explains why evacuating without suppression below 5.0% is suboptimal", () => {
-      const exp = getDecisionExplanation(3.5, DECISION_CHOICES.EVACUATE);
-      assert.ok(exp.includes("3.5% CH₄"));
-      assert.ok(exp.includes("below 5.0%"));
+    it("explains why evacuating without suppression below the limit is suboptimal", () => {
+      const exp = getDecisionExplanation(0.6, DECISION_CHOICES.EVACUATE);
+      assert.ok(exp.includes("0.6% CH₄"));
+      assert.ok(exp.includes("below the 1.25% withdrawal limit"));
       assert.ok(exp.includes("PASS"));
     });
   });
 
   describe("renderGasGaugeSvg original drawn asset", () => {
     it("generates scalable svg with dial, needle, zones, and digital readout", () => {
-      const svg = renderGasGaugeSvg(7.2);
+      const svg = renderGasGaugeSvg(1.8);
       assert.ok(svg.includes("<svg"), "Must produce valid svg opening tag");
       assert.ok(svg.includes("viewBox=\"0 0 240 240\""), "Must have standard square viewBox");
       assert.ok(svg.includes("CH₄ METHANE"), "Must display methane gas label");
-      assert.ok(svg.includes("5% LEL"), "Must display 5% explosive threshold label");
-      assert.ok(svg.includes("7.2% VOL"), "Must display digital concentration badge");
+      assert.ok(svg.includes("1.25%"), "Must display the withdrawal limit label");
+      assert.ok(svg.includes("1.8% VOL"), "Must display digital concentration badge");
     });
 
     it("rotates needle correctly for boundary reading values", () => {
       // 0% -> -120 deg
-      const svg0 = renderGasGaugeSvg(0.0);
-      assert.ok(svg0.includes("rotate(-120.0, 120, 120)"));
-
-      // 5% -> 0.0 deg (straight up)
-      const svg5 = renderGasGaugeSvg(5.0);
-      assert.ok(svg5.includes("rotate(0.0, 120, 120)"));
-
-      // 10% -> +120 deg
-      const svg10 = renderGasGaugeSvg(10.0);
-      assert.ok(svg10.includes("rotate(120.0, 120, 120)"));
+      assert.ok(renderGasGaugeSvg(0.0).includes("rotate(-120.0, 120, 120)"));
+      // 1.25% withdrawal limit -> -60 deg, a quarter of the dial
+      assert.ok(renderGasGaugeSvg(1.25).includes("rotate(-60.0, 120, 120)"));
+      // 5% full scale -> +120 deg
+      assert.ok(renderGasGaugeSvg(5.0).includes("rotate(120.0, 120, 120)"));
     });
 
-    it("clamps out-of-bounds readings between 0 and 10", () => {
-      const svgNeg = renderGasGaugeSvg(-5.0);
-      assert.ok(svgNeg.includes("rotate(-120.0, 120, 120)"));
-
-      const svgOver = renderGasGaugeSvg(15.0);
-      assert.ok(svgOver.includes("rotate(120.0, 120, 120)"));
+    it("clamps out-of-bounds readings between 0 and 5", () => {
+      assert.ok(renderGasGaugeSvg(-5.0).includes("rotate(-120.0, 120, 120)"));
+      assert.ok(renderGasGaugeSvg(15.0).includes("rotate(120.0, 120, 120)"));
     });
   });
 
@@ -297,10 +311,11 @@ describe("Fire & Explosion Scenario: Methane Reading & Decision Logic (Phase 1)"
   describe("renderDecisionWheel UI component and interaction", () => {
     it("renders gauge and three decision buttons with gas reading", () => {
       const container = document.createElement("div");
-      const panel = renderDecisionWheel(container, { reading: 6.5 });
+      const panel = renderDecisionWheel(container, { reading: 1.9 });
 
       assert.ok(panel);
-      assert.ok(panel.innerHTML.includes("6.5% CH₄"));
+      // reading shown once, in the gauge digital readout
+      assert.ok(panel.innerHTML.includes("1.9% VOL"));
       assert.ok(document.getElementById("btn-decision-evacuate"));
       assert.ok(document.getElementById("btn-decision-extinguish"));
       assert.ok(document.getElementById("btn-decision-wait"));
@@ -316,13 +331,15 @@ describe("Fire & Explosion Scenario: Methane Reading & Decision Logic (Phase 1)"
       });
 
       const panel = renderDecisionWheel(container, {
-        reading: 6.5, // >= 5%, so evacuate is correct
+        reading: 1.9, // >= 1.25%, so evacuate is correct
         onDecision: ({ choice, reading, correct }) => {
           assert.strictEqual(choice, DECISION_CHOICES.EVACUATE);
-          assert.strictEqual(reading, 6.5);
+          assert.strictEqual(reading, 1.9);
           assert.strictEqual(correct, true);
           assert.ok(firedCheckpoint);
           assert.strictEqual(firedCheckpoint.passed, true);
+          assert.strictEqual(firedCheckpoint.observation.kind, "selection_sequence");
+          assert.deepStrictEqual(firedCheckpoint.observation.tries.map((x) => x.selected), ["evacuate"]);
           done();
         }
       });
@@ -337,7 +354,7 @@ describe("Fire & Explosion Scenario: Methane Reading & Decision Logic (Phase 1)"
       const container = document.createElement("div");
       let wrongReported = false;
       const panel = renderDecisionWheel(container, {
-        reading: 7.0, // >= 5%, so extinguish is WRONG
+        reading: 2.1, // >= 1.25%, so extinguish is WRONG — and fatal
         onWrongAttempt: ({ choice, correct }) => {
           assert.strictEqual(choice, DECISION_CHOICES.EXTINGUISH);
           assert.strictEqual(correct, false);
@@ -352,9 +369,68 @@ describe("Fire & Explosion Scenario: Methane Reading & Decision Logic (Phase 1)"
 
       assert.strictEqual(wrongReported, true);
       const feedbackSlot = panel.querySelector("#decision-feedback-slot");
-      assert.ok(feedbackSlot.innerHTML.includes("INCORRECT SAFETY ACTION"));
-      assert.ok(feedbackSlot.innerHTML.includes("above the 5.0% lower explosive limit"));
+      assert.ok(feedbackSlot.innerHTML.includes("FATAL MISTAKE"));
+      assert.ok(feedbackSlot.innerHTML.includes("1.25% withdrawal limit"));
       assert.ok(feedbackSlot.innerHTML.includes("btn-decision-retry"));
+      assert.strictEqual(btnExt.disabled, true, "a tried wrong option is locked out");
+    });
+
+    it("procedural slip shows the plain wrong-action card, not the fatal one", () => {
+      const container = document.createElement("div");
+      const panel = renderDecisionWheel(container, { reading: 0.7 });
+      document.getElementById("btn-decision-evacuate").click();
+
+      const feedbackSlot = panel.querySelector("#decision-feedback-slot");
+      assert.ok(feedbackSlot.innerHTML.includes("INCORRECT SAFETY ACTION"));
+      assert.ok(!feedbackSlot.innerHTML.includes("FATAL MISTAKE"));
+    });
+
+    it("fires the checkpoint once, on the right pick, carrying every try in order", () => {
+      const container = document.createElement("div");
+      const fired = [];
+      const failures = [];
+      const onCp = (ev) => { if (ev.detail.checkpointId === CP_DECISION_ID) fired.push(ev.detail); };
+      const onFail = (ev) => failures.push(ev.detail);
+      window.addEventListener("safear:checkpoint", onCp);
+      window.addEventListener("safear:checkpoint_failure", onFail);
+      try {
+        renderDecisionWheel(container, { reading: 0.7 });
+        document.getElementById("btn-decision-wait").click();
+        document.getElementById("btn-decision-wait").click(); // locked out, ignored
+        assert.strictEqual(fired.length, 0, "a wrong pick never advances the gate");
+        document.getElementById("btn-decision-extinguish").click();
+
+        assert.strictEqual(fired.length, 1);
+        assert.deepStrictEqual(fired[0].observation.tries.map((x) => x.selected), ["wait", "extinguish"]);
+        assert.ok(fired[0].observation.tries.every((x) => Number.isInteger(x.atMs) && x.atMs >= 0));
+        assert.strictEqual(fired[0].passed, true, "a procedural slip is not a fatal fail");
+        assert.strictEqual(fired[0].context.score, 0.5, "one slip costs half the gate");
+        assert.strictEqual(failures.length, 1);
+        assert.strictEqual(failures[0].severity, "procedural");
+        assert.strictEqual(failures[0].selected, "wait");
+      } finally {
+        window.removeEventListener("safear:checkpoint", onCp);
+        window.removeEventListener("safear:checkpoint_failure", onFail);
+      }
+    });
+
+    it("a fatal pick zeroes the gate and marks it failed even after the fix", () => {
+      const container = document.createElement("div");
+      const fired = [];
+      const onCp = (ev) => { if (ev.detail.checkpointId === CP_DECISION_ID) fired.push(ev.detail); };
+      window.addEventListener("safear:checkpoint", onCp);
+      try {
+        renderDecisionWheel(container, { reading: 1.6 });
+        document.getElementById("btn-decision-extinguish").click();
+        document.getElementById("btn-decision-evacuate").click();
+
+        assert.strictEqual(fired.length, 1);
+        assert.strictEqual(fired[0].passed, false);
+        assert.strictEqual(fired[0].context.score, 0);
+        assert.strictEqual(fired[0].context.fatalCount, 1);
+      } finally {
+        window.removeEventListener("safear:checkpoint", onCp);
+      }
     });
   });
 
@@ -418,7 +494,7 @@ describe("Fire & Explosion Scenario: Methane Reading & Decision Logic (Phase 1)"
       const container = document.createElement("div");
       let fired = false;
       const panel = renderDecisionWheel(container, {
-        reading: 3.2,
+        reading: 0.9,
         onDecision: ({ choice }) => {
           assert.strictEqual(choice, DECISION_CHOICES.EXTINGUISH);
           fired = true;
@@ -426,7 +502,7 @@ describe("Fire & Explosion Scenario: Methane Reading & Decision Logic (Phase 1)"
       });
 
       assert.ok(panel);
-      assert.ok(panel.innerHTML.includes("3.2% CH₄"));
+      assert.ok(panel.innerHTML.includes("0.9% VOL"));
 
       // simulate device orientation rotation from portrait to landscape
       window.innerWidth = 800;
@@ -436,7 +512,7 @@ describe("Fire & Explosion Scenario: Methane Reading & Decision Logic (Phase 1)"
 
       // panel still mounted, reading preserved, button click still triggers onDecision
       assert.strictEqual(document.getElementById("fire-decision-panel"), panel);
-      assert.ok(panel.innerHTML.includes("3.2% CH₄"));
+      assert.ok(panel.innerHTML.includes("0.9% VOL"));
 
       const btnExt = document.getElementById("btn-decision-extinguish");
       assert.ok(btnExt);
@@ -473,4 +549,65 @@ describe("Fire & Explosion Scenario: Methane Reading & Decision Logic (Phase 1)"
   });
 });
 
+describe("Fire gates 2-5: cards, keys and flame-tip aim", () => {
+  const SWITCHGEAR = { methaneLevel: "low", fuel: "electrical_switchgear", airflow: "intake_left" };
 
+  beforeEach(() => {
+    Object.keys(_elements).forEach((k) => delete _elements[k]);
+  });
+
+  it("rates every shown option: right, procedural, fatal or critical", () => {
+    const g2 = GATE_ANSWER_KEYS.fire_g2_media;
+    assert.strictEqual(gateSeverity(g2, SWITCHGEAR, "co2"), null);
+    assert.strictEqual(gateSeverity(g2, SWITCHGEAR, "abc_powder"), null);
+    assert.strictEqual(gateSeverity(g2, SWITCHGEAR, "water"), "fatal");
+    assert.strictEqual(gateSeverity(g2, SWITCHGEAR, "isolate_supply_then_evacuate"), "procedural");
+    assert.strictEqual(gateSeverity(GATE_ANSWER_KEYS.fire_g3_stance, SWITCHGEAR, "under_1m"), "critical");
+    assert.strictEqual(gateSeverity(GATE_ANSWER_KEYS.fire_g5_post, SWITCHGEAR, "poke_debris"), "procedural");
+  });
+
+  it("explains every wrong pick on every fuel in plain words", () => {
+    ["conveyor_coal", "diesel_hydraulic", "electrical_switchgear", "pressurized_methane"].forEach((fuel) => {
+      const scenario = { ...SWITCHGEAR, fuel };
+      GATE_OPTIONS.fire_g2_media
+        .filter((choice) => gateSeverity(GATE_ANSWER_KEYS.fire_g2_media, scenario, choice) !== null)
+        .forEach((choice) => {
+          const why = gateExplanation("fire_g2_media", scenario, choice);
+          assert.ok(why && !why.startsWith("fire."), `no explanation for ${choice} on ${fuel}`);
+        });
+    });
+  });
+
+  it("blocks on a critical stance, words it critical, and fires once with every try", () => {
+    const fired = [];
+    const onCp = (ev) => { if (ev.detail.checkpointId === "fire_g3_stance") fired.push(ev.detail); };
+    window.addEventListener("safear:checkpoint", onCp);
+    let done = null;
+    try {
+      const panel = renderGateCard(document.createElement("div"), "fire_g3_stance", SWITCHGEAR, (r) => { done = r; });
+      assert.ok(panel.innerHTML.includes("LEFT"), "the prompt names the intake side");
+
+      document.getElementById("gate-opt-under_1m").click();
+      assert.ok(panel.querySelector("#gate-feedback-slot").innerHTML.includes("CRITICAL MISTAKE"));
+      assert.strictEqual(fired.length, 0, "a wrong pick never advances the gate");
+
+      document.getElementById("gate-opt-approach_upwind_2_3m").click();
+      assert.strictEqual(fired.length, 1);
+      assert.deepStrictEqual(fired[0].observation.tries.map((x) => x.selected), ["under_1m", "approach_upwind_2_3m"]);
+      assert.strictEqual(fired[0].passed, false, "critical grades like fatal");
+      assert.strictEqual(fired[0].context.score, 0);
+
+      assert.strictEqual(done, null, "the worker reads the result before moving on");
+      document.getElementById("btn-gate-continue").click();
+      assert.deepStrictEqual(done, { choice: "approach_upwind_2_3m" });
+    } finally {
+      window.removeEventListener("safear:checkpoint", onCp);
+    }
+  });
+
+  it("calls a hit high on the flame the tips, a hit low the base", () => {
+    assert.strictEqual(isFlameTipAim(0.9, 1.6), true);
+    assert.strictEqual(isFlameTipAim(0.3, 1.6), false);
+    assert.strictEqual(isFlameTipAim(null, 1.6), false, "no hit is not a tip hit");
+  });
+});

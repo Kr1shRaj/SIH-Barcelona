@@ -1,36 +1,41 @@
 import { t } from "../../js/i18n.js";
+import { createFireMesh, animateFireMesh, setFireAirflow } from "../../ar/webxr_render.js";
 
-// cluster animated fire gltf instances into corner fire
-function buildFireClusterEntity() {
-  const cluster = document.createElement("a-entity");
-  cluster.id = "fire-cluster";
-  if (typeof cluster.setAttribute === "function") {
-    cluster.setAttribute("position", "0 0 0");
-  }
-
-  const instances = [
-    { id: "fire-instance-1", x: 0, y: 0, z: 0, rotY: 0, scale: 1.0 },
-    { id: "fire-instance-2", x: -0.22, y: 0, z: 0.15, rotY: 45, scale: 0.85 },
-    { id: "fire-instance-3", x: 0.20, y: 0, z: -0.12, rotY: 110, scale: 1.25 },
-    { id: "fire-instance-4", x: 0.10, y: 0, z: 0.22, rotY: 230, scale: 0.90 },
-    { id: "fire-instance-5", x: -0.15, y: 0, z: -0.18, rotY: 160, scale: 1.10 }
-  ];
-
-  cluster.innerHTML = instances.map((inst) => `
-    <a-entity id="${inst.id}"
-      class="fire-cluster-instance"
-      gltf-model="./assets/models/animated_fire.glb"
-      position="${inst.x} ${inst.y} ${inst.z}"
-      rotation="0 ${inst.rotY} 0"
-      scale="${inst.scale} ${inst.scale} ${inst.scale}">
-    </a-entity>
-  `).join("");
-
-  return cluster;
+// tier 2 wraps the exact three.js fire tier 1 renders as an a-frame component, so both
+// tiers show the same flames, roof smoke, embers and steam. no-op without a-frame (tests)
+function registerProceduralFire() {
+  const A = typeof window !== "undefined" ? window.AFRAME : null;
+  if (!A || typeof A.registerComponent !== "function" || (A.components && A.components["procedural-fire"])) return;
+  A.registerComponent("procedural-fire", {
+    schema: {
+      airflow: { type: "string", default: "none" },
+      progress: { type: "number", default: 0 }
+    },
+    init() {
+      this.fire = createFireMesh();
+      if (this.fire) this.el.setObject3D("mesh", this.fire);
+    },
+    update() {
+      if (!this.fire) return;
+      setFireAirflow(this.fire, this.data.airflow);
+      this.fire.userData.extinguishProgress = this.data.progress;
+    },
+    tick(_time, deltaMs) {
+      if (this.fire) animateFireMesh(this.fire, deltaMs);
+    },
+    remove() {
+      this.el.removeObject3D("mesh");
+      this.fire = null;
+    }
+  });
 }
 
-// build 3d realistic industrial burning dustbin entity on the floor matching SENAR benchmark
-function buildFireEntity() {
+registerProceduralFire();
+
+// tier 2 fire: the shared procedural fire, an aim target at its base, and the aim reticle.
+// airflow comes from the run's scenario so smoke and embers drift the way gate 3 describes
+function buildFireEntity(airflow = "none") {
+  registerProceduralFire();
   const entity = document.createElement("a-entity");
   entity.id = "fire-graphic";
   if (typeof entity.setAttribute === "function") {
@@ -42,40 +47,10 @@ function buildFireEntity() {
     entity.className = "clickable";
   }
 
+  const safeAirflow = ["intake_left", "intake_right"].includes(airflow) ? airflow : "none";
   entity.innerHTML = `
-    <!-- Circular floor scorch mark and shadow grounding the dustbin on the floor -->
-    <a-circle id="floor-scorch-decal" rotation="-90 0 0" position="0 -0.80 0" radius="0.85" material="color: #050505; opacity: 0.55; transparent: true"></a-circle>
-
-    <!-- Industrial corrugated metal waste dustbin resting on the floor -->
-    <a-cylinder id="fire-barrel" position="0 -0.38 0" radius-bottom="0.44" radius-top="0.52" height="0.84" material="color: #475569; metalness: 0.8; roughness: 0.35"></a-cylinder>
-    <!-- Corrugated reinforcement hoop ribs around dustbin body -->
-    <a-torus id="dustbin-rib-1" position="0 -0.55 0" rotation="90 0 0" radius="0.46" radius-tubular="0.018" material="color: #334155; metalness: 0.85"></a-torus>
-    <a-torus id="dustbin-rib-2" position="0 -0.35 0" rotation="90 0 0" radius="0.485" radius-tubular="0.018" material="color: #334155; metalness: 0.85"></a-torus>
-    <a-torus id="dustbin-rib-3" position="0 -0.15 0" rotation="90 0 0" radius="0.51" radius-tubular="0.018" material="color: #334155; metalness: 0.85"></a-torus>
-    <!-- Reinforced rolled steel top rim lip -->
-    <a-torus id="fire-barrel-rim" position="0 0.04 0" rotation="90 0 0" radius="0.53" radius-tubular="0.026" material="color: #1e293b; metalness: 0.9"></a-torus>
-    <!-- Base foot ring -->
-    <a-cylinder id="dustbin-base-foot" position="0 -0.79 0" radius="0.46" height="0.04" material="color: #1e293b; metalness: 0.85"></a-cylinder>
-    <!-- Side metal drop handles -->
-    <a-torus id="dustbin-handle-l" position="-0.53 -0.15 0" rotation="0 0 90" radius="0.09" radius-tubular="0.016" material="color: #334155; metalness: 0.8"></a-torus>
-    <a-torus id="dustbin-handle-r" position="0.53 -0.15 0" rotation="0 0 90" radius="0.09" radius-tubular="0.016" material="color: #334155; metalness: 0.8"></a-torus>
-
-    <!-- Burning debris/trash heap inside the dustbin -->
-    <a-dodecahedron id="fire-trash-heap" position="0 -0.02 0" radius="0.46" material="color: #1c1917; roughness: 0.9"></a-dodecahedron>
-    <a-cylinder id="fire-embers" position="0 0.01 0" radius="0.47" height="0.05" material="color: #ff4400; shader: flat; opacity: 0.95" animation="property: material.color; type: color; to: #ff6600; from: #ff2200; dir: alternate; dur: 200; loop: true"></a-cylinder>
-
-    <!-- Dynamic fire flames group (contains 3D clustered GLTF fire models scaled during sweep) -->
-    <a-entity id="fire-flames-group" position="0 0.05 0">
-      <!-- dynamic real-time fire point light casting flickering orange illumination -->
-      <a-light id="fire-light" type="point" color="#ff7700" intensity="2.2" distance="5" position="0 0.8 0" animation="property: intensity; to: 2.8; from: 1.6; dir: alternate; dur: 140; loop: true"></a-light>
-    </a-entity>
-
-    <!-- rising smoke plume puffs drifting upward -->
-    <a-sphere id="fire-smoke-1" position="0 1.6 0" radius="0.32" material="color: #334155; opacity: 0.35; transparent: true" animation="property: position; to: 0.08 2.4 0.04; dur: 1600; loop: true; easing: linear" animation__fade="property: material.opacity; to: 0; from: 0.35; dur: 1600; loop: true; easing: linear"></a-sphere>
-    <a-sphere id="fire-smoke-2" position="-0.06 1.8 0" radius="0.38" material="color: #1e293b; opacity: 0.30; transparent: true" animation="property: position; to: -0.12 2.7 -0.04; dur: 2000; loop: true; easing: linear" animation__fade="property: material.opacity; to: 0; from: 0.30; dur: 2000; loop: true; easing: linear"></a-sphere>
-
-    <!-- white extinguishing powder steam cloud (activated during sweep finish) -->
-    <a-sphere id="fire-extinguish-steam" position="0 0.5 0" radius="0.55" material="color: #f1f5f9; opacity: 0; transparent: true"></a-sphere>
+    <!-- flames, roof smoke, embers, scorch, glow, shadow and steam: the same builder tier 1 uses -->
+    <a-entity id="procedural-fire" procedural-fire="airflow: ${safeAirflow}; progress: 0" position="0 -0.55 0" scale="0.55 0.55 0.55"></a-entity>
 
     <!-- generous aim target collision cylinder covering entire base -->
     <a-cylinder id="fire-target-base" class="clickable aim-target" data-raycast-target="aim" position="0 -0.20 0" radius="0.95" height="0.75" material="color: #febc04; opacity: 0.01; transparent: true"></a-cylinder>
@@ -83,15 +58,6 @@ function buildFireEntity() {
     <!-- 3D visual target label at ground base -->
     <a-text id="aim-ground-label" value="${t("graphics.aim_flame_base", "👇 AIM AT BASE OF FLAMES")}" align="center" position="0 -0.62 0.50" rotation="-20 0 0" scale="0.50 0.50 0.50" color="#febc04" material="shader: flat"></a-text>
   `;
-
-  // append clustered animated fire gltf instances to flames group
-  const flameGroup = entity.querySelector ? entity.querySelector("#fire-flames-group") : null;
-  const cluster = buildFireClusterEntity();
-  if (flameGroup && typeof flameGroup.appendChild === "function") {
-    flameGroup.appendChild(cluster);
-  } else {
-    entity.appendChild(cluster);
-  }
 
   // 3d neon green aim reticle facing user at the base of the fire container
   const aimReticle = document.createElement("a-ring");
@@ -519,7 +485,7 @@ export {
   buildFireEntity,
   buildExitEntity,
   buildExtinguisherEntity,
-  buildFireClusterEntity,
+  registerProceduralFire,
   buildFireAlarmEntity,
   buildFireGraphic,
   buildExitGraphic,

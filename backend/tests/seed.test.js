@@ -15,7 +15,10 @@ const {
   CRITICAL_PENDING,
   MODULES,
   WORKERS,
-  CHECKPOINT_DEFINITIONS
+  CHECKPOINT_DEFINITIONS,
+  FIRE_DECISION_ANSWER_KEY,
+  FIRE_GATE_ANSWER_KEYS,
+  FIGHTABLE_FUELS
 } = require("../db/seed");
 
 let tmpDir = null;
@@ -85,7 +88,11 @@ describe("Deterministic seed data", () => {
       { module_id: "fire-response", checkpoint_id: "fire_evacuation_sequence_marker", checkpoint_type: "select" },
       { module_id: "fire-response", checkpoint_id: "fire_evacuation_sequence_webxr", checkpoint_type: "select" },
       { module_id: "fire-response", checkpoint_id: "fire_exit_identification", checkpoint_type: "proximity" },
+      { module_id: "fire-response", checkpoint_id: "fire_explosion_decision", checkpoint_type: "select" },
       { module_id: "fire-response", checkpoint_id: "fire_extinguisher_aim", checkpoint_type: "aim" },
+      { module_id: "fire-response", checkpoint_id: "fire_g2_media", checkpoint_type: "select" },
+      { module_id: "fire-response", checkpoint_id: "fire_g3_stance", checkpoint_type: "select" },
+      { module_id: "fire-response", checkpoint_id: "fire_g5_post", checkpoint_type: "select" },
       { module_id: "fire-response-team", checkpoint_id: "team_alarm_pull", checkpoint_type: "select" },
       { module_id: "fire-response-team", checkpoint_id: "team_drill_outcome", checkpoint_type: "select" },
       { module_id: "fire-response-team", checkpoint_id: "team_evac_coordinate", checkpoint_type: "select" },
@@ -149,7 +156,7 @@ describe("Deterministic seed data", () => {
   it("keeps the answer keys on the server, one per graded selection checkpoint", () => {
     seedDatabase(db);
     const rows = db
-      .prepare("SELECT checkpoint_id, expected_value FROM checkpoint_definition WHERE observation_kind LIKE 'selection%' ORDER BY checkpoint_id")
+      .prepare("SELECT checkpoint_id, expected_value FROM checkpoint_definition WHERE observation_kind IN ('selection_single', 'selection_multi') ORDER BY checkpoint_id")
       .all()
       .map((row) => ({ checkpoint_id: row.checkpoint_id, expected: JSON.parse(row.expected_value) }));
 
@@ -167,21 +174,65 @@ describe("Deterministic seed data", () => {
     ]);
   });
 
-  it("marks required checkpoints and keeps alarm pull optional with equal weight", () => {
+  it("keeps the scenario graded decision key on the server, one case per methane level", () => {
     seedDatabase(db);
+    const row = db
+      .prepare("SELECT observation_kind, expected_value, answer_key, allowed_values FROM checkpoint_definition WHERE checkpoint_id = 'fire_explosion_decision'")
+      .get();
+
+    assert.strictEqual(row.observation_kind, "selection_sequence");
+    assert.strictEqual(row.expected_value, null, "the key depends on the scenario, so it lives in answer_key");
+    assert.deepStrictEqual(JSON.parse(row.answer_key), FIRE_DECISION_ANSWER_KEY);
+    assert.deepStrictEqual(JSON.parse(row.allowed_values), ["evacuate", "extinguish", "wait"]);
+  });
+
+  it("only asks for suppression checkpoints when the scenario leaves the fire fightable", () => {
+    seedDatabase(db);
+    const rows = db
+      .prepare("SELECT checkpoint_id, applies_when FROM checkpoint_definition WHERE applies_when IS NOT NULL ORDER BY checkpoint_id")
+      .all()
+      .map((row) => ({ checkpoint_id: row.checkpoint_id, appliesWhen: JSON.parse(row.applies_when) }));
+
+    // a pressurised methane jet is isolated and walked away from, so nothing after gate 2 happens
+    const fighting = { methaneLevel: "low", fuel: FIGHTABLE_FUELS };
+    assert.deepStrictEqual(FIGHTABLE_FUELS, ["conveyor_coal", "diesel_hydraulic", "electrical_switchgear"]);
+    assert.deepStrictEqual(rows, [
+      { checkpoint_id: "fire_alarm_pull", appliesWhen: { methaneLevel: "low" } },
+      { checkpoint_id: "fire_extinguisher_aim", appliesWhen: fighting },
+      { checkpoint_id: "fire_g2_media", appliesWhen: { methaneLevel: "low" } },
+      { checkpoint_id: "fire_g3_stance", appliesWhen: fighting },
+      { checkpoint_id: "fire_g5_post", appliesWhen: fighting }
+    ]);
+  });
+
+  it("keeps the gate answer keys on the server, several right agents where the fuel allows", () => {
+    seedDatabase(db);
+    ["fire_g2_media", "fire_g3_stance", "fire_g5_post"].forEach((id) => {
+      const row = db.prepare("SELECT observation_kind, answer_key, critical FROM checkpoint_definition WHERE checkpoint_id = ?").get(id);
+      assert.strictEqual(row.observation_kind, "selection_sequence");
+      assert.deepStrictEqual(JSON.parse(row.answer_key), FIRE_GATE_ANSWER_KEYS[id]);
+      assert.strictEqual(row.critical, 1, `${id} is a critical gate`);
+    });
+    assert.deepStrictEqual(FIRE_GATE_ANSWER_KEYS.fire_g2_media.cases.electrical_switchgear.severity, { water: "fatal", foam: "fatal" });
+  });
+
+  it("marks required checkpoints, keeps alarm pull and exit sighting optional, equal weight", () => {
+    seedDatabase(db);
+    const optional = ["fire_alarm_pull", "fire_exit_identification"];
     db.prepare("SELECT * FROM checkpoint_definition").all().forEach((row) => {
-      const expectedRequired = row.checkpoint_id === "fire_alarm_pull" ? 0 : 1;
+      const expectedRequired = optional.includes(row.checkpoint_id) ? 0 : 1;
       assert.strictEqual(row.required, expectedRequired, `${row.checkpoint_id} required flag is wrong`);
       assert.strictEqual(row.weight, 1, `${row.checkpoint_id} must weigh 1 until content says otherwise`);
     });
   });
 
-  it("leaves critical at 0 everywhere except team_drill_outcome", () => {
+  it("leaves critical at 0 everywhere except team_drill_outcome and the fire decision gates", () => {
     seedDatabase(db);
     assert.strictEqual(CRITICAL_PENDING, 0);
 
+    const critical = ["team_drill_outcome", "fire_explosion_decision", "fire_g2_media", "fire_g3_stance", "fire_g5_post"];
     db.prepare("SELECT checkpoint_id, critical FROM checkpoint_definition").all().forEach((row) => {
-      const expected = row.checkpoint_id === "team_drill_outcome" ? 1 : 0;
+      const expected = critical.includes(row.checkpoint_id) ? 1 : 0;
       assert.strictEqual(row.critical, expected, `${row.checkpoint_id} critical flag is wrong`);
     });
   });

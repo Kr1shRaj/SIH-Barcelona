@@ -12,13 +12,16 @@ const SCHEMA_FILE = path.join(__dirname, "schema.sql");
 // checkpoint_definition holds the rule, checkpoint_result holds the raw observation.
 // v5 added trainee authentication: trainee_account, trainee_activation and
 // trainee_session. Additive only, which is what made it migratable in place.
-const SCHEMA_VERSION = 5;
+// v6 added scenario graded gates: selection_sequence, answer_key, applies_when.
+// Rebuilds two tables to widen a CHECK, keeping every row.
+const SCHEMA_VERSION = 6;
 
 // forward migrations, applied in order for a database that is behind. each entry
-// is additive and runs inside one transaction, so a database is never left half
+// keeps every row and runs inside one transaction, so a database is never left half
 // upgraded. there is no downgrade: going back means restoring a backup.
 const MIGRATIONS = [
-  { from: 4, to: 5, file: "005_trainee_auth.sql" }
+  { from: 4, to: 5, file: "005_trainee_auth.sql" },
+  { from: 5, to: 6, file: "006_selection_sequence.sql" }
 ];
 
 let _db = null;

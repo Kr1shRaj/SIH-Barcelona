@@ -271,11 +271,14 @@ import {
 import {
   setZoomScaleWebXR,
   getZoomScaleWebXR,
+  setExitSignScaleWebXR,
+  getExitSignScaleWebXR,
   getMethaneReadingWebXR,
   setMethaneReadingWebXR,
   getActiveBranchWebXR,
   CP_DECISION_ID,
-  DECISION_CHOICES
+  DECISION_CHOICES,
+  checkEvacuationPhysicalExit
 } from "../modules/fire-response/webxr_fire_module.js";
 
 import {
@@ -284,6 +287,7 @@ import {
   endWebXRSession,
   loadModule3DScene
 } from "../ar/webxr.js";
+import { startAssessmentSession, abortAssessmentSession } from "../assessment/engine.js";
 
 describe("WebXR Placement and Tracking", () => {
   beforeEach(() => {
@@ -444,6 +448,65 @@ describe("WebXR Placement and Tracking", () => {
     assert.strictEqual(controller._destroyed, true);
   });
 
+  it("WebXRPlacementController.end() cleanly terminates session without emitting session_lost", async () => {
+    globalThis.window.THREE = mockTHREE;
+    const sessionListeners = {};
+    let sessionEnded = false;
+    const mockSession = {
+      addEventListener(type, fn) { sessionListeners[type] = fn; },
+      removeEventListener(type) { delete sessionListeners[type]; },
+      end: async () => {
+        sessionEnded = true;
+        if (sessionListeners["end"]) sessionListeners["end"]();
+      }
+    };
+    const mockGl = { canvas: {} };
+
+    const controller = new WebXRPlacementController({
+      session: mockSession,
+      gl: mockGl,
+      referenceSpace: {},
+      hitTestSource: null,
+      viewerSpace: null
+    });
+
+    let sessionLost = false;
+    let cleanEnd = false;
+    globalThis.window.addEventListener("safear:webxr_session_lost", () => {
+      sessionLost = true;
+    });
+    globalThis.window.addEventListener("safear:webxr_session_ended", () => {
+      cleanEnd = true;
+    });
+
+    await controller.end();
+    assert.strictEqual(sessionEnded, true);
+    assert.strictEqual(sessionLost, false);
+    assert.strictEqual(cleanEnd, true);
+    assert.strictEqual(controller._destroyed, true);
+  });
+
+  it("WebXRPlacementController exposes getViewerPosition and getViewerQuaternion from viewer pose", () => {
+    globalThis.window.THREE = mockTHREE;
+    const controller = new WebXRPlacementController({
+      session: { addEventListener() {}, removeEventListener() {} },
+      gl: { canvas: {} },
+      referenceSpace: {},
+      hitTestSource: null,
+      viewerSpace: null
+    });
+
+    controller._lastViewerPose = {
+      transform: {
+        position: { x: 1.2, y: 1.7, z: -0.8 },
+        orientation: { x: 0, y: 0.707, z: 0, w: 0.707 }
+      }
+    };
+
+    assert.deepStrictEqual(controller.getViewerPosition(), { x: 1.2, y: 1.7, z: -0.8 });
+    assert.deepStrictEqual(controller.getViewerQuaternion(), { x: 0, y: 0.707, z: 0, w: 0.707 });
+  });
+
   it("endWebXRSession safely ends session", async () => {
     let ended = false;
     const session = {
@@ -464,10 +527,12 @@ describe("WebXR Placement and Tracking", () => {
       removeFromScene() {}
     };
 
-    // fire-response route
+    // fire-response route. the loader opens the session first, the gas reading is rolled from its attemptId
+    startAssessmentSession({ moduleId: "fire-response", arTier: 1, attemptId: "0b5e1a2c-3d4e-4f56-8a7b-9c0d1e2f3a4b" });
     await assert.doesNotReject(async () => {
       await loadModule3DScene("fire-response", mockController);
     });
+    abortAssessmentSession();
 
     // gas-leak route
     await assert.doesNotReject(async () => {
@@ -594,6 +659,55 @@ describe("WebXR Placement and Tracking", () => {
     setZoomScaleWebXR(1.0);
   });
 
+  it("setExitSignScaleWebXR clamps zoom factor between 0.5 and 2.0", () => {
+    assert.strictEqual(setExitSignScaleWebXR(1.5), 1.5);
+    assert.strictEqual(getExitSignScaleWebXR(), 1.5);
+
+    // clamped at lower bound
+    assert.strictEqual(setExitSignScaleWebXR(0.2), 0.5);
+    assert.strictEqual(getExitSignScaleWebXR(), 0.5);
+
+    // clamped at upper bound
+    assert.strictEqual(setExitSignScaleWebXR(3.5), 2.0);
+    assert.strictEqual(getExitSignScaleWebXR(), 2.0);
+
+    // reset
+    setExitSignScaleWebXR(1.0);
+    assert.strictEqual(getExitSignScaleWebXR(), 1.0);
+  });
+
+  it("checkEvacuationPhysicalExit computes horizontal distance and detects proximity/crossing", () => {
+    const signPos = { x: 0, y: 1.8, z: -2.0 };
+    const wallNormal = { x: 0, y: 0, z: 1 }; // wall facing +Z into room toward user
+
+    // 1. Far away (2 meters)
+    const far = checkEvacuationPhysicalExit({ x: 0, y: 1.5, z: 0 }, signPos, wallNormal);
+    assert.strictEqual(far.distance, 2.0);
+    assert.strictEqual(far.reached, false);
+    assert.strictEqual(far.crossed, false);
+
+    // 2. Approaching within proximity threshold (0.7m <= 0.8m)
+    const close = checkEvacuationPhysicalExit({ x: 0, y: 1.5, z: -1.3 }, signPos, wallNormal);
+    assert.strictEqual(Math.round(close.distance * 10) / 10, 0.7);
+    assert.strictEqual(close.reached, true);
+    assert.strictEqual(close.crossed, false);
+
+    // 3. Crossing past the wall plane within doorway aperture (dz = -0.05m past sign, dx = 0.3m)
+    const crossed = checkEvacuationPhysicalExit({ x: 0.3, y: 1.5, z: -2.05 }, signPos, wallNormal);
+    assert.strictEqual(crossed.crossed, true);
+    assert.strictEqual(crossed.reached, true);
+
+    // 4. Past the wall plane but outside lateral door tolerance (dx = 2.5m > 1.2m)
+    const outsideAperture = checkEvacuationPhysicalExit({ x: 2.5, y: 1.5, z: -2.05 }, signPos, wallNormal);
+    assert.strictEqual(outsideAperture.crossed, false);
+    assert.strictEqual(outsideAperture.reached, false);
+
+    // 5. Default zero / missing inputs do not throw
+    const empty = checkEvacuationPhysicalExit(null, null, null);
+    assert.strictEqual(empty.distance, 0);
+    assert.strictEqual(empty.reached, true); // at 0 distance <= 0.8m
+  });
+
   it("createExtinguisherMesh base rests flush on floor plane Y=0", () => {
     globalThis.window.THREE = mockTHREE;
     const mesh = createExtinguisherMesh();
@@ -714,28 +828,33 @@ describe("WebXR Placement and Tracking", () => {
     assert.notStrictEqual(ring.scale.x, 1.0);
   });
 
-  it("createFireMesh includes fire-flames-group and updates animation mixers", () => {
+  it("createFireMesh keeps a floor-level flames group and falls back to cones without shaders", () => {
     globalThis.window.THREE = mockTHREE;
     const mesh = createFireMesh();
     assert.ok(mesh);
     const flamesGroup = mesh.getObjectByName("fire-flames-group");
     assert.ok(flamesGroup);
     assert.strictEqual(flamesGroup.position.y, 0.00);
-    assert.ok(Array.isArray(mesh.userData.mixers));
+    // this mock has no InstancedMesh / ShaderMaterial, so the procedural cones carry the fire
+    assert.strictEqual(flamesGroup.children.length, 0);
+    assert.strictEqual(mesh.getObjectByName("fire-outer-cone").visible, true);
   });
 
-  it("createFireMesh loads 5 varied GLB fire instances with distinct offsets and anim offsets", async () => {
+  it("createFireMesh never downloads a fire model: the flames are procedural", async () => {
     globalThis.window.THREE = mockTHREE;
-    const mesh = createFireMesh();
-    assert.ok(mesh);
-    await new Promise((r) => setTimeout(r, 10));
-    const flamesGroup = mesh.getObjectByName("fire-flames-group");
-    assert.ok(flamesGroup);
-    assert.strictEqual(flamesGroup.children.length, 5, "5 varied fire instances must be loaded into flames group");
-    assert.strictEqual(mesh.userData.mixers.length, 5, "All 5 fire instances must have active animation mixers");
+    const urls = [];
+    const originalLoad = MockGLTFLoader.prototype.load;
+    MockGLTFLoader.prototype.load = function spy(url, ...rest) { urls.push(url); return originalLoad.call(this, url, ...rest); };
+    try {
+      createFireMesh();
+      await new Promise((r) => setTimeout(r, 10));
+    } finally {
+      MockGLTFLoader.prototype.load = originalLoad;
+    }
+    assert.deepStrictEqual(urls, [], "no glb load for the fire");
   });
 
-  it("animateFireMesh advances animation mixers and scales flames group with extinguishProgress", () => {
+  it("animateFireMesh scales flames group with extinguishProgress", () => {
     globalThis.window.THREE = mockTHREE;
     const fireGroup = new mockTHREE.Group();
     const flamesGroup = new mockTHREE.Group();
@@ -743,13 +862,9 @@ describe("WebXR Placement and Tracking", () => {
     fireGroup.add(flamesGroup);
     fireGroup.userData.flamesGroup = flamesGroup;
 
-    const mockMixer = new MockAnimationMixer();
-    fireGroup.userData.mixers = [mockMixer];
-
     // active fire
     fireGroup.userData.extinguishProgress = 0.5;
     animateFireMesh(fireGroup, 50);
-    assert.strictEqual(mockMixer.timeUpdated, 0.05);
     assert.strictEqual(flamesGroup.visible, true);
     assert.strictEqual(flamesGroup.scale.x, 0.5);
 

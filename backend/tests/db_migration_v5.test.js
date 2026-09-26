@@ -84,7 +84,7 @@ describe("v4 to v5 migration", () => {
   it("1. brings a v4 database forward instead of refusing to open it", () => {
     const version = migrated.prepare("SELECT value FROM schema_meta WHERE key = 'schema_version'").get();
     assert.strictEqual(Number.parseInt(version.value, 10), SCHEMA_VERSION);
-    assert.strictEqual(SCHEMA_VERSION, 5);
+    assert.strictEqual(SCHEMA_VERSION, 6, "the v4 file walks 4 -> 5 -> 6");
   });
 
   it("2. adds the three trainee tables and nothing else is dropped", () => {

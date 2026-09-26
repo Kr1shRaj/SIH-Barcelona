@@ -16,6 +16,9 @@ const UNMEASURED_ANGLE_RAD = Math.PI;
 // a selection list longer than this is not a ui the team ships
 const MAX_SELECTION_ITEMS = 32;
 
+// a fail-to-learn gate disables each tried option, no shipped gate has more than this
+const MAX_SEQUENCE_TRIES = 8;
+
 // tier 1 rides a webxr pose, tier 2 rides the printed marker. nothing else certifies.
 function trackingSourceForTier(tier) {
   return Number(tier) === 1 ? "webxr_pose" : "arjs_marker";
@@ -55,6 +58,19 @@ function selectionMulti(selectedList) {
   return { kind: "selection_multi", selected };
 }
 
+// every pick on a fail-to-learn gate in order, with whole ms since the gate showed.
+// no verdict — the server rolls the scenario and grades the tries itself
+function selectionSequence(tries) {
+  const list = Array.isArray(tries) ? tries : [];
+  return {
+    kind: "selection_sequence",
+    tries: list.slice(0, MAX_SEQUENCE_TRIES).map((attempt) => ({
+      selected: String(attempt.selected),
+      atMs: Math.max(0, Math.round(_finite(attempt.atMs, { fallback: 0 })))
+    }))
+  };
+}
+
 // a ray hit the target this far from its base. hitDistanceM stays null unless a
 // real raycast produced it — a button press is not a measurement, and the server
 // scores a null distance zero rather than guessing.
@@ -87,10 +103,12 @@ function spatialAlignment({ anchorId, angularErrorRad, dwellMs, frameCount, trac
 export {
   selectionSingle,
   selectionMulti,
+  selectionSequence,
   aimDwell,
   spatialAlignment,
   trackingSourceForTier,
   TRACKING_SOURCES,
   UNMEASURED_ANGLE_RAD,
-  MAX_SELECTION_ITEMS
+  MAX_SELECTION_ITEMS,
+  MAX_SEQUENCE_TRIES
 };

@@ -77,6 +77,7 @@ import {
   clearCheckpoints,
   getRegisteredCheckpoints
 } from "../ar/interactions.js";
+import { startAssessmentSession, abortAssessmentSession } from "../assessment/engine.js";
 
 import {
   startFireModule,
@@ -127,11 +128,23 @@ function clickThroughSubscreens(maxSteps = 10) {
   }
 }
 
-// helper: advance through step 1 and set up for step 2 testing
+// pass one gate card: the right pick, then continue
+function passGate(choice) {
+  _elements[`gate-opt-${choice}`]?.click();
+  _elements["btn-gate-continue"]?.click();
+}
+
+// helper: advance through step 1 and set up for step 2 testing.
+// the session attemptId rolls 0.88% CH4, so fighting the fire is the right call
 function advanceToStep2() {
   startFireModule(document.getElementById("ar-viewport"));
   clickThroughSubscreens();
   _elements["btn-exit-found"]?.click();
+  _elements["btn-decision-extinguish"]?.click();
+  _elements["btn-pull-alarm"]?.click();
+  // the same roll is a diesel fire with fresh air from the right: foam, then the upwind stance
+  passGate("foam");
+  passGate("approach_upwind_2_3m");
   clickThroughSubscreens();
 }
 
@@ -177,6 +190,8 @@ function confirmAimWithScore(score) {
     sweep.click();
   }
 
+  // gate 5 after the flames: back away facing the fire
+  passGate("back_away_facing_fire");
   clickThroughSubscreens();
 }
 
@@ -187,6 +202,9 @@ describe("Fire & Explosion Response module", () => {
     Object.keys(_elements).forEach((k) => delete _elements[k]);
     // create the ar-viewport container the module expects
     _makeEl("ar-viewport");
+    // the loader opens the session before the module starts; the gas reading is rolled from its attemptId
+    abortAssessmentSession();
+    startAssessmentSession({ moduleId: "fire-response", attemptId: "0b5e1a2c-3d4e-4f56-8a7b-9c0d1e2f3a4b" });
   });
 
   it("startFireModule registers step 1 (exit identification) checkpoint immediately", () => {
@@ -200,14 +218,31 @@ describe("Fire & Explosion Response module", () => {
     assert.ok(!cps.some((c) => c.id === CP_EVACUATION_ID), "evacuation CP must not register before step 2");
   });
 
-  it("completing step 1 registers step 2 (extinguisher aim) checkpoint", () => {
+  it("finding the exit alone never opens the extinguisher drill, the gas decision must come first", () => {
     startFireModule(document.getElementById("ar-viewport"));
     clickThroughSubscreens();
 
-    // simulate user clicking the exit button
     const btn = _elements["btn-exit-found"];
     assert.ok(btn, "exit button must exist after step 1 starts");
     btn.click();
+
+    assert.ok(!getRegisteredCheckpoints().some((c) => c.id === CP_EXTINGUISHER_ID),
+      "extinguisher checkpoint must wait for the decision gate");
+    assert.strictEqual(btn.disabled, true, "exit button is spent once the sighting is recorded");
+  });
+
+  it("completing step 1 and the decision gate registers step 2 (extinguisher aim) checkpoint", () => {
+    startFireModule(document.getElementById("ar-viewport"));
+    clickThroughSubscreens();
+
+    // simulate user clicking the exit button, choosing to fight the fire, pulling the alarm
+    const btn = _elements["btn-exit-found"];
+    assert.ok(btn, "exit button must exist after step 1 starts");
+    btn.click();
+    _elements["btn-decision-extinguish"].click();
+    _elements["btn-pull-alarm"].click();
+    passGate("foam");
+    passGate("approach_upwind_2_3m");
 
     const cps = getRegisteredCheckpoints();
     assert.ok(cps.some((c) => c.id === CP_EXTINGUISHER_ID && c.type === "aim"),
@@ -273,6 +308,34 @@ describe("Fire & Explosion Response module", () => {
     assert.strictEqual(selectedResult, true, "selected squeeze attempt must execute");
   });
 
+  it("gate 4: aiming at the flame tips passes no powder, only the base locks the aim", () => {
+    advanceToStep2();
+    clickThroughSubscreens();
+    const laser = _makeEl("gaze-laser");
+
+    const pin = _elements["extinguisher-pin"];
+    pin.simulateSelect();
+    pin.simulatePull(60);
+    assert.strictEqual(typeof laser.simulateIntersection, "function", "aim step wires the gaze laser");
+
+    // high on the flame: nothing locks, the worker is told why
+    laser.simulateIntersection({ x: 0, y: 0.9, z: 0 });
+    const label = _elements["aim-status-label"];
+    if (label) assert.match(label.textContent, /Flame tips/);
+
+    // then the base: the aim locks and the drill carries on to the sweep
+    const events = collectCheckpointEvents(() => {
+      laser.simulateIntersection({ x: 0, y: 0.2, z: 0 });
+      const handle = _elements["extinguisher-handle"];
+      handle.simulateSelect();
+      handle.simulateSqueeze(1500);
+      _elements["sweep-zone"].simulateSweep([0, 100, 200, 240]);
+    });
+    const aim = events.find((e) => e.checkpointId === CP_EXTINGUISHER_ID);
+    assert.ok(aim, "aim checkpoint fires once the base is hit");
+    assert.ok(aim.observation.hitDistanceM <= 0.05, "the recorded hit is the base hit, not the tip");
+  });
+
   it("step 2: gaze laser intersection on fire base triggers aim lock", () => {
     advanceToStep2();
     clickThroughSubscreens();
@@ -330,7 +393,7 @@ describe("Fire & Explosion Response module", () => {
   it("step 2: near-target tap (injected 0.9) fires passed:true, accuracy >= threshold, target:base", () => {
     advanceToStep2();
 
-    const events = collectCheckpointEvents(() => confirmAimWithScore(0.9));
+    const events = collectCheckpointEvents(() => confirmAimWithScore(0.9)).filter((e) => e.checkpointId === CP_EXTINGUISHER_ID);
 
     assert.strictEqual(events.length, 1);
     assert.strictEqual(events[0].checkpointId, CP_EXTINGUISHER_ID);
@@ -344,7 +407,7 @@ describe("Fire & Explosion Response module", () => {
   it("step 2: far-off tap (injected 0.2) fires passed:false, accuracy below threshold, target:missed", () => {
     advanceToStep2();
 
-    const events = collectCheckpointEvents(() => confirmAimWithScore(0.2));
+    const events = collectCheckpointEvents(() => confirmAimWithScore(0.2)).filter((e) => e.checkpointId === CP_EXTINGUISHER_ID);
 
     assert.strictEqual(events.length, 1);
     assert.strictEqual(events[0].checkpointId, CP_EXTINGUISHER_ID);
@@ -358,7 +421,7 @@ describe("Fire & Explosion Response module", () => {
   it("step 2: exact threshold (injected 0.6) fires passed:true (boundary inclusive)", () => {
     advanceToStep2();
 
-    const events = collectCheckpointEvents(() => confirmAimWithScore(0.6));
+    const events = collectCheckpointEvents(() => confirmAimWithScore(0.6)).filter((e) => e.checkpointId === CP_EXTINGUISHER_ID);
 
     assert.strictEqual(events[0].passed, true, "score exactly at threshold must pass");
     assert.strictEqual(events[0].context.accuracy, 0.6);
@@ -366,7 +429,7 @@ describe("Fire & Explosion Response module", () => {
 
   it("step 2: zero accuracy score fires passed:false", () => {
     advanceToStep2();
-    const events = collectCheckpointEvents(() => confirmAimWithScore(0));
+    const events = collectCheckpointEvents(() => confirmAimWithScore(0)).filter((e) => e.checkpointId === CP_EXTINGUISHER_ID);
 
     assert.strictEqual(events[0].passed, false);
     assert.strictEqual(events[0].context.accuracy, 0);

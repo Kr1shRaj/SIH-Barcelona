@@ -224,17 +224,36 @@ class WebXRPlacementController {
     this.session.addEventListener("select", this._onSelect);
   }
 
-  // handle unexpected session termination
+  // handle session termination
   _bindSessionEnd() {
     if (!this.session) return;
     this._onEnd = () => {
       this._destroyed = true;
+      if (this._intentionalEnd) {
+        logger.info({ event: "webxr_session_ended_cleanly" }, "XR session ended cleanly");
+        if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
+          window.dispatchEvent(new CustomEvent("safear:webxr_session_ended"));
+        }
+        return;
+      }
       logger.warn({ event: "webxr_session_ended_unexpectedly" }, "XR session ended");
       if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
         window.dispatchEvent(new CustomEvent("safear:webxr_session_lost"));
       }
     };
     this.session.addEventListener("end", this._onEnd);
+  }
+
+  // end active webxr session cleanly
+  async end() {
+    this._intentionalEnd = true;
+    if (this.session && typeof this.session.end === "function") {
+      try {
+        await this.session.end();
+      } catch {
+        // ignore already ended session
+      }
+    }
   }
 
   // get the placed world position or null if not yet placed
@@ -272,8 +291,29 @@ class WebXRPlacementController {
   // get three.js scene for direct access
   getScene() { return this._scene; }
 
-  // get three.js camera
-  getCamera() { return this._camera; }
+  // get latest viewer world position
+  getViewerPosition() {
+    if (this._lastViewerPose && this._lastViewerPose.transform) {
+      return this._lastViewerPose.transform.position;
+    }
+    return (this._camera && this._camera.position) ? this._camera.position : { x: 0, y: 1.5, z: 0 };
+  }
+
+  // get latest viewer world orientation quaternion
+  getViewerQuaternion() {
+    if (this._lastViewerPose && this._lastViewerPose.transform) {
+      return this._lastViewerPose.transform.orientation;
+    }
+    return (this._camera && this._camera.quaternion) ? this._camera.quaternion : { x: 0, y: 0, z: 0, w: 1 };
+  }
+
+  // get camera for rendering/raycasting
+  getCamera() {
+    if (this._renderer && this._renderer.xr && this._renderer.xr.isPresenting) {
+      return this._renderer.xr.getCamera();
+    }
+    return this._camera;
+  }
 
   // start the xr frame loop
   start() {
@@ -286,6 +326,7 @@ class WebXRPlacementController {
       if (!pose) return;
 
       this._lastViewerPose = pose;
+
       const deltaMs = this._lastTime ? (time - this._lastTime) : 16;
       this._lastTime = time;
 
