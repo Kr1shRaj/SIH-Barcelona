@@ -10,7 +10,8 @@
     "keygen:dev": "node scripts/keygen.js --dev",
     "seed": "node db/seed.js",
     "start": "node server.js",
-    "test": "node --test tests/**/*.test.js"
+    "test": "node --test tests/**/*.test.js",
+    "activate": "node scripts/activation.js"
   },
   "dependencies": {
     "better-sqlite3": "12.11.1",

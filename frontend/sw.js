@@ -2,7 +2,7 @@
 // Enables full AR training and audio playback in connectivity-deprived underground mines
 
 // bump this whenever STATIC_ASSETS changes, or installed phones keep the old list
-const CACHE_NAME = "safear-offline-v39";
+const CACHE_NAME = "safear-offline-v40";
 
 const STATIC_ASSETS = [
   "./",
@@ -42,6 +42,10 @@ const STATIC_ASSETS = [
   "./screens/router.js",
   "./screens/language.js",
   "./screens/splash.js",
+  "./screens/appbar.js",
+  "./screens/auth.js",
+  "./js/session.js",
+  "./js/theme.js",
   "./assets/brand/safear-logo.png",
   "./screens/modules.js",
   "./prerequisite/equipment-data.js",

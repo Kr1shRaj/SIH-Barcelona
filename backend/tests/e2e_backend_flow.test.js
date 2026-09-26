@@ -5,7 +5,7 @@ const { describe, it, before, after } = require("node:test");
 const assert = require("node:assert");
 const { Buffer } = require("node:buffer");
 const request = require("supertest");
-const { buildTestApp, measureSpatialCheckpoints, TEST_CONFIG } = require("./helpers/app");
+const { buildTestApp, measureSpatialCheckpoints, TEST_CONFIG, activateTestTrainee, asTrainee } = require("./helpers/app");
 const { fireAttempt, gasAttempt, syncEnvelope } = require("./fixtures/attempts");
 
 // one worker walks the whole backend once: manifest, attempt, grade, certificate,
@@ -22,12 +22,17 @@ describe("End to end backend flow", () => {
   let certId = null;
   let qr = null;
 
+  let session = null;
+
   before(() => {
     ctx = buildTestApp();
     // the shipped seed leaves the two spatial checkpoints unmeasured on purpose,
     // so nothing can certify. give the manifest a measured angle for this run.
     measureSpatialCheckpoints(ctx.db);
     attempt = fireAttempt({ workerId: WORKER });
+    // the worker signs in once, the way a device does, and every call below
+    // carries that session
+    session = activateTestTrainee(ctx.db, WORKER);
   });
 
   after(() => ctx.cleanup());
@@ -51,6 +56,7 @@ describe("End to end backend flow", () => {
   it("2. accepts a valid attempt over /api/sync", async () => {
     const res = await request(ctx.app)
       .post("/api/sync")
+      .set(asTrainee(session))
       .send(syncEnvelope([attempt], { workerId: WORKER }));
 
     assert.strictEqual(res.status, 200);
@@ -77,7 +83,7 @@ describe("End to end backend flow", () => {
   });
 
   it("5. issues a certificate for that attempt", async () => {
-    const res = await request(ctx.app).post("/api/certs/issue").send({ attemptId: attempt.attemptId });
+    const res = await request(ctx.app).post("/api/certs/issue").set(asTrainee(session)).send({ attemptId: attempt.attemptId });
 
     assert.strictEqual(res.status, 201);
     assert.strictEqual(res.body.status, "issued");
@@ -127,6 +133,7 @@ describe("End to end backend flow", () => {
   it("10. treats a replayed attempt as a duplicate, not a second run", async () => {
     const res = await request(ctx.app)
       .post("/api/sync")
+      .set(asTrainee(session))
       .send(syncEnvelope([attempt], { workerId: WORKER, batchId: SECOND_BATCH }));
 
     assert.strictEqual(res.status, 200);
@@ -140,7 +147,7 @@ describe("End to end backend flow", () => {
   });
 
   it("11. hands the same certificate back when issuance is retried", async () => {
-    const res = await request(ctx.app).post("/api/certs/issue").send({ attemptId: attempt.attemptId });
+    const res = await request(ctx.app).post("/api/certs/issue").set(asTrainee(session)).send({ attemptId: attempt.attemptId });
 
     assert.strictEqual(res.status, 200);
     assert.strictEqual(res.body.status, "already_issued");
@@ -170,6 +177,7 @@ describe("End to end backend flow", () => {
 
     const res = await request(ctx.app)
       .post("/api/sync")
+      .set(asTrainee(session))
       .send(syncEnvelope([partial], { workerId: WORKER, batchId: THIRD_BATCH }));
 
     assert.strictEqual(res.status, 422, "a batch where nothing landed is not a success");
@@ -179,11 +187,14 @@ describe("End to end backend flow", () => {
   });
 
   it("14. keeps the good half of a mixed batch and names the bad half", async () => {
-    const good = gasAttempt({ workerId: "WRK-0004" });
-    const bad = fireAttempt({ workerId: "WRK-DEFAULT", attemptId: BAD_ATTEMPT });
+    // one signed in worker per batch now, so both attempts are this worker's and
+    // the bad one is bad for a reason the session cannot settle: an unknown module
+    const good = gasAttempt({ workerId: WORKER });
+    const bad = fireAttempt({ moduleId: "not-a-real-module", attemptId: BAD_ATTEMPT });
 
     const res = await request(ctx.app)
       .post("/api/sync")
+      .set(asTrainee(session))
       .send(syncEnvelope([good, bad], { workerId: WORKER, batchId: "e1e1e1e1-3333-4444-8555-666677778888" }));
 
     assert.strictEqual(res.status, 200);
@@ -191,8 +202,8 @@ describe("End to end backend flow", () => {
     assert.strictEqual(res.body.rejected, 1);
 
     const rejection = res.body.results.find((r) => r.status === "rejected");
-    assert.strictEqual(rejection.reason, "unknown_worker");
-    assert.ok(rejection.message.includes("WRK-DEFAULT"), "the rejection must say what was wrong");
+    assert.strictEqual(rejection.reason, "unknown_module");
+    assert.ok(rejection.message.includes("not-a-real-module"), "the rejection must say what was wrong");
 
     assert.ok(ctx.db.prepare("SELECT 1 FROM attempt WHERE attempt_id = ?").get(good.attemptId),
       "the valid attempt must survive its neighbour");

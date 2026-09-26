@@ -141,6 +141,22 @@ function resolveApiBase() {
   return "";
 }
 
+// The stored session token, read at call time. This module deliberately does not
+// import session.js: api.js is the lowest layer and session.js sits above it, so
+// the token is read straight from storage to keep the dependency one way.
+function _storedToken() {
+  const storage = _storage();
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem("safear_session");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed.token === "string" ? parsed.token : null;
+  } catch (_err) {
+    return null;
+  }
+}
+
 // turn the resolved REST origin into the matching WebSocket origin
 function resolveWebSocketUrl() {
   const apiBase = resolveApiBase();
@@ -225,6 +241,14 @@ async function apiFetch(path, options = {}) {
     headers: Object.assign({}, options.headers),
     signal: controller ? controller.signal : undefined
   };
+
+  // The trainee's session, if there is one. An explicit authToken wins so a test
+  // or a sign-in call can pin the token it means; otherwise the stored session is
+  // used, which is what every ordinary call wants.
+  const token = typeof options.authToken === "string" ? options.authToken : _storedToken();
+  if (token && options.authToken !== null) {
+    init.headers.Authorization = `Bearer ${token}`;
+  }
 
   if (options.body !== undefined) {
     init.headers["Content-Type"] = "application/json";

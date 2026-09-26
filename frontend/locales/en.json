@@ -3,6 +3,8 @@
     "title": "SafeAR — Industrial Safety Training",
     "tagline": "Ready before it's real.",
     "splash_loading": "Preparing your training environment",
+    "theme_light": "Switch to light mode",
+    "theme_dark": "Switch to dark mode",
     "select_language": "Select Language",
     "select_language_hint": "Choose your preferred language",
     "start_training": "Start Training",
@@ -562,5 +564,34 @@
         }
       }
     }
+  },
+  "auth": {
+    "login_title": "Sign in",
+    "login_lede": "Enter your worker ID and PIN to continue your training.",
+    "login_action": "Sign in",
+    "activate_title": "Set up your account",
+    "activate_lede": "Enter the code your supervisor gave you, then choose a PIN.",
+    "activate_action": "Activate and continue",
+    "offline_title": "Welcome back",
+    "offline_lede": "You are offline. Enter your PIN to continue training.",
+    "worker_id": "Worker ID",
+    "pin": "PIN",
+    "new_pin": "Choose a PIN",
+    "confirm_pin": "Confirm PIN",
+    "code": "Activation code",
+    "pin_rule": "At least 6 digits",
+    "working": "Working…",
+    "fill_all": "Fill in every field.",
+    "pin_mismatch": "The two PINs do not match.",
+    "no_account": "First time? Set up your account",
+    "have_account": "I already have a PIN",
+    "use_worker_id": "Sign in with worker ID instead",
+    "sign_out": "Sign out",
+    "offline_locked": "Too many attempts. Sign in online to continue.",
+    "error_invalid_credentials": "Worker ID or PIN is not correct.",
+    "error_activation_failed": "That activation code is not valid for this worker ID.",
+    "error_too_many_attempts": "Too many attempts. Wait a moment and try again.",
+    "error_network_error": "Cannot reach the training server. Check the connection.",
+    "wrong_pin": "That PIN is not correct."
   }
 }

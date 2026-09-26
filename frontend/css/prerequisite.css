@@ -9,7 +9,7 @@
      shared tokens, so there is one palette and not two. */
   --eq-surface-raised: var(--color-surface-raised);
   --eq-line: var(--color-line);
-  --eq-scrim: rgba(6, 7, 8, 0.84);
+  --eq-scrim: var(--color-scrim);
   --eq-tap: 48px;
   --eq-radius: var(--radius-lg);
 }
@@ -82,7 +82,7 @@
 .eq-card__open:focus-visible,
 .eq-card__audio:focus-visible,
 .mod-card__btn:focus-visible {
-  outline: 3px solid var(--color-info);
+  outline: 3px solid var(--color-focus);
   outline-offset: 2px;
 }
 
@@ -451,25 +451,318 @@
   }
 }
 
+/* ---------- sign in ----------
+   The first thing a worker meets after the loading screen, and the only screen
+   that stands between them and their training, so it is deliberately short: the
+   mark, one question, the fields that answer it.
+
+   Built from the same tokens as every other screen — it follows the theme, the
+   language selector is the one the app already has, and the primary action is
+   the brand yellow. Nothing here is its own design. */
+
+.auth-screen {
+  width: 100%;
+  max-width: 26rem;
+  margin: 0 auto;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding:
+    calc(env(safe-area-inset-top, 0px) + 0.75rem)
+    1.25rem
+    calc(env(safe-area-inset-bottom, 0px) + 2rem);
+  box-sizing: border-box;
+}
+
+.auth-controls {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.4rem;
+  min-height: 2.75rem;
+}
+
+.auth-card {
+  margin: auto 0;
+  padding: 1.25rem 1.1rem 1.4rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  text-align: center;
+}
+
+.auth-brand {
+  display: inline-flex;
+  padding: 0.5rem 0.7rem;
+  background: var(--color-brand-plate);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.auth-logo {
+  display: block;
+  width: clamp(8rem, 36vw, 10rem);
+  height: auto;
+}
+
+.auth-title {
+  margin: 1rem 0 0;
+  font-size: clamp(1.25rem, 5.2vw, 1.5rem);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+  text-wrap: balance;
+}
+
+.auth-lede {
+  margin: 0.35rem auto 0;
+  max-width: 22rem;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  text-wrap: balance;
+}
+
+/* who this device belongs to, on the offline prompt */
+.auth-who {
+  margin-top: 0.6rem;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.auth-form {
+  margin-top: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  text-align: left;
+}
+
+.auth-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.auth-field__label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.auth-field__input {
+  max-width: none;
+  min-height: var(--eq-tap);
+  font-size: var(--text-base);
+  letter-spacing: 0.04em;
+}
+
+.auth-field__hint {
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+/* what went wrong. one line, no detail about whose account exists. */
+.auth-message {
+  margin: 0;
+  padding: 0.6rem 0.7rem;
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--color-text);
+}
+
+.auth-message[hidden] { display: none !important; }
+
+.auth-alt {
+  margin-top: 1rem;
+}
+
+.auth-link {
+  min-height: var(--eq-tap);
+  padding: 0.5rem 0.75rem;
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+.auth-link:focus-visible,
+.auth-field__input:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* ---------- the in-app bar ----------
+   Worn by every screen after the language picker: the mark, the screen's title,
+   and the two controls a worker may want at any moment — their language, and
+   whether the screen is dark or light.
+
+   THE TITLE IS CENTRED ON THE VIEWPORT, not on the space the controls leave. The
+   row is three columns, `1fr auto 1fr`, so the leading and trailing columns are
+   always the same width whatever is in them: a back arrow on one side and a
+   language selector on the other cancel out exactly. Centring the title inside a
+   flex row would drift the moment one side grew, which is what used to happen. */
+
+.appbar {
+  width: 100%;
+  padding:
+    calc(env(safe-area-inset-top, 0px) + 0.6rem)
+    0
+    0.9rem;
+  margin-bottom: 0.4rem;
+}
+
+/* the mark leads, the controls trail, and the space between them simply gives
+   way. the title below is what must be centred, and it is centred on the screen
+   rather than on this row. */
+.appbar__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  flex-wrap: nowrap;
+}
+
+.appbar__side {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.appbar__side--start { justify-content: flex-start; }
+.appbar__side--end { justify-content: flex-end; }
+
+.appbar__brand {
+  display: inline-flex;
+  padding: 0.3rem 0.45rem;
+  background: var(--color-brand-plate);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  text-decoration: none;
+}
+
+.appbar__logo {
+  display: block;
+  width: 5.25rem;
+  height: auto;
+}
+
+/* the title block sits under the row, so it is centred on the whole screen and
+   nothing in the row can push it sideways */
+.appbar__titles {
+  margin-top: 0.9rem;
+  text-align: center;
+}
+
+.appbar__title {
+  margin: 0;
+  font-size: clamp(1.25rem, 5.2vw, 1.5rem);
+  line-height: 1.25;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+  text-wrap: balance;
+}
+
+.appbar__subtitle {
+  margin: 0.3rem auto 0;
+  max-width: 26rem;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--color-text-muted);
+  text-wrap: balance;
+}
+
+/* the two controls. both are real controls: a native select and a button, so the
+   keyboard and the screen reader get them for free. */
+.appbar__icon-btn {
+  min-width: var(--eq-tap);
+  min-height: var(--eq-tap);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color var(--dur-quick) var(--ease-out), background-color var(--dur-quick) var(--ease-out);
+}
+
+@media (hover: hover) {
+  .appbar__icon-btn:hover {
+    border-color: var(--color-text-muted);
+    background: var(--color-surface-raised);
+  }
+}
+
+.appbar__icon {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.appbar__lang {
+  display: inline-flex;
+  align-items: center;
+}
+
+.appbar__select {
+  min-height: var(--eq-tap);
+  max-width: 8.5rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.appbar__select:focus-visible,
+.appbar__icon-btn:focus-visible,
+.appbar__brand:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 24rem) {
+  /* on the narrowest phones the selector gives up its width before the title does */
+  .appbar__select { max-width: 6.5rem; }
+  .appbar__logo { width: 4.5rem; }
+}
+
 /* ---------- equipment familiarization ---------- */
 
 .eq-screen {
   width: 100%;
   max-width: 40rem;
   margin: 0 auto;
-  padding: 1.5rem 1rem 2.5rem;
+  padding: 0 1rem calc(env(safe-area-inset-bottom, 0px) + 2.5rem);
 }
 
-.eq-screen__title {
-  font-size: 1.35rem;
-  font-weight: 700;
-  color: var(--color-text);
-}
-
-.eq-screen__subtitle {
-  margin-top: 0.3rem;
-  font-size: 0.92rem;
-  color: var(--color-text-muted);
+/* the progress block under the bar. the count reads centred with the bar's title
+   above it rather than hanging off the left edge. */
+.eq-screen__head {
+  text-align: center;
 }
 
 .eq-progress {
@@ -488,9 +781,10 @@
 
 .eq-progress__count {
   margin-top: 0.4rem;
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
   color: var(--color-text-muted);
   font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .eq-grid {
@@ -579,8 +873,9 @@
 
 .eq-card__hint {
   margin-top: 0.15rem;
-  font-size: 0.74rem;
-  color: var(--color-info);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--color-primary);
 }
 
 .eq-card__state {
@@ -676,17 +971,34 @@
   outline: none;
 }
 
+/* same three-column trick as the app bar: the close button on the right is
+   balanced by an empty column on the left, so the title is centred on the dialog
+   rather than on what is left over beside the button */
 .eq-dialog__head {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
+  display: grid;
+  grid-template-columns: var(--eq-tap) 1fr var(--eq-tap);
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .eq-dialog__title {
-  flex: 1;
-  font-size: 1.2rem;
+  grid-column: 2;
+  text-align: center;
+  font-size: var(--text-lg);
   font-weight: 700;
   color: var(--color-text);
+  text-wrap: balance;
+}
+
+.eq-dialog__head .eq-icon-btn {
+  grid-column: 3;
+}
+
+.eq-dialog__purpose {
+  text-align: center;
+  max-width: 34rem;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .eq-icon-btn {
@@ -753,7 +1065,7 @@
 }
 
 .eq-object:focus-visible {
-  outline: 3px solid var(--color-info);
+  outline: 3px solid var(--color-focus);
   outline-offset: 4px;
   border-radius: 8px;
 }
@@ -946,19 +1258,11 @@
   width: 100%;
   max-width: 34rem;
   margin: 0 auto;
-  padding: 1.75rem 1rem 2.5rem;
+  padding: 0 1rem calc(env(safe-area-inset-bottom, 0px) + 2.5rem);
 }
 
-.mod-screen__title {
-  font-size: 1.35rem;
-  font-weight: 700;
-  color: var(--color-text);
-}
-
-.mod-screen__subtitle {
-  margin-top: 0.3rem;
-  font-size: 0.9rem;
-  color: var(--color-text-muted);
+.mod-locked {
+  text-align: center;
 }
 
 .mod-locked {
@@ -1303,17 +1607,19 @@
 }
 
 .eq-piece--on::before {
-  background: radial-gradient(closest-side, rgba(56, 189, 248, 0.42), rgba(56, 189, 248, 0) 100%);
+  background: radial-gradient(closest-side, rgba(254, 188, 4, 0.34), rgba(254, 188, 4, 0) 100%);
 }
 
+/* the chosen part is lifted by the brand colour, at a strength that reads as
+   "this one" rather than as a glow */
 .eq-piece--on .eq-partframe__img {
   filter:
-    drop-shadow(0 0 1.5px var(--color-info))
-    drop-shadow(0 0 5px rgba(56, 189, 248, 0.3));
+    drop-shadow(0 0 1.5px var(--color-accent-strong))
+    drop-shadow(0 0 4px rgba(254, 188, 4, 0.26));
 }
 
 .eq-piece:focus-visible {
-  outline: 3px solid var(--color-info);
+  outline: 3px solid var(--color-focus);
   outline-offset: 2px;
   border-radius: 10px;
 }
@@ -1352,7 +1658,7 @@
 }
 
 .eq-piece--on .eq-piece__label {
-  color: var(--color-info);
+  color: var(--color-accent-strong);
 }
 
 /* the area a component photograph is fitted into, sized from the plate geometry */
@@ -1377,7 +1683,7 @@
   position: absolute;
   max-width: none;
   object-fit: fill;
-  filter: drop-shadow(0 0 1px rgba(226, 232, 240, 0.5));
+  filter: drop-shadow(0 0 1px var(--photo-rim));
 }
 
 .eq-stage__controls {
@@ -1406,14 +1712,14 @@
   border-radius: var(--eq-radius);
   background: var(--color-surface);
   border: 1px solid var(--eq-line);
-  box-shadow: inset 3px 0 0 var(--color-info), 0 1px 2px rgba(2, 6, 18, 0.45);
+  box-shadow: inset 3px 0 0 var(--color-accent-strong), var(--shadow-sm);
 }
 
 /* before a part is chosen there is nothing to point at, so the panel is a plain
    quiet surface with the instruction in it — no accent and no outline */
 .eq-selection--empty {
   justify-content: center;
-  box-shadow: 0 1px 2px rgba(2, 6, 18, 0.45);
+  box-shadow: var(--shadow-sm);
 }
 
 .eq-selection__hint {

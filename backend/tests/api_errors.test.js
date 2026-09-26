@@ -29,10 +29,11 @@ describe("Error handling", () => {
   });
 
   it("no longer 404s the cert routes now that they are mounted", async () => {
-    // an empty body is a validation failure, not a missing route. seeing 400 here
-    // rather than 404 is what proves the router is actually wired in.
+    // Issuance is behind a trainee session now, so an anonymous call is refused
+    // before its body is looked at. 401 rather than 404 is what proves the router
+    // is wired in — a route that does not exist cannot ask you to sign in.
     const certs = await request(ctx.app).post("/api/certs/issue").send({});
-    assert.strictEqual(certs.status, 400);
+    assert.strictEqual(certs.status, 401);
   });
 
   it("answers 400 on malformed JSON", async () => {

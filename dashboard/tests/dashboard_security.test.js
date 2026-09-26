@@ -162,7 +162,13 @@ describe("hostile API data cannot become markup", () => {
 
     // the words survive as visible text, which is correct and harmless. what must
     // not survive is a "<" that starts a tag, or a quote that ends an attribute.
-    assert.ok(html.indexOf("<img") === -1, "no img tag may be constructed");
+    // the shell carries one img of its own — the SafeAR mark, with a fixed src —
+    // so the invariant is that hostile data constructs no OTHER img, and cannot
+    // reach the attributes of the one that is there
+    const imgs = html.match(/<img[^>]*>/g) || [];
+    assert.strictEqual(imgs.length, 1, "only the brand mark may be an img");
+    assert.ok(imgs[0].indexOf('src="./img/safear-logo.png"') !== -1, "and its src is fixed markup, not data");
+    assert.ok(imgs[0].indexOf("onerror") === -1, "no handler may be attached to it");
     assert.ok(html.indexOf("<script") === -1, "no script tag may be constructed");
     // the sharp invariant: the payload never appears verbatim, only escaped. the
     // words "onerror=" do survive inside the escaped text and inside a quoted

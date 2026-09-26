@@ -3,9 +3,16 @@ const assert = require("node:assert");
 const http = require("node:http");
 const { WebSocket } = require("ws");
 const request = require("supertest");
-const { buildTestApp } = require("./helpers/app");
+const { buildTestApp, activateTestTrainee, asTrainee } = require("./helpers/app");
 const { testKeys } = require("./fixtures/certs");
 const { initRealtimeServer } = require("../realtime/team-session");
+
+// a PIN per role, so the fixture never signs two participants in with one
+const ROLE_PINS = {
+  alarm: "846215",
+  extinguisher_operator: "735192",
+  backup_coordinator: "913746"
+};
 
 // wait for one websocket message of requested type
 function nextMessage(ws, type) {
@@ -189,9 +196,16 @@ test("Team Drill Full Integration: attempts and certs", async (t) => {
         assert.ok(selCp, "team_extinguisher_select checkpoint exists");
         assert.strictEqual(JSON.parse(selCp.observation_json).selected, "correct_selection");
 
-        // issue certificate for this attempt
+        // Issue the certificate for this attempt, as the worker who earned it.
+        //
+        // A team drill writes a separate attempt per participant, so each
+        // credential belongs to one worker and is issued by that worker's own
+        // session. Issuance requires a signed in trainee and refuses an attempt
+        // that is not theirs, which is the same rule the solo path follows.
+        const session = activateTestTrainee(ctx.db, row.worker_id, ROLE_PINS[role]);
         const issueRes = await request(ctx.app)
           .post("/api/certs/issue")
+          .set(asTrainee(session))
           .send({ attemptId: attempts[role] });
         assert.strictEqual(issueRes.status, 201);
         assert.ok(issueRes.body.certId);

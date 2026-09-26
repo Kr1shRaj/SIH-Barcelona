@@ -340,6 +340,20 @@ function toWireAttempt(evaluated) {
   };
 }
 
+// the session token this device holds, read at call time
+function _storedSessionToken() {
+  const storage = _getStorage();
+  if (!storage) return null;
+  try {
+    const raw = storage.getItem("safear_session");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed.token === "string" ? parsed.token : null;
+  } catch (_err) {
+    return null;
+  }
+}
+
 // read local storage offline sync queue
 function getQueuedAttempts() {
   const storage = _getStorage();
@@ -356,25 +370,25 @@ function getQueuedAttempts() {
 
 // resolve effective worker id from query param, local storage, or canonical demo fallback
 function getEffectiveWorkerId() {
-  if (typeof window !== "undefined" && window.location && typeof window.location.search === "string") {
+  // The identity of this device is the worker it is SIGNED IN as, and nothing
+  // else. This used to read ?workerId= from the url first, which meant anybody
+  // could become anybody by editing the address bar — and the server believed
+  // it, because nothing else proved who was calling. The override is gone; the
+  // session decides here, and the server checks it again on every sync.
+  const storage = _getStorage();
+  if (storage) {
     try {
-      const URLParamsCtor = window.URLSearchParams || (typeof globalThis !== "undefined" ? globalThis.URLSearchParams : null);
-      if (URLParamsCtor) {
-        const params = new URLParamsCtor(window.location.search);
-        const queryWorker = params.get("workerId") || params.get("worker");
-        if (queryWorker && typeof queryWorker === "string" && queryWorker.trim().length > 0 && queryWorker.length <= 64) {
-          const clean = queryWorker.trim();
-          setWorkerId(clean);
-          return clean;
+      const raw = storage.getItem("safear_offline_identity");
+      if (raw) {
+        const identity = JSON.parse(raw);
+        if (identity && typeof identity.workerId === "string" && identity.workerId.trim().length > 0) {
+          return identity.workerId.trim();
         }
       }
     } catch (_err) {
-      // url params parsing failed
+      // a corrupt identity record is not an identity
     }
-  }
 
-  const storage = _getStorage();
-  if (storage) {
     try {
       const stored = storage.getItem(WORKER_STORAGE_KEY);
       if (stored && typeof stored === "string" && stored.trim().length > 0 && stored.length <= 64) {
@@ -388,7 +402,6 @@ function getEffectiveWorkerId() {
   return CANONICAL_DEMO_WORKER_ID;
 }
 
-// set active worker id explicitly in local storage
 function setWorkerId(id) {
   if (!id || typeof id !== "string" || id.trim().length === 0 || id.length > 64) {
     throw new Error("workerId must be a string between 1 and 64 characters");
@@ -611,7 +624,7 @@ function removeSyncedAttempts(syncedAttemptIds) {
 }
 
 // push queued attempts to backend /api/sync
-async function syncQueuedAttempts({ baseUrl = resolveApiBase(), deviceId, workerId, batchSize = MAX_BATCH_ATTEMPTS } = {}) {
+async function syncQueuedAttempts({ baseUrl = resolveApiBase(), deviceId, workerId, batchSize = MAX_BATCH_ATTEMPTS, authToken } = {}) {
   const queue = getQueuedAttempts();
   if (queue.length === 0) {
     return { success: true, synced: 0, remaining: 0 };
@@ -647,9 +660,15 @@ async function syncQueuedAttempts({ baseUrl = resolveApiBase(), deviceId, worker
   }
 
   try {
+    // the session token, so the server can decide whose attempts these are. an
+    // explicit token wins; otherwise the one this device signed in with is used.
+    const headers = { "Content-Type": "application/json" };
+    const token = typeof authToken === "string" ? authToken : _storedSessionToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+
     const res = await fetchHandle(`${baseUrl}/api/sync`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify(envelope)
     });
 

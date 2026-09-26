@@ -20,6 +20,9 @@ const EXPECTED_TABLES = [
   "module",
   "schema_meta",
   "sync_batch",
+  "trainee_account",
+  "trainee_activation",
+  "trainee_session",
   "worker"
 ];
 
@@ -129,8 +132,8 @@ describe("Database initialization", () => {
 
     assert.throws(
       () => initDatabase(legacyPath),
-      /schema v1, this build needs v5/,
-      "an unversioned db must be rejected, never half upgraded"
+      /schema v1, this build needs v6/,
+      "an unversioned db has no migration path and must be refused, never half upgraded"
     );
   });
 

@@ -1,7 +1,7 @@
 # Santali Translation Manifest — Equipment Familiarization
 
-103 strings introduced by the equipment familiarization and loading screens need a
-human Santali (Ol Chiki) translation.
+132 strings introduced by the equipment familiarization, loading, in-app bar and sign in
+screens need a human Santali (Ol Chiki) translation.
 
 None of them were machine-translated. Ol Chiki has no settled vocabulary for most of
 this equipment — there is no agreed term for a multi-gas detector or a dorsal D-ring —
@@ -28,6 +28,35 @@ carries them better than the screen does.
 
 | Key | English source | Hindi reference |
 |---|---|---|
+| `auth.activate_action` | Activate and continue | चालू करें और आगे बढ़ें |
+| `auth.activate_lede` | Enter the code your supervisor gave you, then choose a PIN. | सुपरवाइज़र से मिला कोड डालें, फिर अपना पिन चुनें। |
+| `auth.activate_title` | Set up your account | अपना खाता शुरू करें |
+| `auth.code` | Activation code | एक्टिवेशन कोड |
+| `auth.confirm_pin` | Confirm PIN | पिन दोबारा डालें |
+| `auth.error_activation_failed` | That activation code is not valid for this worker ID. | यह एक्टिवेशन कोड इस वर्कर आईडी के लिए सही नहीं है। |
+| `auth.error_invalid_credentials` | Worker ID or PIN is not correct. | वर्कर आईडी या पिन सही नहीं है। |
+| `auth.error_network_error` | Cannot reach the training server. Check the connection. | प्रशिक्षण सर्वर तक नहीं पहुँच पा रहे। कनेक्शन देखें। |
+| `auth.error_too_many_attempts` | Too many attempts. Wait a moment and try again. | बहुत बार कोशिश हुई। थोड़ी देर बाद फिर कोशिश करें। |
+| `auth.fill_all` | Fill in every field. | सभी जानकारी भरें। |
+| `auth.have_account` | I already have a PIN | मेरे पास पहले से पिन है |
+| `auth.login_action` | Sign in | साइन इन करें |
+| `auth.login_lede` | Enter your worker ID and PIN to continue your training. | प्रशिक्षण जारी रखने के लिए अपना वर्कर आईडी और पिन डालें। |
+| `auth.login_title` | Sign in | साइन इन करें |
+| `auth.new_pin` | Choose a PIN | पिन चुनें |
+| `auth.no_account` | First time? Set up your account | पहली बार? अपना खाता शुरू करें |
+| `auth.offline_lede` | You are offline. Enter your PIN to continue training. | आप ऑफ़लाइन हैं। प्रशिक्षण जारी रखने के लिए पिन डालें। |
+| `auth.offline_locked` | Too many attempts. Sign in online to continue. | बहुत बार गलत। जारी रखने के लिए ऑनलाइन साइन इन करें। |
+| `auth.offline_title` | Welcome back | वापसी पर स्वागत है |
+| `auth.pin` | PIN | पिन |
+| `auth.pin_mismatch` | The two PINs do not match. | दोनों पिन एक जैसे नहीं हैं। |
+| `auth.pin_rule` | At least 6 digits | कम से कम 6 अंक |
+| `auth.sign_out` | Sign out | साइन आउट |
+| `auth.use_worker_id` | Sign in with worker ID instead | वर्कर आईडी से साइन इन करें |
+| `auth.wrong_pin` | That PIN is not correct. | यह पिन सही नहीं है। |
+| `auth.worker_id` | Worker ID | वर्कर आईडी |
+| `auth.working` | Working… | हो रहा है… |
+| `app.theme_light` | Switch to light mode | लाइट मोड पर जाएं |
+| `app.theme_dark` | Switch to dark mode | डार्क मोड पर जाएं |
 | `app.tagline` | Ready before it's real. | असली हालात से पहले तैयारी। |
 | `app.splash_loading` | Preparing your training environment | आपका प्रशिक्षण वातावरण तैयार हो रहा है |
 | `app.select_language_hint` | Choose your preferred language | अपनी पसंद की भाषा चुनें |

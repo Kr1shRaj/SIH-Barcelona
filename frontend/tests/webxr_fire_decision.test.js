@@ -1084,7 +1084,10 @@ describe("Tier 1 WebXR Fire Module: Phase 1 Decision Layer Port", () => {
     const crosshair = document.getElementById("webxr-aim-crosshair");
     assert.ok(crosshair, "Crosshair element must be mounted");
     assert.ok(crosshair.innerHTML.includes("<svg"), "Crosshair must contain SVG reticle");
-    assert.ok(crosshair.innerHTML.includes("#00e676"), "Crosshair must have emerald center indicator");
+    // The centre indicator is still there and still green; the hex moved to the
+    // SafeAR green when the HUD palette was unified, and #00e676 is now one of
+    // the colours hud_certificate.test.js refuses to let back into trainee UI.
+    assert.ok(crosshair.innerHTML.includes("#2f9e63"), "Crosshair must have a green center indicator");
 
     _hideAimCrosshair();
     assert.strictEqual(document.getElementById("webxr-aim-crosshair"), null);

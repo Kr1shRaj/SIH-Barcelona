@@ -9,6 +9,21 @@
   <meta name="google" content="notranslate">
   <meta name="robots" content="notranslate">
   <title>SafeAR — Industrial Safety Training</title>
+  <!-- The theme is stamped before the first paint. This is a copy of the rule in
+       js/theme.js on purpose: a module import resolves too late and the worker
+       would see a flash of the wrong theme. Both read the same key. -->
+  <script>
+    (function () {
+      try {
+        var stored = localStorage.getItem("safear_theme");
+        var theme = (stored === "dark" || stored === "light") ? stored
+          : (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark");
+        document.documentElement.setAttribute("data-theme", theme);
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "dark");
+      }
+    })();
+  </script>
   <link rel="stylesheet" href="./css/style.css">
   <link rel="stylesheet" href="./css/prerequisite.css">
   <!-- vendored, not cdn: a mine has no signal. aframe must load before ar.js -->

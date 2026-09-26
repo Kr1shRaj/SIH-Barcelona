@@ -53,10 +53,10 @@ function buildFireEntity(airflow = "none") {
     <a-entity id="procedural-fire" procedural-fire="airflow: ${safeAirflow}; progress: 0" position="0 -0.55 0" scale="0.55 0.55 0.55"></a-entity>
 
     <!-- generous aim target collision cylinder covering entire base -->
-    <a-cylinder id="fire-target-base" class="clickable aim-target" data-raycast-target="aim" position="0 -0.20 0" radius="0.95" height="0.75" material="color: #00e676; opacity: 0.01; transparent: true"></a-cylinder>
+    <a-cylinder id="fire-target-base" class="clickable aim-target" data-raycast-target="aim" position="0 -0.20 0" radius="0.95" height="0.75" material="color: #febc04; opacity: 0.01; transparent: true"></a-cylinder>
 
     <!-- 3D visual target label at ground base -->
-    <a-text id="aim-ground-label" value="${t("graphics.aim_flame_base", "👇 AIM AT BASE OF FLAMES")}" align="center" position="0 -0.62 0.50" rotation="-20 0 0" scale="0.50 0.50 0.50" color="#00e676" material="shader: flat"></a-text>
+    <a-text id="aim-ground-label" value="${t("graphics.aim_flame_base", "👇 AIM AT BASE OF FLAMES")}" align="center" position="0 -0.62 0.50" rotation="-20 0 0" scale="0.50 0.50 0.50" color="#febc04" material="shader: flat"></a-text>
   `;
 
   // 3d neon green aim reticle facing user at the base of the fire container
@@ -69,7 +69,7 @@ function buildFireEntity(airflow = "none") {
     aimReticle.setAttribute("rotation", "-60 0 0");
     aimReticle.setAttribute("radius-inner", "0.45");
     aimReticle.setAttribute("radius-outer", "0.80");
-    aimReticle.setAttribute("material", "color: #00e676; shader: flat; side: double; opacity: 0.9");
+    aimReticle.setAttribute("material", "color: #febc04; shader: flat; side: double; opacity: 0.9");
     aimReticle.setAttribute("animation", "property: scale; to: 1.15 1.15 1.15; from: 0.95 0.95 0.95; dir: alternate; dur: 500; loop: true; easing: easeInOutSine");
   } else {
     aimReticle.className = "clickable aim-target";
@@ -239,7 +239,7 @@ function buildExtinguisherEntity() {
     phantomShaft.setAttribute("rotation", "90 0 0");
     phantomShaft.setAttribute("radius", "0.08");
     phantomShaft.setAttribute("height", "0.38");
-    phantomShaft.setAttribute("material", "color: #00e5ff; shader: flat; opacity: 0.45; transparent: true");
+    phantomShaft.setAttribute("material", "color: #febc04; shader: flat; opacity: 0.45; transparent: true");
   }
 
   const phantomRing = document.createElement("a-torus");
@@ -249,7 +249,7 @@ function buildExtinguisherEntity() {
     phantomRing.setAttribute("rotation", "0 90 0");
     phantomRing.setAttribute("radius", "0.16");
     phantomRing.setAttribute("radius-tubular", "0.032");
-    phantomRing.setAttribute("material", "color: #00e5ff; shader: flat; opacity: 0.55; transparent: true");
+    phantomRing.setAttribute("material", "color: #febc04; shader: flat; opacity: 0.55; transparent: true");
   }
 
   phantomPin.appendChild(phantomShaft);
@@ -347,7 +347,7 @@ function buildExtinguisherEntity() {
 
   spatialBillboard.innerHTML = `
     <a-box id="billboard-bg" position="0 0 0" width="0.95" height="0.65" depth="0.03" material="color: #0f172a; opacity: 0.88; roughness: 0.5"></a-box>
-    <a-box id="billboard-border" position="0 0 0.018" width="0.97" height="0.67" depth="0.005" material="color: #00e5ff; opacity: 0.75; shader: flat; wireframe: true"></a-box>
+    <a-box id="billboard-border" position="0 0 0.018" width="0.97" height="0.67" depth="0.005" material="color: #febc04; opacity: 0.75; shader: flat; wireframe: true"></a-box>
     <a-text id="billboard-step-badge" value="🔥 STEP 2 / 3 — PASS" align="center" position="0 0.22 0.035" scale="0.42 0.42 0.42" color="#f59e0b"></a-text>
     <a-text id="billboard-step-title" value="P — PULL PIN" align="center" position="0 0.10 0.035" scale="0.55 0.55 0.55" color="#ffffff"></a-text>
     <a-text id="billboard-step-desc" value="Tap pin or arrow,\nthen drag right." align="center" position="0 -0.04 0.035" scale="0.34 0.34 0.34" color="#94a3b8"></a-text>

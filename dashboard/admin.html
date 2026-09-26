@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SafeAR — Admin Compliance Dashboard</title>
+  <link rel="stylesheet" href="./css/dashboard.css">
+</head>
+<body>
+  <!--
+    The admin compliance dashboard: real attempts, scores and certificates read
+    from the backend over an authenticated GET /api/dashboard/compliance.
+
+    This page exists because index.html now redirects to the worker/supervisor
+    training portal under /mobile/, which left js/dashboard.js — the client that
+    actually talks to the backend — with no page to run on. The markup here is the
+    one that hosted it before, unchanged: the script boots itself on DOMContentLoaded
+    and renders into #dashboard-app.
+
+    The admin key is never written into this file. The page asks for it and keeps it
+    in sessionStorage for that tab only.
+  -->
+  <div id="dashboard-app">
+    <!-- Admin compliance overview, certified workers, mine status -->
+  </div>
+  <script src="./js/dashboard.js" type="module"></script>
+</body>
+</html>

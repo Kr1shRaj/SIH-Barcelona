@@ -1,4 +1,5 @@
 const express = require("express");
+const { requireTrainee } = require("../middleware/trainee-auth");
 const { Buffer } = require("node:buffer");
 const { validateCertIssueRequest, validateCertVerifyRequest } = require("../models/cert");
 const {
@@ -88,14 +89,39 @@ function createCertRouter({ db, keys }) {
   const router = express.Router();
 
   // ---------------------------------------------------------------- issue
-  // the body carries an attempt id and nothing else. worker, module, score and
+  // The body carries an attempt id and nothing else. Worker, module, score and
   // expiry all come off the stored attempt, so a caller cannot claim a mark.
-  router.post("/issue", async (req, res, next) => {
+  //
+  // Signing in is now required, and the attempt must be the signed in worker's
+  // own: before this, anyone who could reach the port could mint a real signed
+  // credential for anybody's passed attempt. None of the cryptography changed —
+  // this is an authorisation check in front of it.
+  router.post("/issue", requireTrainee(db), async (req, res, next) => {
     let body;
     try {
       body = validateCertIssueRequest(req.body);
     } catch (err) {
       return next(err);
+    }
+
+    const owner = db
+      .prepare("SELECT worker_id FROM attempt WHERE attempt_id = ?")
+      .get(body.attemptId);
+
+    // an unknown attempt is answered by the service below as a 404. an attempt
+    // that exists but belongs to somebody else is a refusal, and says only that.
+    if (owner && owner.worker_id !== req.trainee.workerId) {
+      log.warn(
+        { event: "cert_issue_forbidden", attemptId: body.attemptId, requestId: req.id },
+        "Certificate issuance refused: attempt belongs to another worker"
+      );
+      return res.status(403).json({
+        error: {
+          code: "attempt_not_yours",
+          message: "that attempt belongs to a different worker",
+          requestId: req.id
+        }
+      });
     }
 
     try {

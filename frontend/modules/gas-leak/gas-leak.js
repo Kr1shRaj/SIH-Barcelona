@@ -156,7 +156,7 @@ function _createOverlay(container, html) {
   panel.id = "gas-module-overlay";
   panel.style.cssText = [
     "position:fixed", "bottom:0", "left:0", "right:0",
-    "background:transparent", "color:#fff",
+    "background:transparent", "color:#f3f4f6",
     "font-family:sans-serif", "padding:1.2rem",
     "z-index:100", "pointer-events:auto"
   ].join(";");
@@ -293,8 +293,8 @@ function _renderPpeOptions(container, onConfirm) {
     row.dataset.ppeId = id;
     row.style.cssText = [
       "padding:0.6rem 0.8rem", "border-radius:8px",
-      "border:1px solid #475569", "background:#1e293b",
-      "color:#fff", "cursor:pointer", "font-size:0.9rem",
+      "border:1px solid #343a40", "background:#1a1d20",
+      "color:#f3f4f6", "cursor:pointer", "font-size:0.9rem",
       "text-align:left", "display:flex", "align-items:center", "gap:0.5rem"
     ].join(";");
     row.textContent = `[ ] ${label}`;
@@ -302,13 +302,13 @@ function _renderPpeOptions(container, onConfirm) {
     row.addEventListener("click", () => {
       if (selectedSet.has(id)) {
         selectedSet.delete(id);
-        row.style.borderColor = "#475569";
-        row.style.background = "#1e293b";
+        row.style.borderColor = "#343a40";
+        row.style.background = "#1a1d20";
         row.textContent = `[ ] ${label}`;
       } else {
         selectedSet.add(id);
-        row.style.borderColor = "#f59e0b";
-        row.style.background = "#334155";
+        row.style.borderColor = "#febc04";
+        row.style.background = "rgba(203, 209, 216, 0.18)";
         row.textContent = `[✔] ${label}`;
       }
     });
@@ -318,7 +318,7 @@ function _renderPpeOptions(container, onConfirm) {
 
   const confirmBtn = document.createElement("button");
   confirmBtn.id = "btn-confirm-ppe";
-  confirmBtn.style.cssText = "padding:0.75rem;background:#f59e0b;color:#000;border:none;border-radius:8px;font-size:1rem;font-weight:bold;cursor:pointer;margin-top:0.4rem;";
+  confirmBtn.style.cssText = "padding:0.75rem;background:#febc04;color:#000;border:none;border-radius:8px;font-size:1rem;font-weight:bold;cursor:pointer;margin-top:0.4rem;";
   confirmBtn.textContent = t("modules.gas_leak.btn_ppe_confirm", {}, "✔ Confirm PPE Selection");
   confirmBtn.addEventListener("click", () => {
     onConfirm(Array.from(selectedSet));
@@ -351,8 +351,8 @@ function _renderBuddyOptions(container, onSelect) {
     btn.dataset.optionId = id;
     btn.style.cssText = [
       "padding:0.7rem 0.8rem", "border-radius:8px",
-      "border:1px solid #f59e0b", "background:#1e293b",
-      "color:#fff", "cursor:pointer", "font-size:0.85rem",
+      "border:1px solid #febc04", "background:#1a1d20",
+      "color:#f3f4f6", "cursor:pointer", "font-size:0.85rem",
       "text-align:left"
     ].join(";");
     btn.textContent = label;
@@ -373,13 +373,13 @@ function _renderBuddyOptions(container, onSelect) {
 function _renderSubscreen(overlay, { badge, title, desc, buttonText, onNext }) {
   if (!overlay) return;
   overlay.innerHTML = `
-    <div style="font-size:0.95rem;font-weight:bold;color:#f59e0b;letter-spacing:0.5px;">${badge}</div>
-    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${title}</div>
-    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${desc}</div>
+    <div class="hud-eyebrow">${badge}</div>
+    <div class="hud-title">${title}</div>
+    <div class="hud-instruction">${desc}</div>
   `;
   const btnNext = document.createElement("button");
   btnNext.id = "btn-step-next";
-  btnNext.style.cssText = "margin-top:0.4rem;padding:0.75rem 1.4rem;background:#f59e0b;color:#000;border:none;border-radius:8px;font-size:0.95rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
+  btnNext.style.cssText = "margin-top:0.4rem;padding:0.75rem 1.4rem;background:#febc04;color:#000;border:none;border-radius:8px;font-size:0.95rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
   btnNext.textContent = buttonText || "Next ➜";
   btnNext.addEventListener("click", () => {
     if (typeof btnNext.remove === "function") btnNext.remove();
@@ -392,14 +392,14 @@ function _renderSubscreen(overlay, { badge, title, desc, buttonText, onNext }) {
 function _renderTransitionScreen(overlay, onStartTest) {
   if (!overlay) return;
   overlay.innerHTML = `
-    <div style="font-size:0.95rem;font-weight:bold;color:#f59e0b;letter-spacing:0.5px;">${t("gas.teach_complete_badge", {}, "🎓 TEACH PHASE COMPLETE")}</div>
-    <div style="font-size:1.2rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("gas.test_ready_title", {}, "Ready for your assessment?")}</div>
-    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("gas.test_ready_desc", {}, "You will now execute the 3 critical protocol steps without educational hints. Demonstrate proper hazard recognition, PPE selection, and buddy communication.")}</div>
+    <div class="hud-eyebrow">${t("gas.teach_complete_badge", {}, "🎓 TEACH PHASE COMPLETE")}</div>
+    <div class="hud-title">${t("gas.test_ready_title", {}, "Ready for your assessment?")}</div>
+    <div class="hud-instruction">${t("gas.test_ready_desc", {}, "You will now execute the 3 critical protocol steps without educational hints. Demonstrate proper hazard recognition, PPE selection, and buddy communication.")}</div>
   `;
   const btnNext = document.createElement("button");
   btnNext.id = "btn-step-next";
   btnNext.dataset.action = "start-test";
-  btnNext.style.cssText = "margin-top:0.4rem;padding:0.75rem 1.4rem;background:#10b981;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
+  btnNext.style.cssText = "margin-top:0.4rem;padding:0.75rem 1.4rem;background:#2f9e63;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
   btnNext.textContent = t("gas.btn_start_test", {}, "Begin Graded Test ➜");
   btnNext.addEventListener("click", () => {
     if (typeof btnNext.remove === "function") btnNext.remove();
@@ -534,14 +534,14 @@ function _setupTestAction1(container, tierInfo) {
   const overlay = document.getElementById("gas-module-overlay");
   if (overlay) {
     overlay.innerHTML = `
-      <div style="font-size:0.95rem;font-weight:bold;color:#f59e0b;letter-spacing:0.5px;">${t("gas.step1_action_badge", {}, "☣ STEP 1 / 3 — HAZARD ZONE RECOGNITION")}</div>
-      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("gas.step1_action_title", {}, "Identify Confined Hazard Perimeter")}</div>
-      <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("gas.step1_action_desc", {}, "Identify marked toxic/confined gas perimeter in AR space. Confirm you recognize the hazard boundary.")}</div>
+      <div class="hud-eyebrow">${t("gas.step1_action_badge", {}, "☣ STEP 1 / 3 — HAZARD ZONE RECOGNITION")}</div>
+      <div class="hud-title">${t("gas.step1_action_title", {}, "Identify Confined Hazard Perimeter")}</div>
+      <div class="hud-instruction">${t("gas.step1_action_desc", {}, "Identify marked toxic/confined gas perimeter in AR space. Confirm you recognize the hazard boundary.")}</div>
     `;
 
     const btn = document.createElement("button");
     btn.id = "btn-hazard-found";
-    btn.style.cssText = "margin-top:0.4rem;padding:0.8rem 1.5rem;background:#10b981;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
+    btn.style.cssText = "margin-top:0.4rem;padding:0.8rem 1.5rem;background:#2f9e63;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;";
     btn.textContent = t("modules.gas_leak.btn_hazard", {}, "✔ Hazard Zone Acknowledged");
     btn.addEventListener("click", () => {
       _clearHintTimer();
@@ -600,9 +600,9 @@ function _setupTestAction2(container, tierInfo) {
   const overlay = document.getElementById("gas-module-overlay");
   if (overlay) {
     overlay.innerHTML = `
-      <div style="font-size:0.95rem;font-weight:bold;color:#f59e0b;letter-spacing:0.5px;">${t("gas.step2_action_badge", {}, "☣ STEP 2 / 3 — PPE SELECTION")}</div>
-      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("gas.step2_action_title", {}, "Select Required Gas Entry PPE")}</div>
-      <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("gas.step2_action_desc", {}, "Select all required PPE for hazardous gas entry (select all that apply):")}</div>
+      <div class="hud-eyebrow">${t("gas.step2_action_badge", {}, "☣ STEP 2 / 3 — PPE SELECTION")}</div>
+      <div class="hud-title">${t("gas.step2_action_title", {}, "Select Required Gas Entry PPE")}</div>
+      <div class="hud-instruction">${t("gas.step2_action_desc", {}, "Select all required PPE for hazardous gas entry (select all that apply):")}</div>
     `;
 
     _renderPpeOptions(overlay, (selectedList) => {
@@ -654,9 +654,9 @@ function _setupTestAction3(_container) {
   const overlay = document.getElementById("gas-module-overlay");
   if (overlay) {
     overlay.innerHTML = `
-      <div style="font-size:0.95rem;font-weight:bold;color:#f59e0b;letter-spacing:0.5px;">${t("gas.step3_action_badge", {}, "☣ STEP 3 / 3 — BUDDY SYSTEM PROTOCOL")}</div>
-      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;">${t("gas.step3_action_title", {}, "Buddy System Protocol Choice")}</div>
-      <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;">${t("gas.step3_action_desc", {}, "What is the safety attendant role outside the confined opening?")}</div>
+      <div class="hud-eyebrow">${t("gas.step3_action_badge", {}, "☣ STEP 3 / 3 — BUDDY SYSTEM PROTOCOL")}</div>
+      <div class="hud-title">${t("gas.step3_action_title", {}, "Buddy System Protocol Choice")}</div>
+      <div class="hud-instruction">${t("gas.step3_action_desc", {}, "What is the safety attendant role outside the confined opening?")}</div>
     `;
 
     _renderBuddyOptions(overlay, (selectedOption, passed) => {
@@ -746,7 +746,7 @@ function _showComplete(_lastPassed) {
   _currentStep = 0;
 
   const overlay = document.getElementById("gas-module-overlay");
-  const theme = { passColor: "#10b981", failColor: "#f59e0b", exitColor: "#f59e0b", exitTextColor: "#000" };
+  const theme = { passColor: "#2f9e63", failColor: "#febc04", exitColor: "#febc04", exitTextColor: "#000" };
 
   let evaluated = null;
   if (getActiveSession()) {

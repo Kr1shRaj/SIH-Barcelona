@@ -2,7 +2,7 @@ const { describe, it, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert");
 const { Buffer } = require("node:buffer");
 const request = require("supertest");
-const { buildTestApp } = require("./helpers/app");
+const { buildTestApp, activateTestTrainee, asTrainee } = require("./helpers/app");
 const { testKeys, otherKeys, samplePayload } = require("./fixtures/certs");
 const { signCertificate } = require("../services/certs/signer");
 const { canonicalize, buildQrPayload } = require("../services/certs/canonical");
@@ -15,8 +15,20 @@ const MISSING_ATTEMPT = "11111111-2222-4333-8444-555566667777";
 
 const KEYS = testKeys();
 
-function issue(attemptId) {
-  return request(ctx.app).post("/api/certs/issue").send({ attemptId });
+// Issuance now needs the attempt's own worker signed in: the credential this
+// mints is a real signed one, so the server has to know who is asking. Verify
+// stays public — a supervisor scanning a QR has no account.
+function issue(attemptId, session) {
+  const active = session || sessionFor("WRK-0001");
+  return request(ctx.app).post("/api/certs/issue").set(asTrainee(active)).send({ attemptId });
+}
+
+let _sessions = new Map();
+function sessionFor(workerId) {
+  if (!_sessions.has(workerId)) {
+    _sessions.set(workerId, activateTestTrainee(ctx.db, workerId));
+  }
+  return _sessions.get(workerId);
 }
 function verify(body) {
   return request(ctx.app).post("/api/certs/verify").send(body);
@@ -46,6 +58,7 @@ function insertAttempt(attemptId, passed, percentage) {
 describe("POST /api/certs/issue", () => {
   beforeEach(() => {
     ctx = buildTestApp();
+    _sessions = new Map();
     insertAttempt(PASSED_ATTEMPT, true, 91.67);
     insertAttempt(FAILED_ATTEMPT, false, 42);
   });
@@ -187,7 +200,7 @@ describe("POST /api/certs/issue", () => {
     });
 
     it("400s a missing body", async () => {
-      assert.strictEqual((await request(ctx.app).post("/api/certs/issue").send({})).status, 400);
+      assert.strictEqual((await request(ctx.app).post("/api/certs/issue").set(asTrainee(sessionFor("WRK-0001"))).send({})).status, 400);
     });
   });
 
@@ -203,7 +216,7 @@ describe("POST /api/certs/issue", () => {
 
     forbidden.forEach(([field, body]) => {
       it(`rejects a body that supplies ${field}`, async () => {
-        const res = await request(ctx.app).post("/api/certs/issue").send(body);
+        const res = await request(ctx.app).post("/api/certs/issue").set(asTrainee(sessionFor("WRK-0001"))).send(body);
         assert.strictEqual(res.status, 400, `${field} must not be accepted`);
       });
     });
@@ -213,6 +226,7 @@ describe("POST /api/certs/issue", () => {
 describe("POST /api/certs/verify", () => {
   beforeEach(() => {
     ctx = buildTestApp();
+    _sessions = new Map();
     insertAttempt(PASSED_ATTEMPT, true, 91.67);
   });
   afterEach(() => ctx.cleanup());

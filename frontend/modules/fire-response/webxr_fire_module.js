@@ -94,7 +94,7 @@ function _showAimCrosshair(container) {
           stroke-linecap="round" stroke-dasharray="${RETICLE_DWELL_C.toFixed(2)}" stroke-dashoffset="${RETICLE_DWELL_C.toFixed(2)}" transform="rotate(-90 24 24)"/>
         <circle id="webxr-reticle-sweep" class="reticle-sweep" cx="24" cy="24" r="21" stroke="#06b6d4" stroke-width="2"
           stroke-linecap="round" stroke-dasharray="${RETICLE_SWEEP_C.toFixed(2)}" stroke-dashoffset="${RETICLE_SWEEP_C.toFixed(2)}" transform="rotate(-90 24 24)"/>
-        <circle class="reticle-core" cx="24" cy="24" r="2.2" fill="#00e676"/>
+        <circle class="reticle-core" cx="24" cy="24" r="2.2" fill="#2f9e63"/>
         <line x1="24" y1="10" x2="24" y2="15" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
         <line x1="24" y1="33" x2="24" y2="38" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
         <line x1="10" y1="24" x2="15" y2="24" stroke="rgba(255,255,255,0.85)" stroke-width="1.5" stroke-linecap="round"/>
@@ -371,7 +371,7 @@ function _updateWebXRDiag(stateText, err = null) {
     _diagHudEl.style.cssText = [
       "position:fixed", "top:64px", "left:8px", "right:8px",
       "background:rgba(15,23,42,0.92)", "color:#f8fafc",
-      "border:1.5px solid #38bdf8", "border-radius:6px",
+      "border:1.5px solid #febc04", "border-radius:6px",
       "padding:6px 10px", "font-family:monospace", "font-size:0.75rem",
       "z-index:100000", "pointer-events:auto", "line-height:1.35",
       "box-shadow:0 4px 14px rgba(0,0,0,0.8)", "word-break:break-word"
@@ -391,7 +391,7 @@ function _updateWebXRDiag(stateText, err = null) {
 
   _diagHudEl.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;padding-right:24px;">
-      <span style="color:#38bdf8;font-weight:bold;">[TEMPORARY DIAGNOSTIC — WEBXR FIRE RUNTIME]</span>
+      <span style="color:#febc04;font-weight:bold;">[TEMPORARY DIAGNOSTIC — WEBXR FIRE RUNTIME]</span>
     </div>
     <div><strong>State:</strong> ${stateText}</div>
     <div style="color:#94a3b8;"><strong>DOM:</strong> vp=${vpInDom ? "yes" : "NO"} | decision-panel=${decPanelInDom ? "yes" : "no"} | step=${_currentStep}</div>
@@ -771,13 +771,13 @@ function _createOverlay(container, html) {
 function _renderSubscreen(overlay, { badge, title, desc, buttonText, onNext }) {
   if (!overlay) return;
   overlay.innerHTML = `
-    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${badge}</div>
-    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;text-shadow:0 1px 4px #000, 0 2px 8px rgba(0,0,0,0.95);">${title}</div>
-    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${desc}</div>
+    <div class="hud-eyebrow">${badge}</div>
+    <div class="hud-title">${title}</div>
+    <div class="hud-instruction">${desc}</div>
   `;
   const btnNext = document.createElement("button");
   btnNext.id = "btn-step-next";
-  btnNext.style.cssText = "margin-top:0.6rem;padding:0.75rem 0;background:transparent !important;color:#ff6a00;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);";
+  btnNext.style.cssText = "margin-top:0.6rem;padding:0.75rem 0;background:transparent !important;color:#febc04;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);";
   btnNext.textContent = buttonText || "Next ➜";
   btnNext.addEventListener("click", (e) => {
     if (e && typeof e.stopPropagation === "function") e.stopPropagation();
@@ -856,7 +856,7 @@ function _setupStep1WebXR(container) {
           const statusEl = document.getElementById("placement-status-text");
           if (statusEl && !statusEl.dataset.surfaceFound) {
             statusEl.dataset.surfaceFound = "true";
-            statusEl.style.color = "#00e676";
+            statusEl.style.color = "#2f9e63";
             statusEl.textContent = t("fire.surface_found", "Surface detected! Tap button or floor to place extinguisher.");
           }
         } else if (_extMesh && !placed) {
@@ -867,10 +867,10 @@ function _setupStep1WebXR(container) {
     }
 
     overlay.innerHTML = `
-      <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.place_badge", "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (4/4)")}</div>
-      <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;text-shadow:0 1px 4px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.place_title", "Place Extinguisher on Ground")}</div>
-      <div id="placement-status-text" style="margin:0.35rem 0 0.6rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.place_desc", "Point your tablet at the floor or table. Tap the green button below (or tap anywhere on screen) to place the extinguisher.")}</div>
-      <button id="btn-place-extinguisher" style="display:block;width:100%;max-width:340px;padding:12px 0;border:none !important;outline:none !important;background:transparent !important;box-shadow:none !important;color:#00e676;font-size:1.05rem;font-weight:bold;cursor:pointer;margin:0.5rem 0;pointer-events:auto !important;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.place_btn", "🎯 TAP TO PLACE EXTINGUISHER ON FLOOR")}</button>
+      <div class="hud-eyebrow">${t("fire.place_badge", "🔥 STEP 1 / 3 — EXIT IDENTIFICATION (4/4)")}</div>
+      <div class="hud-title">${t("fire.place_title", "Place Extinguisher on Ground")}</div>
+      <div id="placement-status-text" class="hud-instruction">${t("fire.place_desc", "Point your tablet at the floor or table. Tap the green button below (or tap anywhere on screen) to place the extinguisher.")}</div>
+      <button id="btn-place-extinguisher" style="display:block;width:100%;max-width:340px;padding:12px 0;border:none !important;outline:none !important;background:transparent !important;box-shadow:none !important;color:#2f9e63;font-size:1.05rem;font-weight:bold;cursor:pointer;margin:0.5rem 0;pointer-events:auto !important;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.place_btn", "🎯 TAP TO PLACE EXTINGUISHER ON FLOOR")}</button>
     `;
 
     let placed = false;
@@ -973,9 +973,9 @@ function _setupStep1WebXR(container) {
 
       if (overlay) {
         overlay.innerHTML = `
-          <div style="font-size:1.05rem;font-weight:bold;color:#00e676;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">✔ Extinguisher Placed on Ground!</div>
+          <div style="font-size:1.05rem;font-weight:bold;color:#2f9e63;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">✔ Extinguisher Placed on Ground!</div>
           <div style="margin:0.4rem 0 0.6rem 0;font-size:0.92rem;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">The 3D fire extinguisher is anchored to the surface. Tap below to begin PASS training.</div>
-          <button id="btn-proceed-step2" style="margin-top:0.6rem;padding:0.75rem 0;background:transparent !important;color:#00e676;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">✔ Begin PASS Training ➜</button>
+          <button id="btn-proceed-step2" style="margin-top:0.6rem;padding:0.75rem 0;background:transparent !important;color:#2f9e63;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">✔ Begin PASS Training ➜</button>
         `;
         const btnProceed = overlay.querySelector("#btn-proceed-step2");
         if (btnProceed) {
@@ -1216,7 +1216,7 @@ function _showAlarmPullStationWebXR(container, overlay, onDone) {
       const statusEl = document.getElementById("alarm-status-hint");
       if (statusEl && isVertical && !statusEl.dataset.wallDetected) {
         statusEl.dataset.wallDetected = "true";
-        statusEl.style.color = "#00e676";
+        statusEl.style.color = "#2f9e63";
         statusEl.textContent = t("fire.alarm_wall_found", "Wall surface detected! Tap screen or alarm to lock.");
       }
     };
@@ -1299,7 +1299,7 @@ function _showAlarmPullStationWebXR(container, overlay, onDone) {
       }
       const statusEl = document.getElementById("alarm-status-hint");
       if (statusEl) {
-        statusEl.style.color = "#00e676";
+        statusEl.style.color = "#2f9e63";
         statusEl.textContent = t("fire.alarm_mounted", "✔ Alarm mounted on wall! Tap 3D alarm directly (or press button below) to pull.");
       }
       _updateWebXRDiag("Alarm Station Anchored to Wall -> Ready to Pull");
@@ -1318,9 +1318,9 @@ function _showAlarmPullStationWebXR(container, overlay, onDone) {
     hudCard.id = "fire-hud-card";
     hudCard.className = "fire-hud-card";
     hudCard.innerHTML = `
-      <div class="hud-badge">🔔 STEP 1 / 3 — SOUND ALARM (BRANCH B)</div>
+      <div class="hud-eyebrow">🔔 STEP 1 / 3 — SOUND ALARM (BRANCH B)</div>
       <div class="hud-title">Pull Fire Alarm Station</div>
-      <div class="hud-desc">${t("fire.alarm_desc_low", "Methane is below the 1.25% withdrawal limit. Before attacking the fire with an extinguisher, sound the mine section alarm to alert all miners!")}</div>
+      <div class="hud-instruction">${t("fire.alarm_desc_low", "Methane is below the 1.25% withdrawal limit. Before attacking the fire with an extinguisher, sound the mine section alarm to alert all miners!")}</div>
       <div id="alarm-status-hint" style="margin:0.4rem 0 0.5rem 0;font-size:0.92rem;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">
         ${t("fire.alarm_wall_hint", "Aim at wall/door and tap screen to mount alarm, or tap 3D model directly to pull.")}
       </div>
@@ -1461,7 +1461,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
       const statusEl = document.getElementById("exit-status-hint");
       if (statusEl && isVertical && !statusEl.dataset.wallDetected) {
         statusEl.dataset.wallDetected = "true";
-        statusEl.style.color = "#00e676";
+        statusEl.style.color = "#2f9e63";
         statusEl.textContent = t("fire.exit_door_found", "Door/wall surface detected! Tap button or screen to anchor.");
       }
     };
@@ -1563,7 +1563,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
 
     const statusEl = document.getElementById("exit-status-hint");
     if (statusEl) {
-      statusEl.style.color = "#00e676";
+      statusEl.style.color = "#2f9e63";
       statusEl.textContent = t("fire.exit_walk_hint", "✔ Route locked! Physically walk toward doorway to evacuate.");
     }
 
@@ -1676,6 +1676,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
     } else {
       const statusEl = document.getElementById("exit-status-hint");
       if (statusEl) {
+        statusEl.style.color = "#2f9e63";
         statusEl.textContent = t("fire.exit_walk_hint_again", "🚶 Walk toward the exit doorway (<= 0.8m)! Or tap button below if space restricted.");
       }
     }
@@ -1693,21 +1694,21 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
   hudCard.id = "fire-hud-card";
   hudCard.className = "fire-hud-card";
   hudCard.innerHTML = `
-    <div class="hud-badge">${t("fire.branch_a_badge", "🚨 BRANCH A — IMMEDIATE EVACUATION")}</div>
+    <div class="hud-eyebrow">${t("fire.branch_a_badge", "🚨 BRANCH A — IMMEDIATE EVACUATION")}</div>
     <div class="hud-title">${isHigh ? t("fire.branch_a_title_high", "METHANE AT WITHDRAWAL LIMIT (>= 1.25%)") : t("fire.branch_a_title_low", "PRECAUTIONARY EVACUATION")}</div>
-    <div class="hud-desc">${isHigh ? t("fire.branch_a_desc_high", "Methane is at or above the 1.25% withdrawal limit. Power is cut and firefighting is forbidden. Follow the emergency route immediately.") : t("fire.branch_a_desc_low", "Evacuation selected. Move promptly along marked emergency path to the nearest safe surface exit.")}</div>
+    <div class="hud-instruction">${isHigh ? t("fire.branch_a_desc_high", "Methane is at or above the 1.25% withdrawal limit. Power is cut and firefighting is forbidden. Follow the emergency route immediately.") : t("fire.branch_a_desc_low", "Evacuation selected. Move promptly along marked emergency path to the nearest safe surface exit.")}</div>
     <div id="exit-status-hint" style="margin:0.4rem 0 0.5rem 0;font-size:0.92rem;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">
       ${t("fire.exit_door_hint", "Aim crosshair at exit door / frame and tap button or screen to anchor.")}
     </div>
-    <div id="exit-walk-feedback" style="display:none;margin:0.4rem 0;padding:0.6rem;background:rgba(15,23,42,0.92);border:1.5px solid #00e676;border-radius:10px;box-shadow:0 0 16px rgba(0,230,118,0.25);">
+    <div id="exit-walk-feedback" style="display:none;margin:0.4rem 0;padding:0.6rem;background:rgba(15,23,42,0.92);border:1.5px solid #2f9e63;border-radius:10px;box-shadow:0 0 16px rgba(47,158,99,0.25);">
       <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.88rem;font-weight:600;color:#f1f5f9;">
         <span>🚪 Distance to Door:</span>
-        <span id="exit-walk-dist-text" style="color:#00e676;font-size:1.15rem;font-weight:bold;">--</span>
+        <span id="exit-walk-dist-text" style="color:#2f9e63;font-size:1.15rem;font-weight:bold;">--</span>
       </div>
       <div style="margin:0.4rem 0 0.25rem 0;height:10px;background:#334155;border-radius:5px;overflow:hidden;">
-        <div id="exit-walk-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#00e676,#38bdf8);transition:width 0.15s ease;"></div>
+        <div id="exit-walk-bar" style="height:100%;width:0%;background:linear-gradient(90deg,#2f9e63,var(--brand-yellow));transition:width 0.15s ease;"></div>
       </div>
-      <div id="exit-walk-pace-text" style="font-size:0.82rem;font-weight:600;color:#38bdf8;margin-top:0.35rem;display:flex;align-items:center;gap:0.3rem;">
+      <div id="exit-walk-pace-text" style="font-size:0.82rem;font-weight:600;color:var(--brand-yellow);margin-top:0.35rem;display:flex;align-items:center;gap:0.3rem;">
         <span>🚶</span> <span>Step forward toward exit door...</span>
       </div>
     </div>
@@ -1716,7 +1717,7 @@ function _showEvacuateConfirmationWebXR(container, overlay, reading) {
 
   const btn = document.createElement("button");
   btn.id = "btn-exit-found";
-  btn.style.cssText = "margin-top:0.6rem;padding:0.8rem 1.5rem;background:#00e676;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;box-shadow:0 0 14px rgba(0,230,118,0.3);";
+  btn.style.cssText = "margin-top:0.6rem;padding:0.8rem 1.5rem;background:#2f9e63;color:#000;border:none;border-radius:8px;font-size:1rem;cursor:pointer;font-weight:bold;display:block;width:100%;";
   btn.textContent = "📍 Lock Exit Sign on Door";
   btn.addEventListener("click", () => {
     if (!exitPlaced) {
@@ -1765,13 +1766,13 @@ function _setupStep2WebXR(container) {
 function _showPinPhase(overlay, container) {
   if (!overlay) return;
   overlay.innerHTML = `
-    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.pass_pull_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (1/4)")}</div>
-    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;text-shadow:0 1px 4px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.pass_pull_title", "P — Pull the Pin")}</div>
-    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.pass_pull_desc", "Tap anywhere to select the pin, then swipe right to pull it out.")}</div>
+    <div class="hud-eyebrow">${t("fire.pass_pull_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (1/4)")}</div>
+    <div class="hud-title">${t("fire.pass_pull_title", "P — Pull the Pin")}</div>
+    <div class="hud-instruction">${t("fire.pass_pull_desc", "Tap anywhere to select the pin, then swipe right to pull it out.")}</div>
   `;
   const btn = document.createElement("button");
   btn.id = "btn-webxr-pin-pull";
-  btn.style.cssText = "padding:0.75rem 0;background:transparent !important;color:#00e5ff;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);";
+  btn.style.cssText = "padding:0.75rem 0;background:transparent !important;color:#febc04;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);";
   btn.textContent = t("fire.pass_pull_badge_btn", "👉 SWIPE RIGHT OR TAP TO PULL PIN");
 
   let pinPulled = false;
@@ -1883,11 +1884,11 @@ function _showAimPhase(overlay, container) {
   let aimFrames = 0;
 
   overlay.innerHTML = `
-    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.pass_aim_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (2/4)")}</div>
-    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;text-shadow:0 1px 4px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.pass_aim_title", "A — Aim at Base of Fire")}</div>
-    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.pass_aim_desc", "Point your device directly at the base of the fire. Hold steady for 0.8 seconds.")}</div>
+    <div class="hud-eyebrow">${t("fire.pass_aim_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (2/4)")}</div>
+    <div class="hud-title">${t("fire.pass_aim_title", "A — Aim at Base of Fire")}</div>
+    <div class="hud-instruction">${t("fire.pass_aim_desc", "Point your device directly at the base of the fire. Hold steady for 0.8 seconds.")}</div>
     <div id="aim-progress-bar" style="width:100%;max-width:320px;height:8px;background:rgba(30,41,59,0.7);border-radius:4px;overflow:hidden;margin-top:0.5rem;">
-      <div id="aim-progress-fill" style="width:0%;height:100%;background:#00e676;transition:width 0.1s;"></div>
+      <div id="aim-progress-fill" style="width:0%;height:100%;background:#2f9e63;transition:width 0.1s;"></div>
     </div>
     <div id="aim-tip-warning" style="display:none;margin-top:0.4rem;font-size:0.88rem;font-weight:bold;color:#f59e0b;text-shadow:0 1px 3px #000;">${t("fire.pass_aim_tips", "Flame tips — the powder passes straight through. 0% progress. Aim lower, at the base.")}</div>
   `;
@@ -1976,7 +1977,7 @@ function _showAimFallback(overlay, container) {
   if (!overlay) return;
   const btn = document.createElement("button");
   btn.id = "btn-webxr-aim-confirm";
-  btn.style.cssText = "margin-top:0.6rem;padding:0.75rem 0;background:transparent !important;color:#00e676;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);";
+  btn.style.cssText = "margin-top:0.6rem;padding:0.75rem 0;background:transparent !important;color:#2f9e63;border:none !important;outline:none !important;box-shadow:none !important;border-radius:0;font-size:1.05rem;cursor:pointer;font-weight:bold;display:block;width:100%;max-width:320px;text-align:left;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);";
   btn.textContent = t("fire.pass_aim_btn", "🎯 I'm aiming at the base");
   btn.addEventListener("click", () => {
     _hideAimCrosshair();
@@ -2014,9 +2015,9 @@ function _showSqueezePhase(overlay, container, aimAccuracy) {
   let squeezeStart = null;
 
   overlay.innerHTML = `
-    <div style="font-size:0.95rem;font-weight:bold;color:#ff6a00;letter-spacing:0.5px;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.pass_squeeze_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (3/4)")}</div>
-    <div style="font-size:1.15rem;font-weight:bold;margin:0.25rem 0 0.4rem 0;color:#fff;text-shadow:0 1px 4px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.pass_squeeze_title", "S — Squeeze the Handle")}</div>
-    <div style="margin:0.35rem 0 0.8rem 0;font-size:0.92rem;line-height:1.45;color:#f1f5f9;text-shadow:0 1px 3px #000, 0 2px 8px rgba(0,0,0,0.95);">${t("fire.pass_squeeze_desc", "Press and hold the button below for 1.5 seconds to discharge the extinguisher.")}</div>
+    <div class="hud-eyebrow">${t("fire.pass_squeeze_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (3/4)")}</div>
+    <div class="hud-title">${t("fire.pass_squeeze_title", "S — Squeeze the Handle")}</div>
+    <div class="hud-instruction">${t("fire.pass_squeeze_desc", "Press and hold the button below for 1.5 seconds to discharge the extinguisher.")}</div>
     <div id="squeeze-progress-bar" style="width:100%;max-width:320px;height:8px;background:rgba(30,41,59,0.7);border-radius:4px;overflow:hidden;margin-top:0.5rem;">
       <div id="squeeze-progress-fill" style="width:0%;height:100%;background:#f59e0b;transition:width 0.05s;"></div>
     </div>
@@ -2084,10 +2085,10 @@ function _showSweepPhase(overlay, container, aimAccuracy) {
   _showAimCrosshair(container);
   overlay.innerHTML = `
     <div class="fire-hud-card">
-      <div class="hud-badge">${t("fire.pass_sweep_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (4/4)")}</div>
+      <div class="hud-eyebrow">${t("fire.pass_sweep_badge", "🔥 STEP 2 / 3 — PASS TECHNIQUE (4/4)")}</div>
       <div class="hud-title">${t("fire.pass_sweep_title", "S — Sweep Side to Side")}</div>
-      <div class="hud-desc">${t("fire.pass_sweep_desc", "Move your device left and right to sweep the fire base. Cover at least 75% of the fire width.")}</div>
-      <div class="hud-desc">${t("fire.pass_sweep_timer", "Keep spraying for 5 seconds until the fire is out.")}</div>
+      <div class="hud-instruction">${t("fire.pass_sweep_desc", "Move your device left and right to sweep the fire base. Cover at least 75% of the fire width.")}</div>
+      <div class="hud-instruction">${t("fire.pass_sweep_timer", "Keep spraying for 5 seconds until the fire is out.")}</div>
       <div id="sweep-progress-bar" style="width:100%;height:8px;background:rgba(30,41,59,0.7);border-radius:4px;overflow:hidden;margin-top:0.5rem;">
         <div id="sweep-progress-fill" style="width:0%;height:100%;background:#06b6d4;transition:width 0.1s;"></div>
       </div>
@@ -2309,9 +2310,9 @@ function _setupStep3WebXR(container, _step2Passed, { reason = "suppressed" } = {
 
   overlay.innerHTML = `
     <div class="fire-hud-card">
-      <div class="hud-badge">${t("fire.evac_badge_3", "🔥 STEP 3 / 3 — EVACUATION ROUTE")}</div>
+      <div class="hud-eyebrow">${t("fire.evac_badge_3", "🔥 STEP 3 / 3 — EVACUATION ROUTE")}</div>
       <div class="hud-title">${t("fire.evac_title_3", "Choose Safest Evacuation Path")}</div>
-      <div class="hud-desc">${_evacPrompt(reason)}</div>
+      <div class="hud-instruction">${_evacPrompt(reason)}</div>
       <div id="webxr-evac-options" style="display:flex;flex-direction:column;gap:0.5rem;margin-top:0.4rem;width:100%;"></div>
     </div>
   `;

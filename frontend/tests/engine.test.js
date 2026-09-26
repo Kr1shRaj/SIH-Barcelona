@@ -644,18 +644,22 @@ describe("Worker Identification & Resolution", () => {
     assert.strictEqual(workerId, "WRK-0003");
   });
 
-  it("resolves worker id from URL query parameter ?workerId= and persists it", () => {
-    globalThis.window.location = { search: "?workerId=WRK-0004" };
-    const workerId = getEffectiveWorkerId();
-    assert.strictEqual(workerId, "WRK-0004");
-    assert.strictEqual(globalThis.localStorage.getItem(WORKER_STORAGE_KEY), "WRK-0004");
+  it("ignores ?workerId= entirely — identity comes from the session", () => {
+    // This used to be the identity mechanism: whatever the url said, the device
+    // was. Anyone could become anyone by editing the address bar, and the server
+    // had nothing better to go on. The override is gone, and a url that still
+    // carries one must not move the device off the worker it signed in as.
+    globalThis.localStorage.setItem("safear_offline_identity", JSON.stringify({ workerId: "WRK-0002" }));
+    globalThis.window.location = { search: "?workerId=WRK-0004&worker=WRK-0005" };
+
+    assert.strictEqual(getEffectiveWorkerId(), "WRK-0002", "the signed in worker wins");
+    assert.notStrictEqual(globalThis.localStorage.getItem(WORKER_STORAGE_KEY), "WRK-0004",
+      "a url must not be able to write an identity");
   });
 
-  it("resolves worker id from URL query parameter ?worker= as alias", () => {
-    globalThis.window.location = { search: "?worker=WRK-0005" };
-    const workerId = getEffectiveWorkerId();
-    assert.strictEqual(workerId, "WRK-0005");
-    assert.strictEqual(globalThis.localStorage.getItem(WORKER_STORAGE_KEY), "WRK-0005");
+  it("falls back to the demo worker when nobody is signed in", () => {
+    globalThis.window.location = { search: "?workerId=WRK-0004" };
+    assert.strictEqual(getEffectiveWorkerId(), CANONICAL_DEMO_WORKER_ID);
   });
 
   it("setWorkerId stores valid worker id in localStorage", () => {

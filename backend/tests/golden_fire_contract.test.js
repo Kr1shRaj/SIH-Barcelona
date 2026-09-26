@@ -6,7 +6,7 @@ const assert = require("node:assert");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const request = require("supertest");
-const { buildTestApp } = require("./helpers/app");
+const { buildTestApp, activateTestTrainee, asTrainee } = require("./helpers/app");
 const { syncEnvelope } = require("./fixtures/attempts");
 const { scenarioFor } = require("../services/grading/scenario");
 
@@ -35,13 +35,21 @@ describe("golden fire contract: every tier, branch and gate the phone can produc
   let obs = null;
   let engine = null;
   let ctx = null;
+  // sync and certificate issue need a signed in trainee: the worker the runs belong to
+  let session = null;
+
+  // fresh seeded app plus that worker's session
+  function freshApp() {
+    ctx = buildTestApp();
+    session = activateTestTrainee(ctx.db, WORKER);
+  }
 
   before(async () => {
     obs = await frontendModule("assessment/observations.js");
     engine = await frontendModule("assessment/engine.js");
   });
 
-  beforeEach(() => { ctx = buildTestApp(); });
+  beforeEach(() => freshApp());
   afterEach(() => ctx.cleanup());
 
   // one checkpoint exactly as the module fires it, stamped a few seconds apart
@@ -120,7 +128,7 @@ describe("golden fire contract: every tier, branch and gate the phone can produc
   }
 
   async function syncOne(payload) {
-    return request(ctx.app).post("/api/sync").send(syncEnvelope([payload], { workerId: WORKER }));
+    return request(ctx.app).post("/api/sync").set(asTrainee(session)).send(syncEnvelope([payload], { workerId: WORKER }));
   }
 
   // score the server gave one checkpoint of one attempt
@@ -131,7 +139,7 @@ describe("golden fire contract: every tier, branch and gate the phone can produc
   }
 
   async function issue(attemptId) {
-    return request(ctx.app).post("/api/certs/issue").send({ attemptId });
+    return request(ctx.app).post("/api/certs/issue").set(asTrainee(session)).send({ attemptId });
   }
 
   it("uses attempt ids that roll the fire each case needs", () => {
@@ -188,7 +196,7 @@ describe("golden fire contract: every tier, branch and gate the phone can produc
   it("every fightable fuel certifies with one of its right agents", async () => {
     for (const [attemptId, agent] of [[ROLLS.coal, "abc_powder"], [ROLLS.switchgear, "abc_powder"], [ROLLS.coal, "water"]]) {
       ctx.cleanup();
-      ctx = buildTestApp();
+      freshApp();
       const payload = phonePayload({ attemptId, tier: 2, branch: "fight", picks: fightPicks(attemptId, { g2: [agent] }) });
       const sync = await syncOne(payload);
       assert.strictEqual(sync.body.results[0].status, "accepted", JSON.stringify(sync.body.results));
